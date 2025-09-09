@@ -5,8 +5,8 @@ metadata:
   namespace: flux-system
 spec:
   interval: 15m
-  releaseName: traefik-ingress          # <- new release name
-  targetNamespace: traefik-system        # <- new namespace
+  releaseName: traefik-ingress
+  targetNamespace: traefik-system
   install:
     createNamespace: true
     remediation:
