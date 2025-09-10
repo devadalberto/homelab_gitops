@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pg-backups-pv
+spec:
+  capacity: { storage: 50Gi }
+  accessModes: [ReadWriteMany]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  hostPath: { path: ${PG_BACKUP_HOSTPATH} }
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pg-backups-pvc
+  namespace: data
+spec:
+  accessModes: [ReadWriteMany]
+  resources: { requests: { storage: 50Gi } }
+  storageClassName: ""
+  volumeName: pg-backups-pv

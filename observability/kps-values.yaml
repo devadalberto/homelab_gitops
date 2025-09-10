@@ -1,0 +1,19 @@
+grafana:
+  ingress:
+    enabled: true
+    ingressClassName: traefik
+    hosts: ["grafana.lab-minikube.labz.home.arpa"]
+    tls: [{secretName: grafana-tls, hosts: ["grafana.lab-minikube.labz.home.arpa"]}]
+  adminPassword: "admin"
+prometheus:
+  ingress:
+    enabled: true
+    ingressClassName: traefik
+    hosts: ["prom.lab-minikube.labz.home.arpa"]
+    tls: [{secretName: prom-tls, hosts: ["prom.lab-minikube.labz.home.arpa"]}]
+alertmanager:
+  ingress:
+    enabled: true
+    ingressClassName: traefik
+    hosts: ["alert.lab-minikube.labz.home.arpa"]
+    tls: [{secretName: alert-tls, hosts: ["alert.lab-minikube.labz.home.arpa"]}]

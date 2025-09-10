@@ -1,0 +1,29 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: pg-backup-nightly
+  namespace: data
+spec:
+  schedule: "0 3 * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: pg-dump
+              image: bitnami/postgresql:16
+              env: [{name: PGPASSWORD, value: "postgres"}]
+              command: ["/bin/bash","-lc"]
+              args:
+                - >
+                  set -e;
+                  TS=$(date +%F_%H%M%S);
+                  BACKUP_DIR="/backups";
+                  mkdir -p "${BACKUP_DIR}";
+                  pg_dump -h pg-postgresql -U postgres -F c -b -v -d postgres -f "${BACKUP_DIR}/pg_${TS}.dump";
+                  find "${BACKUP_DIR}" -type f -name "pg_*.dump" -mtime +7 -delete;
+              volumeMounts: [{name: backups, mountPath: /backups}]
+          volumes:
+            - name: backups
+              persistentVolumeClaim: { claimName: pg-backups-pvc }
