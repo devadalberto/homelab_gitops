@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: djangomultiproject
+  namespace: apps
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: djangomultiproject } }
+  template:
+    metadata: { labels: { app: djangomultiproject } }
+    spec:
+      containers:
+        - name: djangomultiproject
+          image: ${DJ_IMAGE}
+          imagePullPolicy: IfNotPresent
+          ports: [{ containerPort: 8000 }]
+          env:
+            - name: DATABASE_URL
+              value: "postgresql://postgres:postgres@pg-postgresql.data.svc.cluster.local:5432/postgres"
+---
+apiVersion: v1
+kind: Service
+metadata: { name: djangomultiproject, namespace: apps }
+spec:
+  selector: { app: djangomultiproject }
+  ports: [{ port: 80, targetPort: 8000, name: http }]
+  type: LoadBalancer
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata: { name: djangomultiproject-cert, namespace: apps }
+spec:
+  secretName: djangomultiproject-tls
+  dnsNames: ["app.lab-minikube.labz.home.arpa"]
+  issuerRef: { name: labz-ca-issuer, kind: ClusterIssuer }
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: djangomultiproject
+  namespace: apps
+  annotations:
+    kubernetes.io/ingress.class: traefik
+spec:
+  tls: [{ secretName: djangomultiproject-tls, hosts: ["app.lab-minikube.labz.home.arpa"] }]
+  rules:
+    - host: app.lab-minikube.labz.home.arpa
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: djangomultiproject
+                port: { number: 80 }

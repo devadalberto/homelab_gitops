@@ -1,0 +1,107 @@
+<?xml version="1.0"?>
+<pfsense>
+  <version>23.09</version>
+  <system>
+    <hostname>uranus-pfsense</hostname>
+    <domain>{{ LAB_DOMAIN_BASE }}</domain>
+    <dnsserver>1.1.1.1</dnsserver>
+    <dnsserver>9.9.9.9</dnsserver>
+    <dnsallowoverride>yes</dnsallowoverride>
+    <timezone>UTC</timezone>
+  </system>
+  <interfaces>
+    <lan>
+      <if>vtnet1</if>
+      <ipaddr>{{ LAN_GW_IP }}</ipaddr>
+      <subnet>24</subnet>
+      <ipaddrv6>track6</ipaddrv6>
+      <descr>LAN</descr>
+    </lan>
+    <wan>
+      <if>vtnet0</if>
+      <ipaddr>dhcp</ipaddr>
+      <descr>WAN</descr>
+    </wan>
+  </interfaces>
+
+  <dhcpd>
+    <lan>
+      <enable>1</enable>
+      <range><from>{{ LAN_DHCP_FROM }}</from><to>{{ LAN_DHCP_TO }}</to></range>
+      <defaultleasetime>7200</defaultleasetime>
+      <maxleasetime>86400</maxleasetime>
+    </lan>
+  </dhcpd>
+
+  <unbound>
+    <enable>1</enable>
+    <active_interface>lan</active_interface>
+    <dnssec>1</dnssec>
+    <hideidentity>1</hideidentity>
+    <hideversion>1</hideversion>
+    <host_domain_type>both</host_domain_type>
+    <hosts>
+      <host><host>app</host><domain>{{ LAB_CLUSTER_SUB }}</domain><ip>{{ METALLB_POOL_START }}</ip><descr>Django app</descr></host>
+      <host><host>grafana</host><domain>{{ LAB_CLUSTER_SUB }}</domain><ip>{{ VIP_GRAFANA }}</ip><descr>Grafana</descr></host>
+      <host><host>prom</host><domain>{{ LAB_CLUSTER_SUB }}</domain><ip>{{ VIP_PROM }}</ip><descr>Prometheus</descr></host>
+      <host><host>alert</host><domain>{{ LAB_CLUSTER_SUB }}</domain><ip>{{ VIP_ALERT }}</ip><descr>Alertmanager</descr></host>
+      <host><host>awx</host><domain>{{ LAB_CLUSTER_SUB }}</domain><ip>{{ VIP_AWX }}</ip><descr>AWX</descr></host>
+      <host><host>traefik</host><domain>local</domain><ip>{{ TRAEFIK_LOCAL_IP }}</ip><descr>Traefik via home LAN</descr></host>
+    </hosts>
+  </unbound>
+
+  <aliases>
+    <alias><name>TRAEFIK_LB</name><type>host</type><address>{{ METALLB_POOL_START }}</address><descr>MetalLB VIP for Traefik</descr></alias>
+    <alias><name>BASTION_HOST</name><type>host</type><address>10.10.0.10</address><descr>Jumpbox host (adjust)</descr></alias>
+    <alias><name>MINECRAFT_SRV</name><type>host</type><address>10.10.0.60</address><descr>Minecraft server (adjust)</descr></alias>
+    <alias><name>REMOTE_ADMIN_PORTS</name><type>port</type><address>22,443</address><descr>Admin ports</descr></alias>
+    <alias><name>MINECRAFT_PORTS</name><type>port</type><address>25565</address><descr>Minecraft default port</descr></alias>
+  </aliases>
+
+  <nat>
+    <outbound><mode>automatic</mode></outbound>
+
+    <!-- EXAMPLE: WAN:443 -> Traefik (HTTPS). Disabled by default. -->
+    <rule>
+      <interface>wan</interface><protocol>tcp</protocol>
+      <descr>[DISABLED EXAMPLE] WAN:443 → Traefik Ingress (TRAEFIK_LB)</descr>
+      <target>{{ METALLB_POOL_START }}</target><local-port>443</local-port>
+      <destination><address>wanip</address><port>443</port></destination>
+      <associated-rule-id>pass</associated-rule-id><disabled/>
+    </rule>
+
+    <!-- EXAMPLE: WAN:80 -> Traefik (HTTP). Disabled by default. -->
+    <rule>
+      <interface>wan</interface><protocol>tcp</protocol>
+      <descr>[DISABLED EXAMPLE] WAN:80 → Traefik (HTTP)</descr>
+      <target>{{ METALLB_POOL_START }}</target><local-port>80</local-port>
+      <destination><address>wanip</address><port>80</port></destination>
+      <associated-rule-id>pass</associated-rule-id><disabled/>
+    </rule>
+
+    <!-- EXAMPLE: WAN:22 -> Bastion SSH. Disabled by default. -->
+    <rule>
+      <interface>wan</interface><protocol>tcp</protocol>
+      <descr>[DISABLED EXAMPLE] WAN:22 → Bastion SSH (BASTION_HOST)</descr>
+      <target>10.10.0.10</target><local-port>22</local-port>
+      <destination><address>wanip</address><port>22</port></destination>
+      <associated-rule-id>pass</associated-rule-id><disabled/>
+    </rule>
+
+    <!-- EXAMPLE: WAN:25565 TCP/UDP -> Minecraft. Disabled by default. -->
+    <rule>
+      <interface>wan</interface><protocol>tcp/udp</protocol>
+      <descr>[DISABLED EXAMPLE] WAN:25565 TCP/UDP → Minecraft (MINECRAFT_SRV)</descr>
+      <target>10.10.0.60</target><local-port>25565</local-port>
+      <destination><address>wanip</address><port>25565</port></destination>
+      <associated-rule-id>pass</associated-rule-id><disabled/>
+    </rule>
+  </nat>
+
+  <filter>
+    <rule>
+      <type>pass</type><interface>lan</interface><ipprotocol>inet</ipprotocol>
+      <descr>Allow LAN to any</descr><src><network>lan</network></src><dst><any/></dst><protocol>any</protocol><disabled/>
+    </rule>
+  </filter>
+</pfsense>

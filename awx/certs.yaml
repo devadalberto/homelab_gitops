@@ -1,0 +1,9 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: awx-cert
+  namespace: awx
+spec:
+  secretName: awx-tls
+  dnsNames: ["awx.lab-minikube.labz.home.arpa"]
+  issuerRef: { name: labz-ca-issuer, kind: ClusterIssuer }
