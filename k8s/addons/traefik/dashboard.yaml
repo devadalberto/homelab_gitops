@@ -7,7 +7,7 @@ spec:
   entryPoints:
     - web
   routes:
-    - match: Host(`traefik.local`)
+    - match: Host(`traefik.labz.home.arpa`)
       kind: Rule
       services:
         - name: api@internal
