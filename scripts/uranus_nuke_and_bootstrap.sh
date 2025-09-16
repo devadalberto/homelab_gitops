@@ -122,16 +122,15 @@ kubectl config use-context "${LABZ_MINIKUBE_PROFILE}" >/dev/null
 
 log "Enabling Minikube registry addon"
 minikube -p "${LABZ_MINIKUBE_PROFILE}" addons enable registry >/dev/null
-sleep 5
-REGISTRY_URL=$(minikube -p "${LABZ_MINIKUBE_PROFILE}" service registry -n kube-system --url 2>/dev/null | head -n 1 || true)
-if [[ -n "${REGISTRY_URL}" ]]; then
-  log "Local registry is reachable at ${REGISTRY_URL}"
-  cat <<INSTRUCTIONS
+# Ensure the registry pods are ready before attempting to expose the service
+kubectl -n kube-system rollout status deployment/registry --timeout=90s >/dev/null 2>&1 || true
+# Expose the registry via local port-forwarding for host access
+kubectl -n kube-system port-forward --address 0.0.0.0 svc/registry 5000:80 >/dev/null 2>&1 &
+REGISTRY_URL="localhost:5000"
+log "Local registry is reachable at ${REGISTRY_URL}"
+cat <<INSTRUCTIONS
 To push images:   docker tag IMAGE ${REGISTRY_URL}/IMAGE && docker push ${REGISTRY_URL}/IMAGE
-To pull in cluster: use image reference ${REGISTRY_URL#*://}/IMAGE
+To pull in cluster: use image reference ${REGISTRY_URL}/IMAGE
 INSTRUCTIONS
-else
-  log "Registry service URL not yet available; retrieve later with: minikube -p ${LABZ_MINIKUBE_PROFILE} service registry -n kube-system --url"
-fi
 
 log "Bootstrap complete. Proceed with uranus_homelab_one.sh for core addons."
