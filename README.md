@@ -9,8 +9,10 @@
 ```bash
 cp .env.example .env
 # Edit passwords, ranges, and mount paths if needed
-make up
+./scripts/uranus_homelab.sh --delete-previous-environment --assume-yes --env-file ./.env
 ```
+
+Alternatively, run `make up` to invoke the same workflow via the Makefile.
 
 ## pfSense DNS overrides
 
