@@ -192,7 +192,8 @@ helm upgrade --install postgresql bitnami/postgresql \
   --set primary.persistence.enabled=true \
   --set primary.persistence.existingClaim=postgresql-data \
   --set volumePermissions.enabled=true \
-  --wait
+  --wait \
+  --timeout 10m0s
 
 log "Installing Redis"
 helm upgrade --install redis bitnami/redis \
@@ -203,7 +204,8 @@ helm upgrade --install redis bitnami/redis \
   --set auth.enabled=true \
   --set auth.password="${LABZ_REDIS_PASSWORD}" \
   --set master.persistence.enabled=true \
-  --wait
+  --wait \
+  --timeout 10m0s
 
 log "Creating shared TLS certificates"
 cat <<EOF_CERT | kubectl apply -f -
@@ -269,7 +271,8 @@ helm upgrade --install nextcloud bitnami/nextcloud \
   --set containerSecurityContext.enabled=true \
   --set containerSecurityContext.runAsUser=33 \
   --set containerSecurityContext.runAsGroup=33 \
-  --wait
+  --wait \
+  --timeout 10m0s
 
 log "Deploying Jellyfin"
 cat <<EOF_JELLY | kubectl apply -f -

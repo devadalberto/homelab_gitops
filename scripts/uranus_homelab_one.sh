@@ -89,10 +89,25 @@ helm repo add traefik https://traefik.github.io/charts >/dev/null 2>&1 || true
 helm repo update >/dev/null
 
 log "Installing MetalLB"
-helm upgrade --install metallb metallb/metallb \
+# Ensure memberlist secret exists for MetalLB's internal communication
+if ! kubectl get secret -n metallb-system metallb-memberlist >/dev/null 2>&1; then
+  kubectl create secret generic -n metallb-system metallb-memberlist \
+    --from-literal=secretkey="$(openssl rand -base64 128)"
+fi
+# Install MetalLB with an extended timeout and capture diagnostics on failure
+if ! helm upgrade --install metallb metallb/metallb \
   --namespace metallb-system \
   --create-namespace \
-  --wait
+  --wait \
+  --timeout 10m0s; then
+  kubectl get pods -n metallb-system || true
+  kubectl logs -n metallb-system deployment/metallb-controller --tail=20 || true
+  kubectl logs -n metallb-system daemonset/metallb-speaker --tail=20 || true
+  exit 1
+fi
+# Wait for MetalLB components to become ready
+kubectl -n metallb-system rollout status deployment/metallb-controller --timeout=180s
+kubectl -n metallb-system rollout status daemonset/metallb-speaker --timeout=180s
 
 if [[ -z "${METALLB_POOL_START}" || -z "${METALLB_POOL_END}" ]]; then
   if [[ "${LABZ_METALLB_RANGE}" == *-* ]]; then
@@ -129,7 +144,8 @@ helm upgrade --install cert-manager jetstack/cert-manager \
   --namespace cert-manager \
   --create-namespace \
   --set installCRDs=true \
-  --wait
+  --wait \
+  --timeout 10m0s
 
 cat <<'EOF_ISSUER' | kubectl apply -f -
 apiVersion: cert-manager.io/v1
@@ -150,7 +166,8 @@ helm upgrade --install traefik traefik/traefik \
   --set ports.websecure.tls.enabled=true \
   --set ingressRoute.dashboard.enabled=true \
   --set ingressRoute.dashboard.tls.secretName=labz-traefik-tls \
-  --wait
+  --wait \
+  --timeout 10m0s
 
 log "Creating namespaces for data and apps"
 kubectl create namespace data --dry-run=client -o yaml | kubectl apply -f -
