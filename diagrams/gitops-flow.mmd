@@ -1,0 +1,17 @@
+sequenceDiagram
+    participant Dev as Developer
+    participant Repo as Git Repository
+    participant FluxSrc as Flux Source Controller
+    participant FluxRecon as Flux Reconcilers
+    participant K8s as Kubernetes API
+    participant Metrics as Prometheus/Grafana
+
+    Dev->>Repo: Push commit to main
+    Repo-->>FluxSrc: Notify via polling/webhook
+    FluxSrc->>Repo: Clone repo (ref/main)
+    FluxSrc->>FluxRecon: Publish artifact revision
+    FluxRecon->>Repo: Render manifests (Helm/Kustomize)
+    FluxRecon->>K8s: Apply manifests
+    K8s-->>FluxRecon: Report status/events
+    FluxRecon-->>Metrics: Emit reconciliation metrics
+    Metrics-->>Dev: Dashboards/Alerts
