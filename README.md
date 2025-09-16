@@ -57,7 +57,7 @@ flowchart LR
    ```bash
    ./scripts/uranus_homelab.sh --delete-previous-environment --assume-yes --env-file ./.env
    ```
-   The helper script prepares the host, launches Minikube with the desired configuration, and applies the GitOps manifests. You can run the same workflow from the Makefile:
+   The helper script prepares the host, launches Minikube with the desired configuration, and applies the GitOps manifests. Ensure `kubectl`, `helm`, `minikube`, and `openssl` are installed and available in your `PATH` before running the helper scripts. You can run the same workflow from the Makefile:
    ```bash
    make up
    ```
