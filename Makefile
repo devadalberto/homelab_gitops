@@ -7,7 +7,25 @@ endif
 include $(ENVFILE)
 export
 
-.PHONY: all pfSense k8s db awx obs apps flux clean up nukedown
+.PHONY: all pfSense k8s db awx obs apps flux clean up nukedown docs docs-serve docs-diagrams
+
+MERMAID_CLI ?= npx --yes @mermaid-js/mermaid-cli@10.6.1
+MERMAID_SOURCES := $(shell find docs -name '*.mmd' 2>/dev/null)
+MERMAID_TARGETS := $(MERMAID_SOURCES:.mmd=.svg)
+MKDOCS ?= mkdocs
+MKDOCS_BUILD_FLAGS ?= --strict
+
+docs-diagrams: $(MERMAID_TARGETS)
+
+docs/%.svg: docs/%.mmd
+	@mkdir -p $(dir $@)
+	$(MERMAID_CLI) -i $< -o $@
+
+docs: docs-diagrams
+	$(MKDOCS) build $(MKDOCS_BUILD_FLAGS)
+
+docs-serve: docs-diagrams
+	$(MKDOCS) serve -a 0.0.0.0:8000
 
 all: k8s db awx obs apps flux
 

@@ -1,0 +1,60 @@
+site_name: Homelab GitOps
+site_description: "Uranus homelab GitOps reference implementation"
+site_url: https://devadalberto.github.io/homelab_gitops/
+repo_url: https://github.com/devadalberto/homelab_gitops
+repo_name: devadalberto/homelab_gitops
+edit_uri: edit/main/docs/
+copyright: "Copyright \u00a9 {year} devadalberto"
+
+nav:
+  - Overview: index.md
+  - Architecture: architecture.md
+  - Documentation Workflow: docs-workflow.md
+  - Changelog: CHANGELOG.md
+
+theme:
+  name: material
+  language: en
+  features:
+    - navigation.expand
+    - navigation.footer
+    - content.code.copy
+    - content.action.edit
+    - toc.integrate
+  palette:
+    - scheme: default
+      primary: teal
+      accent: cyan
+    - scheme: slate
+      primary: teal
+      accent: cyan
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+  font:
+    text: "Inter"
+    code: "Fira Code"
+  icon:
+    repo: fontawesome/brands/github
+
+plugins:
+  - search
+  - mermaid2:
+      arguments:
+        theme: neutral
+        width: 1200
+
+markdown_extensions:
+  - admonition
+  - footnotes
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight
+  - pymdownx.inlinehilite
+  - pymdownx.magiclink
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
