@@ -89,6 +89,8 @@ helm repo add traefik https://traefik.github.io/charts >/dev/null 2>&1 || true
 helm repo update >/dev/null
 
 log "Installing MetalLB"
+# Ensure namespace exists before creating secrets or deployments
+kubectl create namespace metallb-system --dry-run=client -o yaml | kubectl apply -f -
 # Ensure memberlist secret exists for MetalLB's internal communication
 if ! kubectl get secret -n metallb-system metallb-memberlist >/dev/null 2>&1; then
   kubectl create secret generic -n metallb-system metallb-memberlist \
