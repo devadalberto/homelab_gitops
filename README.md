@@ -4,6 +4,24 @@
 - Addons: MetalLB, Traefik, cert-manager, AWX Operator
 - Apps: Pi-hole, Nextcloud(Postgres), Jellyfin, Bitwarden, Homepage
 
+## Quick Start
+
+```bash
+cp .env.example .env
+# Edit passwords, ranges, and mount paths if needed
+make up
+```
+
+## pfSense DNS overrides
+
+Set overrides in **Services → DNS Resolver → Host Overrides**:
+
+- `traefik.${LABZ_DOMAIN}` → <MetalLB VIP in LABZ_METALLB_RANGE>
+- `cloud.${LABZ_DOMAIN}`   → <MetalLB VIP>
+- `media.${LABZ_DOMAIN}`   → <MetalLB VIP>
+
+Use a TTL of 300 and ensure pfSense is the DNS handed out by DHCP.
+
 ## Tree
 ```
 .

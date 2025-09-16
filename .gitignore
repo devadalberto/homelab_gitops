@@ -45,6 +45,7 @@ flux-system/
 *.dec.yaml
 
 # Local secrets, values, or overrides
+\.env
 secrets.yaml
 *.secret.yaml
 *.override.yaml

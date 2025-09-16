@@ -4,13 +4,25 @@
 ```bash
 git clone https://github.com/devadalberto/homelab_gitops.git
 cd homelab_gitops
-cp .env.example .env   # adjust if needed (WAN_NIC=eno1, WAN_MODE=br0)
-sudo ./bootstrap.sh
+cp .env.example .env
+# Edit passwords, ranges, and mount paths if needed
+make up
 ```
 
 If you chose `br0`, host will reboot once, then resume automatically:
 - pfSense VM defined, import `config.xml` from `/opt/homelab/pfsense/config/config.xml`
 - `make all` brings up Minikube + MetalLB + Traefik + cert-manager + Postgres+backups + AWX + Observability + Django + Flux.
+
+## Env variables and mapping
+
+| Existing var                 | Canonical var       | Used by              |
+|-----------------------------|---------------------|----------------------|
+| LAB_DOMAIN_BASE             | LABZ_DOMAIN         | Ingress/hosts        |
+| LAB_CLUSTER_SUB             | (keep as-is)        | Cluster FQDNs (misc) |
+| METALLB_POOL_START/END      | LABZ_METALLB_RANGE  | MetalLB AddressPool  |
+| TRAEFIK_LOCAL_IP            | (derive from VIP)   | Docs only            |
+| PG_BACKUP_HOSTPATH          | LABZ_MOUNT_BACKUPS  | Backups              |
+| /srv/* mounts               | LABZ_MOUNT_*        | hostPath PVs         |
 
 ## Internal CA
 Export root CA to trust on clients:

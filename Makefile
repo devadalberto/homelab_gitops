@@ -7,7 +7,7 @@ endif
 include $(ENVFILE)
 export
 
-.PHONY: all pfSense k8s db awx obs apps flux clean
+.PHONY: all pfSense k8s db awx obs apps flux clean up nukedown
 
 all: k8s db awx obs apps flux
 
@@ -43,4 +43,14 @@ flux:
 	@$(DIR)/flux/install.sh
 
 clean:
-	@echo "Nothing destructive here; clean by namespaces if needed."
+        @echo "Nothing destructive here; clean by namespaces if needed."
+
+up:
+	@chmod +x scripts/*.sh
+	./scripts/uranus_nuke_and_bootstrap.sh --delete-previous-environment --assume-yes --env-file ./.env
+	./scripts/uranus_homelab_one.sh        --assume-yes                  --env-file ./.env
+	./scripts/uranus_homelab_apps.sh       --assume-yes                  --env-file ./.env
+
+nukedown:
+	@chmod +x scripts/*.sh
+	./scripts/uranus_nuke_and_bootstrap.sh --delete-previous-environment --assume-yes --env-file ./.env
