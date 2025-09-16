@@ -10,6 +10,20 @@ PF_WORK="${WORK_ROOT}/pfsense"
 LAN_NET_NAME="pfsense-lan"
 LAN_BRIDGE="virbr-lan"
 
+INSTALL_PATH="${PF_ISO_PATH:-}"
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --installation-path)
+      INSTALL_PATH="$2"
+      shift 2
+      ;;
+    *)
+      echo "Usage: $0 [--installation-path path]"
+      exit 1
+      ;;
+  esac
+done
+
 mkdir -p "${PF_WORK}" "${IMAGES_DIR}"
 
 # Libvirt LAN (isolated L2)
@@ -32,15 +46,11 @@ fi
 # ISO
 ISO="${PF_WORK}/pfsense.iso"
 if [[ ! -f "$ISO" ]]; then
-  read -r -p "Download pfSense ISO 2.8.0 now? [Y/n]: " d
-  d="${d:-Y}"
-  if [[ "${d,,}" == "y" ]]; then
-    curl -fSL -o "${PF_WORK}/pfsense.iso.gz" "${PF_ISO_URL}"
-    gzip -dc "${PF_WORK}/pfsense.iso.gz" > "$ISO"
-    rm -f "${PF_WORK}/pfsense.iso.gz"
+  if [[ -f "$INSTALL_PATH" ]]; then
+    gzip -dc "$INSTALL_PATH" > "$ISO"
   else
-    read -r -p "Enter local path to pfSense .iso: " P
-    cp -f "$P" "$ISO"
+    echo "Installer not found at $INSTALL_PATH"
+    exit 1
   fi
 fi
 [[ -s "$ISO" ]] || { echo "pfSense ISO missing"; exit 1; }
