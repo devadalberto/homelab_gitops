@@ -1,0 +1,10 @@
+repos:
+  - repo: local
+    hooks:
+      - id: docs-build
+        name: Build MkDocs documentation
+        entry: make docs
+        language: system
+        pass_filenames: false
+        stages: [commit]
+        files: ^(docs/|mkdocs\.yml|Makefile)

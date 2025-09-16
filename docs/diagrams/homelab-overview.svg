@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 120">
+  <style>
+    text { font-family: Arial, sans-serif; font-size: 14px; }
+  </style>
+  <text x="20" y="40">Homelab overview diagram placeholder.</text>
+  <text x="20" y="70">Run `make docs` to regenerate with Mermaid CLI.</text>
+</svg>

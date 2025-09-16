@@ -1,0 +1,55 @@
+# Homelab GitOps — Uranus
+
+Welcome to the documentation portal for the Uranus homelab GitOps stack. This site is generated with [MkDocs Material](https://squidfunk.github.io/mkdocs-material/) and is intended to provide both Day-1 bootstrap guidance and deeper architectural notes for future contributors.
+
+## Day-1 Quickstart
+
+```bash
+git clone https://github.com/devadalberto/homelab_gitops.git
+cd homelab_gitops
+cp .env.example .env
+# Edit passwords, ranges, and mount paths if needed
+make up
+```
+
+If you chose `br0`, the host will reboot once, then resume automatically:
+
+- pfSense VM defined, import `config.xml` from `/opt/homelab/pfsense/config/config.xml`.
+- `make all` brings up Minikube + MetalLB + Traefik + cert-manager + Postgres + backups + AWX + Observability + Django + Flux.
+
+A deeper walk-through of every subsystem, bootstrap dependency, and GitOps controller can be found in the [Architecture](architecture.md) guide. That page also includes Mermaid sequence/state diagrams that are rendered as part of the documentation build.
+
+## Environment Variables and Mapping
+
+| Existing var            | Canonical var       | Used by              |
+|------------------------ |-------------------- |--------------------- |
+| `LAB_DOMAIN_BASE`       | `LABZ_DOMAIN`       | Ingress/hosts        |
+| `LAB_CLUSTER_SUB`       | (keep as-is)        | Cluster FQDNs (misc) |
+| `METALLB_POOL_START/END`| `LABZ_METALLB_RANGE`| MetalLB AddressPool  |
+| `TRAEFIK_LOCAL_IP`      | (derive from VIP)   | Docs only            |
+| `PG_BACKUP_HOSTPATH`    | `LABZ_MOUNT_BACKUPS`| Backups              |
+| `/srv/*` mounts         | `LABZ_MOUNT_*`      | hostPath PVs         |
+
+## Internal CA
+
+Export root CA to trust on clients:
+
+```bash
+kubectl -n cert-manager get secret labz-root-ca-secret -o jsonpath='{.data.ca\.crt}' | base64 -d > labz-root-ca.crt
+```
+
+## Enabling NAT Examples
+
+pfSense GUI → **Firewall** → **NAT** → **Port Forward** → edit example → uncheck **Disable** → **Save** → **Apply**. Then navigate to **Firewall** → **Rules** → **WAN** → enable the matching pass rule if present.
+
+## Troubleshooting
+
+- MetalLB not advertising? Ensure pfSense LAN is `10.10.0.0/24` and does not overlap with WAN ranges.
+- Traefik returning `404`? Check the Ingress class `traefik` and confirm certificate secrets exist.
+- AWX pending? Wait for operator rollout; check `kubectl -n awx get pods` for image pulls and migrations.
+
+## Working on the Docs
+
+Use `make docs-serve` to preview the site locally. This command regenerates all Mermaid diagrams before starting the MkDocs dev server. The [`docs`](../Makefile) target runs the same pipeline non-interactively, which is also executed inside CI prior to publishing to GitHub Pages.
+
+Refer to the [Documentation Workflow](docs-workflow.md) page for dependency installation tips, Mermaid authoring guidelines, and CI/CD behavior.
