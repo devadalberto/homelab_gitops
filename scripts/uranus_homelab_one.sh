@@ -77,7 +77,7 @@ done
 load_env_file "${ENV_FILE}"
 require_vars LABZ_MINIKUBE_PROFILE LABZ_METALLB_RANGE METALLB_POOL_START METALLB_POOL_END
 
-require_command kubectl helm minikube
+require_command kubectl helm minikube openssl
 
 log "Switching kubectl context to ${LABZ_MINIKUBE_PROFILE}"
 kubectl config use-context "${LABZ_MINIKUBE_PROFILE}" >/dev/null
