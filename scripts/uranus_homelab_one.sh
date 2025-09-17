@@ -77,6 +77,8 @@ done
 load_env_file "${ENV_FILE}"
 require_vars LABZ_MINIKUBE_PROFILE LABZ_METALLB_RANGE METALLB_POOL_START METALLB_POOL_END
 
+: "${METALLB_HELM_VERSION:=0.14.5}"
+
 require_command kubectl helm minikube openssl
 
 log "Switching kubectl context to ${LABZ_MINIKUBE_PROFILE}"
@@ -88,7 +90,7 @@ helm repo add jetstack https://charts.jetstack.io >/dev/null 2>&1 || true
 helm repo add traefik https://traefik.github.io/charts >/dev/null 2>&1 || true
 helm repo update >/dev/null
 
-log "Installing MetalLB"
+log "Installing MetalLB (chart version ${METALLB_HELM_VERSION})"
 # Ensure namespace exists before creating secrets or deployments
 kubectl create namespace metallb-system --dry-run=client -o yaml | kubectl apply -f -
 # Ensure memberlist secret exists for MetalLB's internal communication
@@ -100,6 +102,7 @@ fi
 if ! helm upgrade --install metallb metallb/metallb \
   --namespace metallb-system \
   --create-namespace \
+  --version "${METALLB_HELM_VERSION}" \
   --wait \
   --timeout 10m0s; then
   kubectl get pods -n metallb-system || true
