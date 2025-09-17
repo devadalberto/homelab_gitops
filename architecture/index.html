@@ -552,6 +552,7 @@
 <h2 id="secrets-certificates">Secrets &amp; Certificates<a class="headerlink" href="#secrets-certificates" title="Permanent link">&para;</a></h2>
 <ul>
 <li>SOPS/AGE secret placeholders live in the repo (<code>.sops/</code>). Actual encrypted files should be stored separately and decrypted only on trusted hosts.</li>
+<li>Export <code>SOPS_AGE_KEY_FILE</code> (for example, <code>export SOPS_AGE_KEY_FILE="$PWD/.sops/age.key"</code>) before invoking <code>sops</code> locally or running Flux bootstrap scripts so the controllers mount the same private key during reconciliation.</li>
 <li>Cert-manager manages a two-tier CA (root + intermediate). Root certificates are available as Kubernetes secrets and can be exported for browser/device trust.</li>
 <li>Traefik ingress routes always reference TLS secrets; the repo defaults to the internal CA but can be swapped for ACME with external DNS integration.</li>
 </ul>
