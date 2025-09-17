@@ -131,6 +131,22 @@ If an app has not yet been migrated to Flux, keep its encrypted secret alongside
 
 Flux decrypts the files at reconciliation time by mounting the age key secret. Keep the `.sops/age.key` file out of version control unless you intentionally share the key with trusted collaborators.
 
+## Local linting with pre-commit
+
+This repository uses [pre-commit](https://pre-commit.com/) to provide fast feedback for common formatting and linting issues (YAML structure, trailing newlines, shell scripts, etc.). Install the framework once and enable the Git hook:
+
+```bash
+pipx install pre-commit  # or: pip install --user pre-commit
+pre-commit install
+```
+
+Run the full suite against the entire repository whenever dependencies change or before submitting a pull request:
+
+```bash
+pre-commit run --all-files
+```
+
+The hooks defined in `.pre-commit-config.yaml` mirror the checks enforced in CI so contributors see the same results locally.
 ### Rotate AWX admin credentials
 
 The AWX instance defined in `awx/awx-small.yaml` consumes the `awx-admin` secret, which now lives under `awx/sops-secrets/awx-admin.sops.yaml` so it can be managed with SOPS. To create or rotate the administrator password:
