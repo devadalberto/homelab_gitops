@@ -642,7 +642,11 @@ restart_minikube_if_needed() {
   local cpus="${LABZ_MINIKUBE_CPUS:-4}"
   local memory="${LABZ_MINIKUBE_MEMORY:-8192}"
   local disk="${LABZ_MINIKUBE_DISK:-60g}"
-  local extra_args="--kubernetes-version=v1.33.1 --cni=bridge --extra-config=kubeadm.pod-network-cidr=10.244.0.0/16 --extra-config=apiserver.service-node-port-range=30000-32767"
+  local kube_version="${LABZ_KUBERNETES_VERSION:-${KUBERNETES_VERSION:-v1.29.4}}"
+  if [[ ${kube_version} != v* ]]; then
+    kube_version="v${kube_version}"
+  fi
+  local extra_args="--kubernetes-version=${kube_version} --cni=bridge --extra-config=kubeadm.pod-network-cidr=10.244.0.0/16 --extra-config=apiserver.service-node-port-range=30000-32767"
   if [[ ${NEED_MINIKUBE_RESTART} -eq 1 ]]; then
     if [[ "${PREFLIGHT_ONLY}" == "true" ]]; then
       log_warn "System changes detected; defer Minikube restart until bootstrap runs"
@@ -657,7 +661,7 @@ restart_minikube_if_needed() {
         --cpus="${cpus}" \
         --memory="${memory}" \
         --disk-size="${disk}" \
-        --kubernetes-version=v1.33.1 \
+        --kubernetes-version="${kube_version}" \
         --cni=bridge \
         --extra-config=kubeadm.pod-network-cidr=10.244.0.0/16 \
         --extra-config=apiserver.service-node-port-range=30000-32767
