@@ -78,6 +78,8 @@ load_env_file "${ENV_FILE}"
 require_vars LABZ_MINIKUBE_PROFILE LABZ_METALLB_RANGE METALLB_POOL_START METALLB_POOL_END
 
 : "${METALLB_HELM_VERSION:=0.14.5}"
+: "${CERT_MANAGER_HELM_VERSION:=1.15.3}"
+: "${TRAEFIK_HELM_VERSION:=26.0.0}"
 : "${TRAEFIK_LOCAL_IP:=${METALLB_POOL_START}}"
 
 require_command kubectl helm minikube openssl
@@ -149,6 +151,7 @@ log "Installing cert-manager"
 helm upgrade --install cert-manager jetstack/cert-manager \
   --namespace cert-manager \
   --create-namespace \
+  --version "${CERT_MANAGER_HELM_VERSION}" \
   --set installCRDs=true \
   --wait \
   --timeout 10m0s
@@ -166,6 +169,7 @@ log "Installing Traefik"
 helm upgrade --install traefik traefik/traefik \
   --namespace traefik \
   --create-namespace \
+  --version "${TRAEFIK_HELM_VERSION}" \
   --set service.type=LoadBalancer \
   --set service.spec.loadBalancerIP="${TRAEFIK_LOCAL_IP}" \
   --set ports.web.redirectTo=websecure \
