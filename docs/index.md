@@ -13,7 +13,6 @@ make up
 ```
 
 If you chose `br0`, the host will reboot once, then resume automatically:
-
 - pfSense VM defined with the `pfSense_config` ISO attached so first boot auto-imports `/opt/homelab/pfsense/config/config.xml`.
 - `make all` brings up Minikube + MetalLB + Traefik + cert-manager + Postgres + backups + AWX + Observability + Django + Flux.
 

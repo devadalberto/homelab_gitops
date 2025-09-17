@@ -52,6 +52,7 @@ flowchart LR
    cp .env.example .env
    # Edit passwords, IP ranges, and storage paths to match your environment
    ```
+   Ensure `PF_SERIAL_INSTALLER_PATH` points at the gzipped pfSense serial installer and adjust `PF_HEADLESS` if you prefer a VNC console (`--no-headless`).
 
 2. **Provision or reset the homelab cluster**
    ```bash
@@ -61,6 +62,7 @@ flowchart LR
    ```bash
    make up
    ```
+   The pfSense VM boots with the serial installer by default; attach to the console with `virsh console "${VM_NAME}"` once the domain is defined. Pass `--no-headless` to `pfsense/pf-bootstrap.sh` if you need to re-enable a graphical viewer.
 
 3. **Bootstrap Flux against your Git remote**
    ```bash
