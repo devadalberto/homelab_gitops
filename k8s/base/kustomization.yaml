@@ -7,10 +7,9 @@ resources:
   - ../addons/cert-manager
   - ../addons/awx-operator
   - ../data/postgres
-  - ../observability
-  - ../apps/django-multiproject
   - ../apps/pihole
   - ../apps/nextcloud
   - ../apps/jellyfin
   - ../apps/bitwarden
   - ../apps/homepage
+  - ../apps/django-multiproject

@@ -19,7 +19,10 @@ spec:
           ports: [{ containerPort: 8000 }]
           env:
             - name: DATABASE_URL
-              value: "postgresql://postgres:postgres@pg-postgresql.data.svc.cluster.local:5432/postgres"
+              valueFrom:
+                secretKeyRef:
+                  name: pg-superuser
+                  key: database-url
 ---
 apiVersion: v1
 kind: Service
