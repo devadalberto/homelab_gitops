@@ -78,7 +78,8 @@ Flux reconciles the entire `k8s/base` tree, including the PostgreSQL stack under
 
 4. **Access the applications**
    - Configure pfSense DNS overrides (see below).
-   - Point a browser at the Traefik, Nextcloud, or other application hostnames once MetalLB assigns VIPs.
+   - Use the published ingress hostnames such as `https://app.lab-minikube.labz.home.arpa/` for the Django multiproject demo (Traefik terminates TLS and routes traffic internally).
+   - Traefik still uses a MetalLB VIP, but workloads are accessed through their DNS entries rather than a service load balancer IP.
 
 ## Version Management and Pre-Rollout Testing
 
@@ -168,6 +169,7 @@ Point lab devices at pfSense for DNS resolution and add host overrides via **Ser
 | Hostname | Target | Notes |
 | --- | --- | --- |
 | `traefik.${LABZ_DOMAIN}` | MetalLB virtual IP in `${LABZ_METALLB_RANGE}` | Primary ingress endpoint |
+| `app.lab-minikube.${LABZ_DOMAIN}` | Same MetalLB VIP as Traefik | Django multiproject demo |
 | `cloud.${LABZ_DOMAIN}` | Same MetalLB VIP as Traefik | Nextcloud |
 | `media.${LABZ_DOMAIN}` | Same MetalLB VIP as Traefik | Jellyfin |
 
