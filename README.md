@@ -80,6 +80,30 @@ flowchart LR
    - Configure pfSense DNS overrides (see below).
    - Point a browser at the Traefik, Nextcloud, or other application hostnames once MetalLB assigns VIPs.
 
+## Version Management and Pre-Rollout Testing
+
+Kubernetes, networking addons, and Helm-installed workloads are pinned through environment variables so bootstrap scripts and Flux reconcile against the same chart releases. The defaults live in `.env.example`:
+
+- `LABZ_KUBERNETES_VERSION`
+- `METALLB_HELM_VERSION`
+- `TRAEFIK_HELM_VERSION`
+- `CERT_MANAGER_HELM_VERSION`
+- `LABZ_POSTGRES_HELM_VERSION`
+- `LABZ_KPS_HELM_VERSION`
+
+When bumping versions:
+
+1. Update `.env` (and mirror the change in `.env.example`) with the new chart or Kubernetes release numbers.
+2. Edit the Flux HelmReleases so the controller targets the same versions (for example, `k8s/addons/{metallb,traefik,cert-manager}/release.yaml`).
+3. Review scripts or manifests that reference those versions (such as the Makefile `db`/`obs` targets) to confirm they inherit the new values.
+4. Smoke test locally before merging:
+   - Recreate Minikube if necessary (`minikube delete -p uranus`).
+   - Run `make k8s` to bring up the core addons with the pinned charts.
+   - Execute `make db` and `make obs` to ensure the data and observability stacks install with the new chart versions.
+   - Spot-check `helm list -A` and `kubectl get pods --all-namespaces` for healthy rollouts.
+
+Document the results in the pull request so the Flux-managed environments can be updated confidently.
+
 ## Secrets Management with SOPS and age
 
 Secrets are stored as SOPS-encrypted YAML files within the repository so that manifests can be committed without exposing credentials. The sample application secrets live under `apps/*/sops-secrets/` and should be encrypted before they are committed or applied.

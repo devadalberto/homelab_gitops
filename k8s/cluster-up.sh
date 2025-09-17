@@ -3,8 +3,13 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 [[ -f "$ROOT/.env" ]] && source "$ROOT/.env" || source "$ROOT/.env.example"
 
+KUBERNETES_VERSION="${KUBERNETES_VERSION:-${LABZ_KUBERNETES_VERSION:-v1.29.4}}"
+METALLB_CHART_VERSION="${METALLB_CHART_VERSION:-${METALLB_HELM_VERSION:-0.14.5}}"
+TRAEFIK_CHART_VERSION="${TRAEFIK_CHART_VERSION:-${TRAEFIK_HELM_VERSION:-26.1.0}}"
+CERT_MANAGER_CHART_VERSION="${CERT_MANAGER_CHART_VERSION:-${CERT_MANAGER_HELM_VERSION:-1.15.3}}"
+
 if ! minikube status --profile uranus >/dev/null 2>&1; then
-  minikube start --profile=uranus --driver=docker --container-runtime=containerd --cpus=4 --memory=8192 --kubernetes-version=stable
+  minikube start --profile=uranus --driver=docker --container-runtime=containerd --cpus=4 --memory=8192 --kubernetes-version="${KUBERNETES_VERSION}"
 fi
 kubectl config use-context uranus >/dev/null 2>&1 || true
 
@@ -26,8 +31,8 @@ spec: {}
 YAML
 
 kubectl create ns traefik --dry-run=client -o yaml | kubectl apply -f -
-helm upgrade --install traefik traefik/traefik -n traefik -f "$ROOT/k8s/traefik/values.yaml" --wait
+helm upgrade --install traefik traefik/traefik --version "${TRAEFIK_CHART_VERSION}" -n traefik -f "$ROOT/k8s/traefik/values.yaml" --wait
 
 kubectl create ns cert-manager --dry-run=client -o yaml | kubectl apply -f -
-helm upgrade --install cert-manager jetstack/cert-manager -n cert-manager --set installCRDs=true --wait
+helm upgrade --install cert-manager jetstack/cert-manager --version "${CERT_MANAGER_CHART_VERSION}" -n cert-manager --set installCRDs=true --wait
 kubectl apply -f "$ROOT/k8s/cert-manager/cm-internal-ca.yaml"
