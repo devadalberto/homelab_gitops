@@ -14,7 +14,7 @@ make up
 
 If you chose `br0`, the host will reboot once, then resume automatically:
 
-- pfSense VM defined, import `config.xml` from `/opt/homelab/pfsense/config/config.xml`.
+- pfSense VM defined with the serial installer; attach via `virsh console "${VM_NAME}"` to complete the TTY wizard and import `config.xml` from `/opt/homelab/pfsense/config/config.xml`.
 - `make all` brings up Minikube + MetalLB + Traefik + cert-manager + Postgres + backups + AWX + Observability + Django + Flux.
 
 A deeper walk-through of every subsystem, bootstrap dependency, and GitOps controller can be found in the [Architecture](architecture.md) guide. That page also includes Mermaid sequence/state diagrams that are rendered as part of the documentation build.
