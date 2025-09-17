@@ -115,6 +115,9 @@ Secrets are stored as SOPS-encrypted YAML files within the repository so that ma
   age-keygen -o .sops/age.key
   export SOPS_AGE_KEY_FILE=.sops/age.key
   ```
+  Exporting `SOPS_AGE_KEY_FILE` ensures both the local `sops` CLI and Flux controllers know where to read the private key during
+  reconciliation. Commit the public recipient (in `.sops/.sops.yaml`) but keep `.sops/age.key` out of Git; instead, create a
+  Kubernetes secret (e.g., `flux-system/sops-age`) that mounts the file for Flux.
 - Encrypt or update a secret in place (for example, the Pi-hole admin password template):
   ```bash
   sops --encrypt --in-place apps/pihole/sops-secrets/admin-secret.yaml

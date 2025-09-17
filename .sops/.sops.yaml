@@ -1,3 +1,4 @@
 creation_rules:
   - path_regex: .*
-    age: [""]
+    age:
+      - "age17kdhf2edf7xq9r23zmg9v26rp60fer7tu8xy4u3d2djjqtgt3psqteva54"
