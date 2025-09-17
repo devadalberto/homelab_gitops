@@ -10,19 +10,57 @@ PF_WORK="${WORK_ROOT}/pfsense"
 LAN_NET_NAME="pfsense-lan"
 LAN_BRIDGE="virbr-lan"
 
-INSTALL_PATH="${PF_ISO_PATH:-}"
+INSTALL_PATH="${PF_SERIAL_INSTALLER_PATH:-${PF_ISO_PATH:-}}"
+HEADLESS="${PF_HEADLESS:-true}"
+
+usage() {
+  cat <<'USAGE'
+Usage: pf-bootstrap.sh [--installation-path PATH] [--headless] [--no-headless]
+
+Options:
+  --installation-path PATH   Override the pfSense installer to stage (.iso[.gz] or .img[.gz])
+  --headless                 Force serial/headless install (default)
+  --no-headless              Enable the legacy VNC console
+USAGE
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --installation-path)
       INSTALL_PATH="$2"
       shift 2
       ;;
+    --headless)
+      HEADLESS=true
+      shift
+      ;;
+    --no-headless)
+      HEADLESS=false
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
     *)
-      echo "Usage: $0 [--installation-path path]"
+      usage >&2
       exit 1
       ;;
   esac
 done
+
+case "$HEADLESS" in
+  true|false) ;;
+  *)
+    echo "HEADLESS must be 'true' or 'false' (got '$HEADLESS')" >&2
+    exit 1
+    ;;
+esac
+
+if [[ -z "${INSTALL_PATH}" ]]; then
+  echo "Installer path not provided. Set PF_SERIAL_INSTALLER_PATH or PF_ISO_PATH, or pass --installation-path." >&2
+  exit 1
+fi
 
 mkdir -p "${PF_WORK}" "${IMAGES_DIR}"
 
@@ -43,17 +81,26 @@ EOF
   virsh net-start "${LAN_NET_NAME}"
 fi
 
-# ISO
-ISO="${PF_WORK}/pfsense.iso"
-if [[ ! -f "$ISO" ]]; then
-  if [[ -f "$INSTALL_PATH" ]]; then
-    gzip -dc "$INSTALL_PATH" > "$ISO"
-  else
-    echo "Installer not found at $INSTALL_PATH"
-    exit 1
-  fi
+# Installer image (prefer serial build)
+if [[ ! -f "$INSTALL_PATH" ]]; then
+  echo "Installer not found at $INSTALL_PATH" >&2
+  exit 1
 fi
-[[ -s "$ISO" ]] || { echo "pfSense ISO missing"; exit 1; }
+
+INSTALL_MEDIA=""
+if [[ "$INSTALL_PATH" == *.gz ]]; then
+  if [[ "$INSTALL_PATH" == *.img.gz ]]; then
+    INSTALL_MEDIA="${PF_WORK}/pfsense-installer.img"
+  else
+    INSTALL_MEDIA="${PF_WORK}/pfsense-installer.iso"
+  fi
+  echo "Staging pfSense installer from $INSTALL_PATH to $INSTALL_MEDIA"
+  gzip -dc "$INSTALL_PATH" > "$INSTALL_MEDIA"
+else
+  INSTALL_MEDIA="$INSTALL_PATH"
+fi
+
+[[ -s "$INSTALL_MEDIA" ]] || { echo "pfSense installer missing" >&2; exit 1; }
 
 # VM Disk
 VM_DISK="${IMAGES_DIR}/${VM_NAME}.qcow2"
@@ -66,6 +113,20 @@ if [[ "${WAN_MODE}" == "br0" ]]; then
   WAN_OPT="--network bridge=br0,model=virtio"
 else
   WAN_OPT="--network type=direct,source=${WAN_NIC},source_mode=bridge,model=virtio"
+fi
+
+# Installer attachment args
+INSTALL_MEDIA_ARGS=(--cdrom "$INSTALL_MEDIA")
+if [[ "$INSTALL_MEDIA" == *.img ]]; then
+  INSTALL_MEDIA_ARGS=(--disk "path=${INSTALL_MEDIA},device=disk,bus=usb")
+fi
+
+if [[ "$HEADLESS" == true ]]; then
+  GRAPHICS_ARGS=(--graphics none)
+  CONSOLE_ARGS=(--noautoconsole --console pty,target.type=serial --serial pty,target.type=serial --extra-args "console=ttyS0")
+else
+  GRAPHICS_ARGS=(--graphics vnc)
+  CONSOLE_ARGS=(--noautoconsole --console pty,target.type=serial --serial pty,target.type=serial)
 fi
 
 # Define VM if not exists
@@ -82,13 +143,13 @@ else
     --cpu host \
     --hvm \
     --virt-type kvm \
-    --graphics vnc \
-    --cdrom "${ISO}" \
+    "${GRAPHICS_ARGS[@]}" \
+    "${INSTALL_MEDIA_ARGS[@]}" \
     --disk "path=${VM_DISK},bus=virtio,format=qcow2" \
     ${WAN_OPT} \
     --network "network=${LAN_NET_NAME},model=virtio" \
-    --noautoconsole \
+    "${CONSOLE_ARGS[@]}" \
     ${OSVAR}
 fi
 
-echo "pfSense VM ready. Use 'virt-viewer --connect qemu:///system ${VM_NAME}' to install."
+echo "pfSense VM ready. Connect via 'virsh console ${VM_NAME}' to complete the serial installer."
