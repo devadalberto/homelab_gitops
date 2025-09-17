@@ -310,6 +310,21 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Day-1 Quickstart">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#refreshing-pfsense-bootstrap-media" class="md-nav__link">
+    <span class="md-ellipsis">
+      Refreshing pfSense bootstrap media
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -464,12 +479,17 @@ cp<span class="w"> </span>.env.example<span class="w"> </span>.env
 <span class="c1"># Edit passwords, ranges, and mount paths if needed</span>
 make<span class="w"> </span>up
 </code></pre></div>
-<p>If you chose <code>br0</code>, the host will reboot once, then resume automatically:</p>
-<ul>
-<li>pfSense VM defined with the serial installer; attach via <code>virsh console "${VM_NAME}"</code> to complete the TTY wizard and import <code>config.xml</code> from <code>/opt/homelab/pfsense/config/config.xml</code>.</li>
-<li><code>make all</code> brings up Minikube + MetalLB + Traefik + cert-manager + Postgres + backups + AWX + Observability + Django + Flux.</li>
-</ul>
+<p>If you chose <code>br0</code>, the host will reboot once, then resume automatically:
+- pfSense VM defined with the <code>pfSense_config</code> ISO attached so first boot auto-imports <code>/opt/homelab/pfsense/config/config.xml</code>.
+- <code>make all</code> brings up Minikube + MetalLB + Traefik + cert-manager + Postgres + backups + AWX + Observability + Django + Flux.</p>
 <p>A deeper walk-through of every subsystem, bootstrap dependency, and GitOps controller can be found in the <a href="architecture/">Architecture</a> guide. That page also includes Mermaid sequence/state diagrams that are rendered as part of the documentation build.</p>
+<h3 id="refreshing-pfsense-bootstrap-media">Refreshing pfSense bootstrap media<a class="headerlink" href="#refreshing-pfsense-bootstrap-media" title="Permanent link">&para;</a></h3>
+<p>pfSense reads configuration overrides from the secondary CD-ROM labelled <code>pfSense_config</code> during its first boot. The ISO lives at <code>${WORK_ROOT}/pfsense/config/pfSense-config.iso</code> (defaults to <code>/opt/homelab/pfsense/config/pfSense-config.iso</code>). When lab addressing or credentials change, regenerate and reattach the media before starting the VM:</p>
+<div class="highlight"><pre><span></span><code>./pfsense/pf-config-gen.sh<span class="w">   </span><span class="c1"># rebuild config.xml and the pfSense_config ISO (requires genisoimage or mkisofs)</span>
+virsh<span class="w"> </span>shutdown<span class="w"> </span><span class="si">${</span><span class="nv">VM_NAME</span><span class="si">}</span><span class="w">    </span><span class="c1"># skip if the VM has never been started</span>
+./pfsense/pf-bootstrap.sh<span class="w">    </span><span class="c1"># reattach the refreshed ISO; rerun after edits to .env</span>
+</code></pre></div>
+<p><code>pf-bootstrap.sh</code> swaps the ISO automatically for shut-off domains. If the VM is running, stop it first or run the <code>virsh change-media ${VM_NAME} sdb ${WORK_ROOT}/pfsense/config/pfSense-config.iso --insert --force --config</code> command manually after the shutdown completes.</p>
 <h2 id="environment-variables-and-mapping">Environment Variables and Mapping<a class="headerlink" href="#environment-variables-and-mapping" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
