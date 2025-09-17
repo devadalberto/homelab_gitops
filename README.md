@@ -103,6 +103,21 @@ If an app has not yet been migrated to Flux, keep its encrypted secret alongside
 
 Flux decrypts the files at reconciliation time by mounting the age key secret. Keep the `.sops/age.key` file out of version control unless you intentionally share the key with trusted collaborators.
 
+### Rotate AWX admin credentials
+
+The AWX instance defined in `awx/awx-small.yaml` consumes the `awx-admin` secret, which now lives under `awx/sops-secrets/awx-admin.sops.yaml` so it can be managed with SOPS. To create or rotate the administrator password:
+
+1. Ensure your age key is configured (`export SOPS_AGE_KEY_FILE=.sops/age.key`).
+2. Decrypt the secret for editing: `sops awx/sops-secrets/awx-admin.sops.yaml`.
+3. Generate a new password (for example `python3 -c 'import secrets,string; print("".join(secrets.choice(string.ascii_letters + string.digits) for _ in range(24)))'`).
+4. Replace the `stringData.password` value with the new password and save the file.
+5. Re-encrypt the manifest: `sops --encrypt --in-place awx/sops-secrets/awx-admin.sops.yaml`.
+6. Apply the updated secret to the cluster: `kubectl apply -f awx/sops-secrets/awx-admin.sops.yaml`.
+7. Update the live AWX admin account so it matches the secret: `kubectl -n awx exec deployment/awx-task -- awx-manage changepassword admin '<new-password>'` (supply the password via `read -s` or your clipboard manager to avoid leaving it in shell history).
+8. Optionally bounce the AWX web/task pods if the operator does not reconcile immediately: `kubectl -n awx delete pod -l app.kubernetes.io/name=awx --grace-period=0 --force`.
+
+Store the regenerated password in your password manager after the rotation.
+
 ## pfSense DNS Overrides
 
 Point lab devices at pfSense for DNS resolution and add host overrides via **Services → DNS Resolver → Host Overrides**:
