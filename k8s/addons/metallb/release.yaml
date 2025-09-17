@@ -9,6 +9,9 @@ spec:
   targetNamespace: metallb-system
   install:
     createNamespace: true
+    crds: Create
+  upgrade:
+    crds: CreateReplace
   chart:
     spec:
       chart: metallb
