@@ -466,7 +466,7 @@ make<span class="w"> </span>up
 </code></pre></div>
 <p>If you chose <code>br0</code>, the host will reboot once, then resume automatically:</p>
 <ul>
-<li>pfSense VM defined, import <code>config.xml</code> from <code>/opt/homelab/pfsense/config/config.xml</code>.</li>
+<li>pfSense VM defined with the serial installer; attach via <code>virsh console "${VM_NAME}"</code> to complete the TTY wizard and import <code>config.xml</code> from <code>/opt/homelab/pfsense/config/config.xml</code>.</li>
 <li><code>make all</code> brings up Minikube + MetalLB + Traefik + cert-manager + Postgres + backups + AWX + Observability + Django + Flux.</li>
 </ul>
 <p>A deeper walk-through of every subsystem, bootstrap dependency, and GitOps controller can be found in the <a href="architecture/">Architecture</a> guide. That page also includes Mermaid sequence/state diagrams that are rendered as part of the documentation build.</p>
