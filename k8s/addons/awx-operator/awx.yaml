@@ -14,6 +14,7 @@ spec:
   replicas: 1
   web_replicas: 1
   task_replicas: 1
+<<<<<<< HEAD:k8s/addons/awx-operator/awx.yaml
   ee_default_image: quay.io/ansible/awx-ee:latest
 ---
 apiVersion: v1
@@ -24,3 +25,6 @@ metadata:
 type: Opaque
 stringData:
   password: $(AWX_ADMIN_PASSWORD)
+=======
+  ee_default_image: quay.io/ansible/awx-ee:26.2.1
+>>>>>>> b42d7de (Refine AWX admin secret handling):awx/awx-small.yaml

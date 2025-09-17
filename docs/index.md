@@ -20,6 +20,17 @@ If you chose `br0`, the host will reboot once, then resume automatically:
 
 A deeper walk-through of every subsystem, bootstrap dependency, and GitOps controller can be found in the [Architecture](architecture.md) guide. That page also includes Mermaid sequence/state diagrams that are rendered as part of the documentation build.
 
+### Rotate AWX admin credentials
+
+The AWX operator expects the `awx-admin` secret (managed with SOPS at `awx/sops-secrets/awx-admin.sops.yaml`) to exist before the instance comes online. To rotate or regenerate the admin password:
+
+1. Export your age key (`export SOPS_AGE_KEY_FILE=.sops/age.key`) and decrypt the secret for editing: `sops awx/sops-secrets/awx-admin.sops.yaml`.
+2. Generate a replacement password (for example with `python3 -c 'import secrets,string; print("".join(secrets.choice(string.ascii_letters + string.digits) for _ in range(24)))'`) and update the `stringData.password` field.
+3. Re-encrypt the manifest (`sops --encrypt --in-place awx/sops-secrets/awx-admin.sops.yaml`) and apply it to the cluster: `kubectl apply -f awx/sops-secrets/awx-admin.sops.yaml`.
+4. Synchronize the running AWX instance: `kubectl -n awx exec deployment/awx-task -- awx-manage changepassword admin '<new-password>'`, then bounce the AWX pods if the operator does not reconcile automatically.
+
+The README contains additional context on storing and auditing the regenerated credential.
+
 ### Refreshing pfSense bootstrap media
 
 pfSense reads configuration overrides from the secondary CD-ROM labelled `pfSense_config` during its first boot. The ISO lives at `${WORK_ROOT}/pfsense/config/pfSense-config.iso` (defaults to `/opt/homelab/pfsense/config/pfSense-config.iso`). When lab addressing or credentials change, regenerate and reattach the media before starting the VM:
