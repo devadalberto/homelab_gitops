@@ -4,6 +4,8 @@ set -euo pipefail
 ASSUME_YES=false
 VERBOSE=false
 ALLOW_UFW=false
+DELETE_PREVIOUS=false
+PREFLIGHT_ONLY=false
 ENV_FILE="./.env"
 STATE_DIR="${HOME}/.homelab"
 STATE_PATH="${STATE_DIR}/state.json"
@@ -47,8 +49,10 @@ log_debug() {
 usage() {
   cat <<'USAGE'
 Usage: preflight_and_bootstrap.sh [--env-file PATH] [--assume-yes] [--allow-ufw] [--verbose]
+                                      [--delete-previous-environment] [--preflight-only]
 
 Runs homelab preflight checks, adapts networking, and bootstraps the Minikube stack.
+Use --preflight-only to run host checks without invoking the bootstrap script.
 USAGE
 }
 
@@ -108,6 +112,14 @@ parse_args() {
         ;;
       --verbose)
         VERBOSE=true
+        shift
+        ;;
+      --delete-previous-environment)
+        DELETE_PREVIOUS=true
+        shift
+        ;;
+      --preflight-only)
+        PREFLIGHT_ONLY=true
         shift
         ;;
       -h|--help)
@@ -628,26 +640,32 @@ restart_minikube_if_needed() {
   local cpus="${LABZ_MINIKUBE_CPUS:-4}"
   local memory="${LABZ_MINIKUBE_MEMORY:-8192}"
   local disk="${LABZ_MINIKUBE_DISK:-60g}"
+  local extra_args="--kubernetes-version=v1.33.1 --cni=bridge --extra-config=kubeadm.pod-network-cidr=10.244.0.0/16 --extra-config=apiserver.service-node-port-range=30000-32767"
   if [[ ${NEED_MINIKUBE_RESTART} -eq 1 ]]; then
-    require_command minikube
-    log_warn "System changes detected; restarting Minikube profile ${profile}"
-    minikube stop -p "${profile}" >/dev/null 2>&1 || true
-    minikube start \
-      -p "${profile}" \
-      --driver="${driver}" \
-      --cpus="${cpus}" \
-      --memory="${memory}" \
-      --disk-size="${disk}" \
-      --kubernetes-version=v1.33.1 \
-      --cni=bridge \
-      --extra-config=kubeadm.pod-network-cidr=10.244.0.0/16 \
-      --extra-config=apiserver.service-node-port-range=30000-32767
-    SKIP_MINIKUBE_START="true"
+    if [[ "${PREFLIGHT_ONLY}" == "true" ]]; then
+      log_warn "System changes detected; defer Minikube restart until bootstrap runs"
+      SKIP_MINIKUBE_START="false"
+    else
+      require_command minikube
+      log_warn "System changes detected; restarting Minikube profile ${profile}"
+      minikube stop -p "${profile}" >/dev/null 2>&1 || true
+      minikube start \
+        -p "${profile}" \
+        --driver="${driver}" \
+        --cpus="${cpus}" \
+        --memory="${memory}" \
+        --disk-size="${disk}" \
+        --kubernetes-version=v1.33.1 \
+        --cni=bridge \
+        --extra-config=kubeadm.pod-network-cidr=10.244.0.0/16 \
+        --extra-config=apiserver.service-node-port-range=30000-32767
+      SKIP_MINIKUBE_START="true"
+    fi
   else
     SKIP_MINIKUBE_START="false"
   fi
   export SKIP_MINIKUBE_START
-  export LABZ_MINIKUBE_EXTRA_ARGS="--kubernetes-version=v1.33.1 --cni=bridge --extra-config=kubeadm.pod-network-cidr=10.244.0.0/16 --extra-config=apiserver.service-node-port-range=30000-32767"
+  export LABZ_MINIKUBE_EXTRA_ARGS="${extra_args}"
 }
 
 run_child_scripts() {
@@ -656,6 +674,9 @@ run_child_scripts() {
     args+=("--assume-yes")
   fi
   args+=("--env-file" "${ENV_FILE}")
+  if [[ "${DELETE_PREVIOUS}" == "true" ]]; then
+    args+=("--delete-previous-environment")
+  fi
   if [[ -x "scripts/uranus_nuke_and_bootstrap.sh" ]]; then
     log_info "Executing uranus_nuke_and_bootstrap.sh"
     (cd "${REPO_ROOT}" && scripts/uranus_nuke_and_bootstrap.sh "${args[@]}")
@@ -826,6 +847,11 @@ main() {
   export METALLB_HELM_VERSION
   run_os_preflight
   restart_minikube_if_needed
+  if [[ "${PREFLIGHT_ONLY}" == "true" ]]; then
+    write_state
+    log_info "Preflight checks completed; bootstrap skipped by --preflight-only"
+    return
+  fi
   run_child_scripts
   ensure_kubectl_context
   ensure_kube_proxy_mode

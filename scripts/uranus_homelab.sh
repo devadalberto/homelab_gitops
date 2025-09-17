@@ -55,6 +55,15 @@ if [[ "${DELETE_PREVIOUS}" == "true" ]]; then
   BOOTSTRAP_ARGS+=("--delete-previous-environment")
 fi
 
+PREFLIGHT_ARGS=("${COMMON_ARGS[@]}")
+if [[ "${DELETE_PREVIOUS}" == "true" ]]; then
+  PREFLIGHT_ARGS+=("--delete-previous-environment")
+fi
+PREFLIGHT_ARGS+=("--preflight-only")
+
+log "Running preflight checks"
+"${SCRIPT_DIR}/preflight_and_bootstrap.sh" "${PREFLIGHT_ARGS[@]}"
+
 log "Running nuke and bootstrap"
 "${SCRIPT_DIR}/uranus_nuke_and_bootstrap.sh" "${BOOTSTRAP_ARGS[@]}"
 
