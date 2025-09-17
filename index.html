@@ -355,6 +355,15 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#traefik-dashboard" class="md-nav__link">
+    <span class="md-ellipsis">
+      Traefik Dashboard
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#enabling-nat-examples" class="md-nav__link">
     <span class="md-ellipsis">
       Enabling NAT Examples
@@ -577,6 +586,23 @@ virsh<span class="w"> </span>shutdown<span class="w"> </span><span class="si">${
 <p>Export root CA to trust on clients:</p>
 <div class="highlight"><pre><span></span><code>kubectl<span class="w"> </span>-n<span class="w"> </span>cert-manager<span class="w"> </span>get<span class="w"> </span>secret<span class="w"> </span>labz-root-ca-secret<span class="w"> </span>-o<span class="w"> </span><span class="nv">jsonpath</span><span class="o">=</span><span class="s1">&#39;{.data.ca\.crt}&#39;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>base64<span class="w"> </span>-d<span class="w"> </span>&gt;<span class="w"> </span>labz-root-ca.crt
 </code></pre></div>
+<h2 id="traefik-dashboard">Traefik Dashboard<a class="headerlink" href="#traefik-dashboard" title="Permanent link">&para;</a></h2>
+<p>The Traefik dashboard is published at <a href="https://traefik.labz.home.arpa/dashboard/">https://traefik.labz.home.arpa/dashboard/</a> behind the <code>websecure</code> entry point. The route terminates TLS with the <code>traefik-dashboard-tls</code> certificate issued by <code>labz-ca-issuer</code>, so install the internal root CA on any workstation before browsing.</p>
+<p>Basic authentication protects the dashboard. Use the following credentials when prompted:</p>
+<table>
+<thead>
+<tr>
+<th>Username</th>
+<th>Password</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ops</code></td>
+<td><code>xOps!Traefik2024</code></td>
+</tr>
+</tbody>
+</table>
 <h2 id="enabling-nat-examples">Enabling NAT Examples<a class="headerlink" href="#enabling-nat-examples" title="Permanent link">&para;</a></h2>
 <p>pfSense GUI → <strong>Firewall</strong> → <strong>NAT</strong> → <strong>Port Forward</strong> → edit example → uncheck <strong>Disable</strong> → <strong>Save</strong> → <strong>Apply</strong>. Then navigate to <strong>Firewall</strong> → <strong>Rules</strong> → <strong>WAN</strong> → enable the matching pass rule if present.</p>
 <h2 id="troubleshooting">Troubleshooting<a class="headerlink" href="#troubleshooting" title="Permanent link">&para;</a></h2>
