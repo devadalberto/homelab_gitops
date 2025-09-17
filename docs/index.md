@@ -51,6 +51,16 @@ Export root CA to trust on clients:
 kubectl -n cert-manager get secret labz-root-ca-secret -o jsonpath='{.data.ca\.crt}' | base64 -d > labz-root-ca.crt
 ```
 
+## Traefik Dashboard
+
+The Traefik dashboard is published at [https://traefik.labz.home.arpa/dashboard/](https://traefik.labz.home.arpa/dashboard/) behind the `websecure` entry point. The route terminates TLS with the `traefik-dashboard-tls` certificate issued by `labz-ca-issuer`, so install the internal root CA on any workstation before browsing.
+
+Basic authentication protects the dashboard. Use the following credentials when prompted:
+
+| Username | Password           |
+| -------- | ------------------ |
+| `ops`    | `xOps!Traefik2024` |
+
 ## Enabling NAT Examples
 
 pfSense GUI → **Firewall** → **NAT** → **Port Forward** → edit example → uncheck **Disable** → **Save** → **Apply**. Then navigate to **Firewall** → **Rules** → **WAN** → enable the matching pass rule if present.
