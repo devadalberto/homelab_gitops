@@ -1,0 +1,61 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - helmrepo.yaml
+  - release.yaml
+  - certs.yaml
+configMapGenerator:
+  - name: observability-settings
+    envs:
+      - params.env
+generatorOptions:
+  disableNameSuffixHash: true
+replacements:
+  - source:
+      kind: ConfigMap
+      name: observability-settings
+      fieldPath: data.GRAFANA_HOST
+    targets:
+      - select:
+          kind: HelmRelease
+          name: kube-prometheus-stack
+        fieldPaths:
+          - spec.values.grafana.ingress.hosts.0
+          - spec.values.grafana.ingress.tls.0.hosts.0
+      - select:
+          kind: Certificate
+          name: grafana-cert
+        fieldPaths:
+          - spec.dnsNames.0
+  - source:
+      kind: ConfigMap
+      name: observability-settings
+      fieldPath: data.PROMETHEUS_HOST
+    targets:
+      - select:
+          kind: HelmRelease
+          name: kube-prometheus-stack
+        fieldPaths:
+          - spec.values.prometheus.ingress.hosts.0
+          - spec.values.prometheus.ingress.tls.0.hosts.0
+      - select:
+          kind: Certificate
+          name: prom-cert
+        fieldPaths:
+          - spec.dnsNames.0
+  - source:
+      kind: ConfigMap
+      name: observability-settings
+      fieldPath: data.ALERTMANAGER_HOST
+    targets:
+      - select:
+          kind: HelmRelease
+          name: kube-prometheus-stack
+        fieldPaths:
+          - spec.values.alertmanager.ingress.hosts.0
+          - spec.values.alertmanager.ingress.tls.0.hosts.0
+      - select:
+          kind: Certificate
+          name: alert-cert
+        fieldPaths:
+          - spec.dnsNames.0

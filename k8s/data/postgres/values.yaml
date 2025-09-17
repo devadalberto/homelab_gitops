@@ -1,6 +1,6 @@
 primary:
   persistence:
     enabled: true
-    size: ${PG_STORAGE_SIZE}
+    size: $(PG_STORAGE_SIZE)
 auth:
   postgresPassword: "postgres"

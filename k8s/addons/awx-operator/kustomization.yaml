@@ -1,3 +1,49 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-resources: []
+resources:
+  - source.yaml
+  - operator-kustomization.yaml
+  - awx.yaml
+  - certificates.yaml
+configMapGenerator:
+  - name: awx-settings
+    envs:
+      - params.env
+generatorOptions:
+  disableNameSuffixHash: true
+replacements:
+  - source:
+      kind: ConfigMap
+      name: awx-settings
+      fieldPath: data.AWX_HOST
+    targets:
+      - select:
+          kind: AWX
+          name: awx
+        fieldPaths:
+          - spec.hostname
+      - select:
+          kind: Certificate
+          name: awx-cert
+        fieldPaths:
+          - spec.dnsNames.0
+  - source:
+      kind: ConfigMap
+      name: awx-settings
+      fieldPath: data.AWX_ADMIN_USER
+    targets:
+      - select:
+          kind: AWX
+          name: awx
+        fieldPaths:
+          - spec.admin_user
+  - source:
+      kind: ConfigMap
+      name: awx-settings
+      fieldPath: data.AWX_ADMIN_PASSWORD
+    targets:
+      - select:
+          kind: Secret
+          name: awx-admin
+        fieldPaths:
+          - stringData.password

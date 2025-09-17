@@ -5,12 +5,12 @@ metadata:
   namespace: awx
 spec:
   service_type: ClusterIP
-  admin_user: ${AWX_ADMIN_USER}
+  admin_user: $(AWX_ADMIN_USER)
   admin_password_secret: awx-admin
   postgres_configuration_secret: ""
   ingress_type: ingress
   ingress_tls_secret: awx-tls
-  hostname: awx.lab-minikube.labz.home.arpa
+  hostname: $(AWX_HOST)
   replicas: 1
   web_replicas: 1
   task_replicas: 1
@@ -23,4 +23,4 @@ metadata:
   namespace: awx
 type: Opaque
 stringData:
-  password: "$(tr -dc A-Za-z0-9 </dev/urandom | head -c 16)"
+  password: $(AWX_ADMIN_PASSWORD)

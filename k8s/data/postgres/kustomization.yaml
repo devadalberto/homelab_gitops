@@ -1,0 +1,44 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - helmrepo.yaml
+  - release.yaml
+  - backup-pv.yaml
+  - backup-cron.yaml
+configMapGenerator:
+  - name: postgres-settings
+    envs:
+      - params.env
+generatorOptions:
+  disableNameSuffixHash: true
+replacements:
+  - source:
+      kind: ConfigMap
+      name: postgres-settings
+      fieldPath: data.PG_BACKUP_HOSTPATH
+    targets:
+      - select:
+          kind: PersistentVolume
+          name: pg-backups-pv
+        fieldPaths:
+          - spec.hostPath.path
+  - source:
+      kind: ConfigMap
+      name: postgres-settings
+      fieldPath: data.PG_STORAGE_SIZE
+    targets:
+      - select:
+          kind: PersistentVolume
+          name: pg-backups-pv
+        fieldPaths:
+          - spec.capacity.storage
+      - select:
+          kind: PersistentVolumeClaim
+          name: pg-backups-pvc
+        fieldPaths:
+          - spec.resources.requests.storage
+      - select:
+          kind: HelmRelease
+          name: pg
+        fieldPaths:
+          - spec.values.primary.persistence.size

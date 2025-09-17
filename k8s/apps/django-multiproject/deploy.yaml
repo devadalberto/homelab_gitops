@@ -11,7 +11,7 @@ spec:
     spec:
       containers:
         - name: djangomultiproject
-          image: hashicorp/http-echo:0.2.3
+          image: $(DJANGO_IMAGE)
           imagePullPolicy: IfNotPresent
           args:
             - "-text=Hello from the Django multiproject demo"
@@ -34,7 +34,7 @@ kind: Certificate
 metadata: { name: djangomultiproject-cert, namespace: apps }
 spec:
   secretName: djangomultiproject-tls
-  dnsNames: ["app.lab-minikube.labz.home.arpa"]
+  dnsNames: ["$(DJANGO_HOST)"]
   issuerRef: { name: labz-ca-issuer, kind: ClusterIssuer }
 ---
 apiVersion: networking.k8s.io/v1
@@ -45,9 +45,9 @@ metadata:
   annotations:
     kubernetes.io/ingress.class: traefik
 spec:
-  tls: [{ secretName: djangomultiproject-tls, hosts: ["app.lab-minikube.labz.home.arpa"] }]
+  tls: [{ secretName: djangomultiproject-tls, hosts: ["$(DJANGO_HOST)"] }]
   rules:
-    - host: app.lab-minikube.labz.home.arpa
+    - host: $(DJANGO_HOST)
       http:
         paths:
           - path: /

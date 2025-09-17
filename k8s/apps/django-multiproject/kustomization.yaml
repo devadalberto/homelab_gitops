@@ -1,0 +1,37 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - deploy.yaml
+configMapGenerator:
+  - name: django-multiproject-settings
+    envs:
+      - params.env
+generatorOptions:
+  disableNameSuffixHash: true
+replacements:
+  - source:
+      kind: ConfigMap
+      name: django-multiproject-settings
+      fieldPath: data.DJANGO_IMAGE
+    targets:
+      - select:
+          kind: Deployment
+          name: djangomultiproject
+        fieldPaths:
+          - spec.template.spec.containers.[name=djangomultiproject].image
+  - source:
+      kind: ConfigMap
+      name: django-multiproject-settings
+      fieldPath: data.DJANGO_HOST
+    targets:
+      - select:
+          kind: Certificate
+          name: djangomultiproject-cert
+        fieldPaths:
+          - spec.dnsNames.0
+      - select:
+          kind: Ingress
+          name: djangomultiproject
+        fieldPaths:
+          - spec.tls.0.hosts.0
+          - spec.rules.0.host

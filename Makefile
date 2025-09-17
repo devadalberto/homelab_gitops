@@ -27,7 +27,7 @@ docs: docs-diagrams
 docs-serve: docs-diagrams
 	$(MKDOCS) serve -a 0.0.0.0:8000
 
-all: k8s db awx obs apps flux
+all: k8s flux
 
 pfSense:
 	@$(DIR)/pfsense/pf-bootstrap.sh
@@ -37,25 +37,16 @@ k8s:
 	@$(DIR)/k8s/cluster-up.sh
 
 db:
-	@kubectl apply -f $(DIR)/data/postgres/backup-pv.yaml
-	@helm upgrade --install pg bitnami/postgresql -n data -f $(DIR)/data/postgres/pg-values.yaml --create-namespace --wait
-	@kubectl apply -f $(DIR)/data/postgres/backup-cron.yaml
+        @echo "PostgreSQL is reconciled by Flux (see k8s/data/postgres). Push changes and let Flux apply them."
 
 awx:
-	@kubectl create ns awx --dry-run=client -o yaml | kubectl apply -f -
-	@$(DIR)/awx/operator/install.sh
-	@kubectl apply -f $(DIR)/awx/certs.yaml
-	@kubectl apply -f $(DIR)/awx/awx-small.yaml
+        @echo "The AWX operator and instance are managed by Flux (k8s/addons/awx-operator)."
 
 obs:
-	@kubectl create ns observability --dry-run=client -o yaml | kubectl apply -f -
-	@helm upgrade --install kps prometheus-community/kube-prometheus-stack -n observability -f $(DIR)/observability/kps-values.yaml --wait
-	@kubectl apply -f $(DIR)/observability/certs.yaml
+        @echo "Observability stack is deployed via Flux HelmRelease (k8s/observability)."
 
 apps:
-	@kubectl create ns apps --dry-run=client -o yaml | kubectl apply -f -
-	@$(DIR)/apps/django-multiproject/load-image.sh || true
-	@envsubst < $(DIR)/apps/django-multiproject/deploy.yaml | kubectl apply -f -
+        @echo "Application manifests live under k8s/apps and are reconciled by Flux."
 
 flux:
 	@$(DIR)/flux/install.sh

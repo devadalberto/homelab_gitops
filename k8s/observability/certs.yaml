@@ -5,7 +5,7 @@ metadata:
   namespace: observability
 spec:
   secretName: grafana-tls
-  dnsNames: ["grafana.lab-minikube.labz.home.arpa"]
+  dnsNames: ["$(GRAFANA_HOST)"]
   issuerRef: { name: labz-ca-issuer, kind: ClusterIssuer }
 ---
 apiVersion: cert-manager.io/v1
@@ -15,7 +15,7 @@ metadata:
   namespace: observability
 spec:
   secretName: prom-tls
-  dnsNames: ["prom.lab-minikube.labz.home.arpa"]
+  dnsNames: ["$(PROMETHEUS_HOST)"]
   issuerRef: { name: labz-ca-issuer, kind: ClusterIssuer }
 ---
 apiVersion: cert-manager.io/v1
@@ -25,5 +25,5 @@ metadata:
   namespace: observability
 spec:
   secretName: alert-tls
-  dnsNames: ["alert.lab-minikube.labz.home.arpa"]
+  dnsNames: ["$(ALERTMANAGER_HOST)"]
   issuerRef: { name: labz-ca-issuer, kind: ClusterIssuer }

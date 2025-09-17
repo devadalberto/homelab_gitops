@@ -74,7 +74,7 @@ flowchart LR
    ```
    Adjust the bootstrap command for your Git provider (GitHub, GitLab, etc.) and cluster path.
 
-   Flux currently reconciles the `k8s/base` tree (core namespaces and addon scaffolding). The `k8s/apps/*` directories are placeholders until the application manifests are migrated into Flux; for now the workloads are deployed by `scripts/uranus_homelab_apps.sh`.
+Flux reconciles the entire `k8s/base` tree, including the PostgreSQL stack under `k8s/data`, the AWX operator, the kube-prometheus-stack release, and sample applications such as the Django multiproject demo. Helper scripts like `scripts/uranus_homelab_apps.sh` now simply instruct you to push manifest updates and trigger a Flux reconciliation.
 
 4. **Access the applications**
    - Configure pfSense DNS overrides (see below).
@@ -119,20 +119,21 @@ Use a TTL of 300 seconds (5 minutes). Ensure pfSense hands out its own IP as the
 
 ```text
 .
-├── apps/                       # Imperative manifests/scripts used by helper automation
-│   ├── django-multiproject/    # Example workload applied by scripts/uranus_homelab_apps.sh
+├── apps/                       # Legacy imperative helpers (useful for local image builds)
+│   ├── django-multiproject/    # Legacy helper for loading demo images (Flux applies manifests under k8s/apps)
 │   └── pihole/                 # Sample secrets (encrypt with SOPS before use)
 ├── clusters/
 │   └── minikube/               # Flux bootstrap configuration for the minikube cluster
-├── data/                       # Persistent data scaffolding (e.g., Postgres volumes)
 ├── flux/                       # Flux installation helper scripts
 ├── k8s/                        # Kubernetes manifests organized by component
 │   ├── addons/                 # MetalLB, Traefik, cert-manager, AWX Operator, etc.
-│   ├── apps/                   # Placeholders reserved for future Flux-managed apps
-│   ├── base/                   # Aggregates addons and (placeholder) app trees for Flux
+│   ├── apps/                   # Flux-managed workloads (e.g., Django multiproject demo)
+│   ├── base/                   # Aggregates addons, data services, and apps for Flux
 │   ├── cert-manager/           # Additional cert-manager configuration
+│   ├── data/                   # Persistent services such as PostgreSQL backups
+│   ├── namespaces/             # Namespace definitions reconciled by Flux
+│   ├── observability/          # kube-prometheus-stack release and TLS assets
 │   └── traefik/                # Traefik-specific manifests
-├── observability/              # Monitoring related values (e.g., kps-values.yaml)
 ├── pfsense/                    # pfSense bootstrap and configuration templates
 ├── scripts/                    # Host/bootstrap automation (uranus_* helpers)
 ├── Makefile                    # Convenience targets for bootstrap workflows
