@@ -15,6 +15,11 @@ MERMAID_TARGETS := $(MERMAID_SOURCES:.mmd=.svg)
 MKDOCS ?= mkdocs
 MKDOCS_BUILD_FLAGS ?= --strict
 
+POSTGRES_HELM_VERSION ?= $(LABZ_POSTGRES_HELM_VERSION)
+POSTGRES_HELM_VERSION ?= 15.5.32
+KPS_HELM_VERSION ?= $(LABZ_KPS_HELM_VERSION)
+KPS_HELM_VERSION ?= 61.6.0
+
 docs-diagrams: $(MERMAID_TARGETS)
 
 docs/%.svg: docs/%.mmd
@@ -37,13 +42,17 @@ k8s:
 	@$(DIR)/k8s/cluster-up.sh
 
 db:
-        @echo "PostgreSQL is reconciled by Flux (see k8s/data/postgres). Push changes and let Flux apply them."
+	@kubectl apply -f $(DIR)/data/postgres/backup-pv.yaml
+	@helm upgrade --install pg bitnami/postgresql --version $(POSTGRES_HELM_VERSION) -n data -f $(DIR)/data/postgres/pg-values.yaml --create-namespace --wait
+	@kubectl apply -f $(DIR)/data/postgres/backup-cron.yaml
 
 awx:
         @echo "The AWX operator and instance are managed by Flux (k8s/addons/awx-operator)."
 
 obs:
-        @echo "Observability stack is deployed via Flux HelmRelease (k8s/observability)."
+	@kubectl create ns observability --dry-run=client -o yaml | kubectl apply -f -
+	@helm upgrade --install kps prometheus-community/kube-prometheus-stack --version $(KPS_HELM_VERSION) -n observability -f $(DIR)/observability/kps-values.yaml --wait
+	@kubectl apply -f $(DIR)/observability/certs.yaml
 
 apps:
         @echo "Application manifests live under k8s/apps and are reconciled by Flux."
