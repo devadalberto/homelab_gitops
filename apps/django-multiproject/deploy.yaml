@@ -30,7 +30,7 @@ metadata: { name: djangomultiproject, namespace: apps }
 spec:
   selector: { app: djangomultiproject }
   ports: [{ port: 80, targetPort: 8000, name: http }]
-  type: LoadBalancer
+  type: ClusterIP
 ---
 apiVersion: cert-manager.io/v1
 kind: Certificate
