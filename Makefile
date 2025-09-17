@@ -43,7 +43,6 @@ db:
 
 awx:
 	@kubectl create ns awx --dry-run=client -o yaml | kubectl apply -f -
-	@$(DIR)/awx/operator/install.sh
 	@kubectl apply -f $(DIR)/awx/certs.yaml
 	@kubectl apply -f $(DIR)/awx/awx-small.yaml
 
