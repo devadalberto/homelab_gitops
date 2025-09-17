@@ -10,13 +10,13 @@
       
       
       
-        <link rel="canonical" href="https://devadalberto.github.io/homelab_gitops/architecture/">
+        <link rel="canonical" href="https://devadalberto.github.io/homelab_gitops/observability/">
       
       
-        <link rel="prev" href="..">
+        <link rel="prev" href="../architecture/">
       
       
-        <link rel="next" href="../observability/">
+        <link rel="next" href="../docs-workflow/">
       
       
       <link rel="icon" href="../assets/images/favicon.png">
@@ -24,7 +24,7 @@
     
     
       
-        <title>Architecture - Homelab GitOps</title>
+        <title>Observability Operations - Homelab GitOps</title>
       
     
     
@@ -76,7 +76,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#architecture" class="md-skip">
+        <a href="#observability-operations" class="md-skip">
           Skip to content
         </a>
       
@@ -112,7 +112,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Architecture
+              Observability Operations
             
           </span>
         </div>
@@ -275,6 +275,28 @@
       
   
   
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Architecture
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
     
   
   
@@ -292,7 +314,7 @@
   
   
   <span class="md-ellipsis">
-    Architecture
+    Observability Operations
     
   </span>
   
@@ -305,7 +327,7 @@
   
   
   <span class="md-ellipsis">
-    Architecture
+    Observability Operations
     
   </span>
   
@@ -328,46 +350,46 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#platform-layers" class="md-nav__link">
+  <a href="#grafana-admin-credential-management" class="md-nav__link">
     <span class="md-ellipsis">
-      Platform Layers
+      Grafana admin credential management
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Platform Layers">
+    <nav class="md-nav" aria-label="Grafana admin credential management">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#network-edge" class="md-nav__link">
+  <a href="#prerequisites" class="md-nav__link">
     <span class="md-ellipsis">
-      Network &amp; Edge
+      Prerequisites
     </span>
   </a>
   
 </li>
         
           <li class="md-nav__item">
-  <a href="#cluster-runtime" class="md-nav__link">
+  <a href="#retrieve-the-password" class="md-nav__link">
     <span class="md-ellipsis">
-      Cluster Runtime
+      Retrieve the password
     </span>
   </a>
   
 </li>
         
           <li class="md-nav__item">
-  <a href="#stateful-services" class="md-nav__link">
+  <a href="#rotate-the-password" class="md-nav__link">
     <span class="md-ellipsis">
-      Stateful Services
+      Rotate the password
     </span>
   </a>
   
 </li>
         
           <li class="md-nav__item">
-  <a href="#user-facing-applications" class="md-nav__link">
+  <a href="#why-this-matters" class="md-nav__link">
     <span class="md-ellipsis">
-      User-Facing Applications
+      Why this matters
     </span>
   </a>
   
@@ -378,68 +400,10 @@
   
 </li>
       
-        <li class="md-nav__item">
-  <a href="#gitops-flow" class="md-nav__link">
-    <span class="md-ellipsis">
-      GitOps Flow
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#secrets-certificates" class="md-nav__link">
-    <span class="md-ellipsis">
-      Secrets &amp; Certificates
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#backup-disaster-recovery" class="md-nav__link">
-    <span class="md-ellipsis">
-      Backup &amp; Disaster Recovery
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#extending-the-platform" class="md-nav__link">
-    <span class="md-ellipsis">
-      Extending the Platform
-    </span>
-  </a>
-  
-</li>
-      
     </ul>
   
 </nav>
       
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../observability/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    Observability Operations
-    
-  </span>
-  
-
-      </a>
     </li>
   
 
@@ -504,7 +468,7 @@
 
 
   
-    <a href="https://github.com/devadalberto/homelab_gitops/edit/main/docs/architecture.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+    <a href="https://github.com/devadalberto/homelab_gitops/edit/main/docs/observability.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
       
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
     </a>
@@ -512,61 +476,49 @@
   
 
 
-<h1 id="architecture">Architecture<a class="headerlink" href="#architecture" title="Permanent link">&para;</a></h1>
-<p>The Uranus homelab stitches together on-premises virtualization, Kubernetes tooling, and GitOps pipelines so that every environment can be reproduced deterministically. The following overview diagram highlights the primary subsystems and the traffic flow between them.</p>
-<p><img alt="Homelab component overview" src="../diagrams/homelab-overview.svg" /></p>
-<h2 id="platform-layers">Platform Layers<a class="headerlink" href="#platform-layers" title="Permanent link">&para;</a></h2>
-<h3 id="network-edge">Network &amp; Edge<a class="headerlink" href="#network-edge" title="Permanent link">&para;</a></h3>
-<ul>
-<li><strong>pfSense CE</strong> supplies DHCP, DNS, and outbound NAT for the homelab VLAN. Firewall port-forward examples remain disabled by default so operators can opt in to each exposure after validating policies.</li>
-<li><strong>MetalLB</strong> advertises LoadBalancer services within the <code>10.10.0.0/24</code> range published by pfSense. The values are templated via environment variables inside <code>.env</code> to keep addresses portable between labs.</li>
-<li><strong>Traefik</strong> terminates TLS using certificates issued by the internal cert-manager hierarchy and provides a default ingress class for workloads.</li>
-</ul>
-<h3 id="cluster-runtime">Cluster Runtime<a class="headerlink" href="#cluster-runtime" title="Permanent link">&para;</a></h3>
-<ul>
-<li><strong>Minikube</strong> forms the base Kubernetes control plane. Bootstrap scripts configure container runtimes, storage classes, and hostPath directories aligned with the repository layout.</li>
-<li><strong>Flux</strong> reconciles Helm releases and Kubernetes manifests stored in this Git repository, ensuring the cluster continuously converges towards the desired state.</li>
-<li><strong>Cert-Manager</strong> provisions a root Certificate Authority and application leaf certs. The root CA can be exported through the command in the <a href="../#internal-ca">Quickstart</a>.</li>
-</ul>
-<h3 id="stateful-services">Stateful Services<a class="headerlink" href="#stateful-services" title="Permanent link">&para;</a></h3>
-<ul>
-<li><strong>PostgreSQL (Bitnami chart)</strong> runs in the <code>data</code> namespace. A nightly CronJob pushes WAL backups to the hostPath defined by <code>LABZ_MOUNT_BACKUPS</code>.</li>
-<li><strong>Persistent hostPath volumes</strong> for application storage are parameterized through <code>.env</code> to align with local disk layout.</li>
-</ul>
-<h3 id="user-facing-applications">User-Facing Applications<a class="headerlink" href="#user-facing-applications" title="Permanent link">&para;</a></h3>
-<ul>
-<li><strong>AWX</strong> provides Ansible automation inside the <code>awx</code> namespace with persistent volumes and TLS termination handled by Traefik.</li>
-<li><strong>Django Multiproject Demo</strong> showcases the platform deployment pipeline, including container image preloading via <code>apps/django-multiproject/load-image.sh</code>.</li>
-<li><strong>Observability stack</strong> is powered by <code>kube-prometheus-stack</code>, exposing Grafana, Prometheus, and Alertmanager through Traefik-managed Ingresses.</li>
-</ul>
-<h2 id="gitops-flow">GitOps Flow<a class="headerlink" href="#gitops-flow" title="Permanent link">&para;</a></h2>
-<p>Flux controllers watch the repository for new commits and reconcile them against the cluster. The sequence diagram below summarizes the control loop when an operator changes a manifest or Helm values file.</p>
-<p><img alt="GitOps reconciliation sequence" src="../diagrams/gitops-flow.svg" /></p>
+<h1 id="observability-operations">Observability Operations<a class="headerlink" href="#observability-operations" title="Permanent link">&para;</a></h1>
+<h2 id="grafana-admin-credential-management">Grafana admin credential management<a class="headerlink" href="#grafana-admin-credential-management" title="Permanent link">&para;</a></h2>
+<p>Grafana is deployed through the <code>kube-prometheus-stack</code> chart. The admin
+credentials are no longer embedded in the values file; instead they live in the
+SOPS-encrypted Secret manifest at
+<code>observability/sops-secrets/grafana-admin.yaml</code>.</p>
+<h3 id="prerequisites">Prerequisites<a class="headerlink" href="#prerequisites" title="Permanent link">&para;</a></h3>
 <ol>
-<li>Developers edit Kubernetes manifests/Helm values and push to the <code>main</code> branch.</li>
-<li>Flux's <strong>source-controller</strong> pulls the repository, verifying commit signatures if configured.</li>
-<li>The <strong>kustomize-controller</strong> and <strong>helm-controller</strong> render templates and compare them against the live cluster state.</li>
-<li>Drift is corrected by applying the resulting manifests through the Kubernetes API server.</li>
-<li>Events and reconciliation status are exported via Prometheus and surfaced inside Grafana dashboards.</li>
+<li>Install <a href="https://github.com/getsops/sops">SOPS</a> on your workstation.</li>
+<li>Import the <strong>Homelab SOPS</strong> GPG key (<code>06D8D7726588CB103AE9717413BF4A9EA7B7C3F8</code>)
+   from the team credential vault into your local keyring. This key is <strong>not</strong>
+   stored in the repository; request access through the normal secure channel if
+   it is not already present.</li>
 </ol>
-<h2 id="secrets-certificates">Secrets &amp; Certificates<a class="headerlink" href="#secrets-certificates" title="Permanent link">&para;</a></h2>
-<ul>
-<li>SOPS/AGE secret placeholders live in the repo (<code>.sops/</code>). Actual encrypted files should be stored separately and decrypted only on trusted hosts.</li>
-<li>Cert-manager manages a two-tier CA (root + intermediate). Root certificates are available as Kubernetes secrets and can be exported for browser/device trust.</li>
-<li>Traefik ingress routes always reference TLS secrets; the repo defaults to the internal CA but can be swapped for ACME with external DNS integration.</li>
-</ul>
-<h2 id="backup-disaster-recovery">Backup &amp; Disaster Recovery<a class="headerlink" href="#backup-disaster-recovery" title="Permanent link">&para;</a></h2>
-<ul>
-<li>PostgreSQL backups are scheduled by the CronJob in <code>data/postgres/backup-cron.yaml</code>.</li>
-<li>HostPath directories are prepared by <code>scripts/uranus_homelab.sh</code>, which can optionally wipe and recreate volumes for a clean re-provisioning.</li>
-<li>To restore, re-run the bootstrap scripts (<code>make up</code>) and re-apply the saved secrets using Flux or manual <code>kubectl</code> commands.</li>
-</ul>
-<h2 id="extending-the-platform">Extending the Platform<a class="headerlink" href="#extending-the-platform" title="Permanent link">&para;</a></h2>
-<ul>
-<li>Add new apps by creating namespaces in <code>apps/</code> and referencing them inside the main <code>Makefile</code> or Flux <code>kustomizations</code>.</li>
-<li>Leverage the documentation pipeline described in <a href="../docs-workflow/">Documentation Workflow</a> to record decisions, diagrams, and operational runbooks.</li>
-<li>Use the GitHub Pages deployment to surface the latest diagrams and Markdown whenever changes merge into <code>main</code>.</li>
-</ul>
+<h3 id="retrieve-the-password">Retrieve the password<a class="headerlink" href="#retrieve-the-password" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="c1"># Decrypt the manifest and print the admin credentials</span>
+sops<span class="w"> </span>-d<span class="w"> </span>observability/sops-secrets/grafana-admin.yaml<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span><span class="p">|</span><span class="w"> </span>yq<span class="w"> </span><span class="s1">&#39;.stringData[&quot;admin-user&quot;] + &quot;:&quot; + .stringData[&quot;admin-password&quot;]&#39;</span><span class="w"> </span>-r
+</code></pre></div>
+<h3 id="rotate-the-password">Rotate the password<a class="headerlink" href="#rotate-the-password" title="Permanent link">&para;</a></h3>
+<ol>
+<li>Open the manifest with <code>sops</code>:
+   <div class="highlight"><pre><span></span><code>sops<span class="w"> </span>observability/sops-secrets/grafana-admin.yaml
+</code></pre></div></li>
+<li>Replace the value under <code>stringData.admin-password</code> with a new random
+   password. The helper below generates a 32-character value:
+   <div class="highlight"><pre><span></span><code>python<span class="w"> </span>-<span class="w"> </span><span class="s">&lt;&lt;&#39;PY&#39;</span>
+<span class="s">import secrets, string</span>
+<span class="s">alphabet = string.ascii_letters + string.digits + &#39;!@#$%^&amp;*()-_=+&#39;</span>
+<span class="s">print(&#39;&#39;.join(secrets.choice(alphabet) for _ in range(32)))</span>
+<span class="s">PY</span>
+</code></pre></div></li>
+<li>Save and exit; <code>sops</code> will re-encrypt the document automatically.</li>
+<li>Commit the updated secret and let Flux reconcile, or apply it manually if you
+   need the change immediately:
+   <div class="highlight"><pre><span></span><code>kubectl<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span>observability/sops-secrets/grafana-admin.yaml
+</code></pre></div></li>
+</ol>
+<h3 id="why-this-matters">Why this matters<a class="headerlink" href="#why-this-matters" title="Permanent link">&para;</a></h3>
+<p>The chart values file (<code>observability/kps-values.yaml</code>) now points Grafana at the
+<code>grafana-admin</code> Secret via <code>grafana.admin.existingSecret</code>. This keeps credentials
+out of Git history while still allowing GitOps workflows to manage the rendered
+Secret manifest.</p>
 
 
 
@@ -596,7 +548,7 @@
       <nav class="md-footer__inner md-grid" aria-label="Footer" >
         
           
-          <a href=".." class="md-footer__link md-footer__link--prev" aria-label="Previous: Overview">
+          <a href="../architecture/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Architecture">
             <div class="md-footer__button md-icon">
               
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
@@ -606,20 +558,20 @@
                 Previous
               </span>
               <div class="md-ellipsis">
-                Overview
+                Architecture
               </div>
             </div>
           </a>
         
         
           
-          <a href="../observability/" class="md-footer__link md-footer__link--next" aria-label="Next: Observability Operations">
+          <a href="../docs-workflow/" class="md-footer__link md-footer__link--next" aria-label="Next: Documentation Workflow">
             <div class="md-footer__title">
               <span class="md-footer__direction">
                 Next
               </span>
               <div class="md-ellipsis">
-                Observability Operations
+                Documentation Workflow
               </div>
             </div>
             <div class="md-footer__button md-icon">
