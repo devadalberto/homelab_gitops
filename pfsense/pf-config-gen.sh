@@ -5,7 +5,12 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 OUTDIR="${WORK_ROOT}/pfsense/config"
 TPL="${ROOT}/pfsense/templates/config.xml.j2"
+ISO_LABEL="pfSense_config"
+ISO_STAGING="${OUTDIR}/iso-root"
+CONFIG_ISO="${OUTDIR}/pfSense-config.iso"
 mkdir -p "$OUTDIR"
+trap 'rm -rf "${ISO_STAGING}"' EXIT
+rm -rf "${ISO_STAGING}"
 
 python3 - "$METALLB_POOL_START" > "${OUTDIR}/_vips.env" <<'PY'
 import sys, ipaddress
@@ -33,3 +38,17 @@ print(out_path)
 PY
 
 echo "[OK] Generated pfSense config at ${OUTDIR}/config.xml"
+
+mkdir -p "${ISO_STAGING}/conf"
+cp "${OUTDIR}/config.xml" "${ISO_STAGING}/config.xml"
+cp "${OUTDIR}/config.xml" "${ISO_STAGING}/conf/config.xml"
+
+ISO_CMD="$(command -v genisoimage || command -v mkisofs || true)"
+if [[ -z "${ISO_CMD}" ]]; then
+  echo "[ERR] Neither 'genisoimage' nor 'mkisofs' is installed; cannot package config ISO." >&2
+  exit 1
+fi
+
+"${ISO_CMD}" -quiet -V "${ISO_LABEL}" -o "${CONFIG_ISO}" -J -r "${ISO_STAGING}"
+
+echo "[OK] Packaged pfSense config ISO at ${CONFIG_ISO} (label ${ISO_LABEL})"
