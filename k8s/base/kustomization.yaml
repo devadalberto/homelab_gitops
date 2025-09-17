@@ -5,8 +5,10 @@ resources:
   - ../addons/traefik
   - ../addons/cert-manager
   - ../addons/awx-operator
+  - ../data/postgres
   - ../apps/pihole
   - ../apps/nextcloud
   - ../apps/jellyfin
   - ../apps/bitwarden
   - ../apps/homepage
+  - ../apps/django-multiproject

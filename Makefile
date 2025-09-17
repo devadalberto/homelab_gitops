@@ -15,6 +15,11 @@ MERMAID_TARGETS := $(MERMAID_SOURCES:.mmd=.svg)
 MKDOCS ?= mkdocs
 MKDOCS_BUILD_FLAGS ?= --strict
 
+POSTGRES_HELM_VERSION ?= $(LABZ_POSTGRES_HELM_VERSION)
+POSTGRES_HELM_VERSION ?= 15.5.32
+KPS_HELM_VERSION ?= $(LABZ_KPS_HELM_VERSION)
+KPS_HELM_VERSION ?= 61.6.0
+
 docs-diagrams: $(MERMAID_TARGETS)
 
 docs/%.svg: docs/%.mmd
@@ -38,18 +43,17 @@ k8s:
 
 db:
 	@kubectl apply -f $(DIR)/data/postgres/backup-pv.yaml
-	@helm upgrade --install pg bitnami/postgresql -n data -f $(DIR)/data/postgres/pg-values.yaml --create-namespace --wait
+	@helm upgrade --install pg bitnami/postgresql --version $(POSTGRES_HELM_VERSION) -n data -f $(DIR)/data/postgres/pg-values.yaml --create-namespace --wait
 	@kubectl apply -f $(DIR)/data/postgres/backup-cron.yaml
 
 awx:
 	@kubectl create ns awx --dry-run=client -o yaml | kubectl apply -f -
-	@$(DIR)/awx/operator/install.sh
 	@kubectl apply -f $(DIR)/awx/certs.yaml
 	@kubectl apply -f $(DIR)/awx/awx-small.yaml
 
 obs:
 	@kubectl create ns observability --dry-run=client -o yaml | kubectl apply -f -
-	@helm upgrade --install kps prometheus-community/kube-prometheus-stack -n observability -f $(DIR)/observability/kps-values.yaml --wait
+	@helm upgrade --install kps prometheus-community/kube-prometheus-stack --version $(KPS_HELM_VERSION) -n observability -f $(DIR)/observability/kps-values.yaml --wait
 	@kubectl apply -f $(DIR)/observability/certs.yaml
 
 apps:

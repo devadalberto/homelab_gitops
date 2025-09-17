@@ -3,4 +3,6 @@ primary:
     enabled: true
     size: ${PG_STORAGE_SIZE}
 auth:
-  postgresPassword: "postgres"
+  existingSecret: pg-superuser
+  secretKeys:
+    adminPasswordKey: postgres-password

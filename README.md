@@ -78,7 +78,32 @@ flowchart LR
 
 4. **Access the applications**
    - Configure pfSense DNS overrides (see below).
-   - Point a browser at the Traefik, Nextcloud, or other application hostnames once MetalLB assigns VIPs.
+   - Use the published ingress hostnames such as `https://app.lab-minikube.labz.home.arpa/` for the Django multiproject demo (Traefik terminates TLS and routes traffic internally).
+   - Traefik still uses a MetalLB VIP, but workloads are accessed through their DNS entries rather than a service load balancer IP.
+
+## Version Management and Pre-Rollout Testing
+
+Kubernetes, networking addons, and Helm-installed workloads are pinned through environment variables so bootstrap scripts and Flux reconcile against the same chart releases. The defaults live in `.env.example`:
+
+- `LABZ_KUBERNETES_VERSION`
+- `METALLB_HELM_VERSION`
+- `TRAEFIK_HELM_VERSION`
+- `CERT_MANAGER_HELM_VERSION`
+- `LABZ_POSTGRES_HELM_VERSION`
+- `LABZ_KPS_HELM_VERSION`
+
+When bumping versions:
+
+1. Update `.env` (and mirror the change in `.env.example`) with the new chart or Kubernetes release numbers.
+2. Edit the Flux HelmReleases so the controller targets the same versions (for example, `k8s/addons/{metallb,traefik,cert-manager}/release.yaml`).
+3. Review scripts or manifests that reference those versions (such as the Makefile `db`/`obs` targets) to confirm they inherit the new values.
+4. Smoke test locally before merging:
+   - Recreate Minikube if necessary (`minikube delete -p uranus`).
+   - Run `make k8s` to bring up the core addons with the pinned charts.
+   - Execute `make db` and `make obs` to ensure the data and observability stacks install with the new chart versions.
+   - Spot-check `helm list -A` and `kubectl get pods --all-namespaces` for healthy rollouts.
+
+Document the results in the pull request so the Flux-managed environments can be updated confidently.
 
 ## Secrets Management with SOPS and age
 
@@ -90,6 +115,9 @@ Secrets are stored as SOPS-encrypted YAML files within the repository so that ma
   age-keygen -o .sops/age.key
   export SOPS_AGE_KEY_FILE=.sops/age.key
   ```
+  Exporting `SOPS_AGE_KEY_FILE` ensures both the local `sops` CLI and Flux controllers know where to read the private key during
+  reconciliation. Commit the public recipient (in `.sops/.sops.yaml`) but keep `.sops/age.key` out of Git; instead, create a
+  Kubernetes secret (e.g., `flux-system/sops-age`) that mounts the file for Flux.
 - Encrypt or update a secret in place (for example, the Pi-hole admin password template):
   ```bash
   sops --encrypt --in-place apps/pihole/sops-secrets/admin-secret.yaml
@@ -119,6 +147,20 @@ pre-commit run --all-files
 ```
 
 The hooks defined in `.pre-commit-config.yaml` mirror the checks enforced in CI so contributors see the same results locally.
+### Rotate AWX admin credentials
+
+The AWX instance defined in `awx/awx-small.yaml` consumes the `awx-admin` secret, which now lives under `awx/sops-secrets/awx-admin.sops.yaml` so it can be managed with SOPS. To create or rotate the administrator password:
+
+1. Ensure your age key is configured (`export SOPS_AGE_KEY_FILE=.sops/age.key`).
+2. Decrypt the secret for editing: `sops awx/sops-secrets/awx-admin.sops.yaml`.
+3. Generate a new password (for example `python3 -c 'import secrets,string; print("".join(secrets.choice(string.ascii_letters + string.digits) for _ in range(24)))'`).
+4. Replace the `stringData.password` value with the new password and save the file.
+5. Re-encrypt the manifest: `sops --encrypt --in-place awx/sops-secrets/awx-admin.sops.yaml`.
+6. Apply the updated secret to the cluster: `kubectl apply -f awx/sops-secrets/awx-admin.sops.yaml`.
+7. Update the live AWX admin account so it matches the secret: `kubectl -n awx exec deployment/awx-task -- awx-manage changepassword admin '<new-password>'` (supply the password via `read -s` or your clipboard manager to avoid leaving it in shell history).
+8. Optionally bounce the AWX web/task pods if the operator does not reconcile immediately: `kubectl -n awx delete pod -l app.kubernetes.io/name=awx --grace-period=0 --force`.
+
+Store the regenerated password in your password manager after the rotation.
 
 ## pfSense DNS Overrides
 
@@ -127,6 +169,7 @@ Point lab devices at pfSense for DNS resolution and add host overrides via **Ser
 | Hostname | Target | Notes |
 | --- | --- | --- |
 | `traefik.${LABZ_DOMAIN}` | MetalLB virtual IP in `${LABZ_METALLB_RANGE}` | Primary ingress endpoint |
+| `app.lab-minikube.${LABZ_DOMAIN}` | Same MetalLB VIP as Traefik | Django multiproject demo |
 | `cloud.${LABZ_DOMAIN}` | Same MetalLB VIP as Traefik | Nextcloud |
 | `media.${LABZ_DOMAIN}` | Same MetalLB VIP as Traefik | Jellyfin |
 

@@ -1,0 +1,32 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: grafana-admin
+  namespace: observability
+type: Opaque
+stringData:
+  admin-user: ENC[AES256_GCM,data:hLNzXaU=,iv:RQS/F0hEZ9LIfUm9,tag:GZpHarY5iKFtGh9aOfVsiw==,type:str]
+  admin-password: ENC[AES256_GCM,data:8dBIGy/6OhneEqT1ru7jhe2vqrDtCK0juLs5KSudC+s=,iv:VfadmlZg9DW3T4yv,tag:Z1gVLiRHL/cctqyoRE4tHw==,type:str]
+sops:
+  kms: []
+  gcp_kms: []
+  azure_kv: []
+  hc_vault: []
+  age: []
+  pgp:
+    - created_at: "2025-09-17T19:47:04Z"
+      enc: |
+        -----BEGIN PGP MESSAGE-----
+        
+        hF4DWlYw9MbGiVsSAQdAKQELtWMYxL83lavIkY5SxLC/q9L87aj1XdhUnnf2E3gw
+        6CLIhvLsoEAz1kHFgIE7XehboFi9l6yfiG7xGw7FsA4btTnz1QiqAmfP3TkKzZpK
+        1GgBCQIQEKmT9UX7CU6FXUID65Pyee1T4Z9UVoc957fsCPuEkJWthwwgj0bOhEEn
+        KjYvPIzUEoxSl0+F7KGZeQtBqvtgxj2mdGWleinyWLeUeXfS37b83ssLt0W7Eoxq
+        0IXWHLmEkxNYnw==
+        =msmJ
+        -----END PGP MESSAGE-----
+      fp: 06D8D7726588CB103AE9717413BF4A9EA7B7C3F8
+  lastmodified: "2025-09-17T19:47:04Z"
+  mac: ENC[AES256_GCM,data:PR//KqMnVL5p8OXoMhQ8+ztV/uupLeh/j/SyCUYOgox/RxvElfj+W4RKdK63qK5FU2porKONi1L9wMQVS6Ccax1nTGXvw7d/Fg/cDDjzGoxKf1hET+L+JpZ9uAwffIt1N6MK2w7Zr8fR99IWRX9itzeRWxHZxnYRUMcnrfh+h0BW3JPLI25+ay+ubJPsxAJKcC8bpNEWBnluh3Ic9HqnQtsp0Cg9PZtflqkXggVEp2UW8qI1B2GBVuGJhhrKAPKKFJw9tw1Miy2aVaGSKuCiHrlDTpjjYoWD0vrOHrWOSgDV3cmBH3TQtVdtbl8YrKYvOWa6Z0MdAkT6w0XNn1VGprLFPBuDNq1cHJ9JGY2Y9WvJiqMnCCLx88mVqQ7bvmwOZfGyKjYf1p8BTEYYEJ3XGg1KdoyNQ5akUsKQksA6CBExOXSxRFl5/PAmB7VZGgFzTb9Lfd8L/P2kVmh1SO9MV2SnmcisO5sd7FypZsVSj4WSnd9xvhiQzQ==,iv:xAsEuyGiMADoywV0,tag:DjxTBqowI67WyReokTQcvA==,type:str]
+  encrypted_regex: "^(data|stringData)$"
+  version: "3.8.1"

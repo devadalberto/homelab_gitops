@@ -13,7 +13,12 @@ spec:
           containers:
             - name: pg-dump
               image: bitnami/postgresql:16
-              env: [{name: PGPASSWORD, value: "postgres"}]
+              env:
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: pg-superuser
+                      key: postgres-password
               command: ["/bin/bash","-lc"]
               args:
                 - >

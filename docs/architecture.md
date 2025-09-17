@@ -44,6 +44,7 @@ Flux controllers watch the repository for new commits and reconcile them against
 ## Secrets & Certificates
 
 - SOPS/AGE secret placeholders live in the repo (`.sops/`). Actual encrypted files should be stored separately and decrypted only on trusted hosts.
+- Export `SOPS_AGE_KEY_FILE` (for example, `export SOPS_AGE_KEY_FILE="$PWD/.sops/age.key"`) before invoking `sops` locally or running Flux bootstrap scripts so the controllers mount the same private key during reconciliation.
 - Cert-manager manages a two-tier CA (root + intermediate). Root certificates are available as Kubernetes secrets and can be exported for browser/device trust.
 - Traefik ingress routes always reference TLS secrets; the repo defaults to the internal CA but can be swapped for ACME with external DNS integration.
 

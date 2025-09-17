@@ -19,7 +19,10 @@ spec:
           ports: [{ containerPort: 8000 }]
           env:
             - name: DATABASE_URL
-              value: "postgresql://postgres:postgres@pg-postgresql.data.svc.cluster.local:5432/postgres"
+              valueFrom:
+                secretKeyRef:
+                  name: pg-superuser
+                  key: database-url
 ---
 apiVersion: v1
 kind: Service
@@ -27,7 +30,7 @@ metadata: { name: djangomultiproject, namespace: apps }
 spec:
   selector: { app: djangomultiproject }
   ports: [{ port: 80, targetPort: 8000, name: http }]
-  type: LoadBalancer
+  type: ClusterIP
 ---
 apiVersion: cert-manager.io/v1
 kind: Certificate
