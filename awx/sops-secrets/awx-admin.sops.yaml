@@ -1,0 +1,11 @@
+# Encrypt this file with SOPS before committing sensitive values.
+#   sops --encrypt --in-place awx/sops-secrets/awx-admin.sops.yaml
+#   sops awx/sops-secrets/awx-admin.sops.yaml  # to edit/decrypt
+apiVersion: v1
+kind: Secret
+metadata:
+  name: awx-admin
+  namespace: awx
+type: Opaque
+stringData:
+  password: "REPLACE_WITH_SECURE_VALUE"
