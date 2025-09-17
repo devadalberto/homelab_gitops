@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: pg-superuser
+  labels:
+    app.kubernetes.io/component: database
+    app.kubernetes.io/name: postgres
+type: Opaque
+stringData:
+  postgres-password: postgres
+  database-url: postgresql://postgres:postgres@pg-postgresql.data.svc.cluster.local:5432/postgres
