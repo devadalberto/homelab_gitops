@@ -58,7 +58,7 @@ flowchart LR
    ```bash
    ./scripts/uranus_homelab.sh --delete-previous-environment --assume-yes --env-file ./.env
    ```
-   The helper script prepares the host, launches Minikube with the desired configuration, and applies the GitOps manifests. Ensure `kubectl`, `helm`, `minikube`, and `openssl` are installed and available in your `PATH` before running the helper scripts. You can run the same workflow from the Makefile:
+   The helper script prepares the host, launches Minikube with the desired configuration, installs the core addons, and invokes the imperative app deployment helpers in `scripts/`. Ensure `kubectl`, `helm`, `minikube`, and `openssl` are installed and available in your `PATH` before running the helper scripts. You can run the same workflow from the Makefile:
    ```bash
    make up
    ```
@@ -74,13 +74,15 @@ flowchart LR
    ```
    Adjust the bootstrap command for your Git provider (GitHub, GitLab, etc.) and cluster path.
 
+   Flux currently reconciles the `k8s/base` tree (core namespaces and addon scaffolding). The `k8s/apps/*` directories are placeholders until the application manifests are migrated into Flux; for now the workloads are deployed by `scripts/uranus_homelab_apps.sh`.
+
 4. **Access the applications**
    - Configure pfSense DNS overrides (see below).
    - Point a browser at the Traefik, Nextcloud, or other application hostnames once MetalLB assigns VIPs.
 
 ## Secrets Management with SOPS and age
 
-Secrets are stored as SOPS-encrypted YAML files within the repository so that manifests can be committed without exposing credentials.
+Secrets are stored as SOPS-encrypted YAML files within the repository so that manifests can be committed without exposing credentials. The sample application secrets live under `apps/*/sops-secrets/` and should be encrypted before they are committed or applied.
 
 - The default age key is stored in `.sops/age.key`. Generate one if it does not exist:
   ```bash
@@ -88,14 +90,16 @@ Secrets are stored as SOPS-encrypted YAML files within the repository so that ma
   age-keygen -o .sops/age.key
   export SOPS_AGE_KEY_FILE=.sops/age.key
   ```
-- Encrypt or update a secret in place:
+- Encrypt or update a secret in place (for example, the Pi-hole admin password template):
   ```bash
-  sops --encrypt --in-place k8s/apps/nextcloud/values.yaml
+  sops --encrypt --in-place apps/pihole/sops-secrets/admin-secret.yaml
   ```
 - Decrypt for editing:
   ```bash
-  sops k8s/apps/nextcloud/values.yaml
+  sops apps/pihole/sops-secrets/admin-secret.yaml
   ```
+
+If an app has not yet been migrated to Flux, keep its encrypted secret alongside the imperative deployment assets until the GitOps manifests are authored. The repository includes placeholders such as `k8s/apps/nextcloud` to track the future Flux layout, but those directories do not yet contain live manifests.
 
 Flux decrypts the files at reconciliation time by mounting the age key secret. Keep the `.sops/age.key` file out of version control unless you intentionally share the key with trusted collaborators.
 
@@ -115,17 +119,17 @@ Use a TTL of 300 seconds (5 minutes). Ensure pfSense hands out its own IP as the
 
 ```text
 .
-├── apps/                       # Application Helm charts or manifests
-│   ├── django-multiproject
-│   └── pihole
+├── apps/                       # Imperative manifests/scripts used by helper automation
+│   ├── django-multiproject/    # Example workload applied by scripts/uranus_homelab_apps.sh
+│   └── pihole/                 # Sample secrets (encrypt with SOPS before use)
 ├── clusters/
 │   └── minikube/               # Flux bootstrap configuration for the minikube cluster
 ├── data/                       # Persistent data scaffolding (e.g., Postgres volumes)
 ├── flux/                       # Flux installation helper scripts
 ├── k8s/                        # Kubernetes manifests organized by component
 │   ├── addons/                 # MetalLB, Traefik, cert-manager, AWX Operator, etc.
-│   ├── apps/                   # Application HelmRelease definitions and values
-│   ├── base/                   # Shared namespaces and RBAC
+│   ├── apps/                   # Placeholders reserved for future Flux-managed apps
+│   ├── base/                   # Aggregates addons and (placeholder) app trees for Flux
 │   ├── cert-manager/           # Additional cert-manager configuration
 │   └── traefik/                # Traefik-specific manifests
 ├── observability/              # Monitoring related values (e.g., kps-values.yaml)
