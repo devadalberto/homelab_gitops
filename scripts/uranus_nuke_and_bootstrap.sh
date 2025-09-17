@@ -97,6 +97,9 @@ require_vars LABZ_MINIKUBE_PROFILE LABZ_MINIKUBE_DRIVER LABZ_MINIKUBE_CPUS \
   LABZ_MOUNT_MEDIA LABZ_MOUNT_NEXTCLOUD LABZ_METALLB_RANGE \
   METALLB_POOL_START METALLB_POOL_END
 
+: "${LABZ_MINIKUBE_EXTRA_ARGS:=}"
+: "${SKIP_MINIKUBE_START:=false}"
+
 require_command minikube kubectl helm
 
 log "Ensuring host mount directories exist"
@@ -110,12 +113,28 @@ if [[ "${DELETE_PREVIOUS}" == "true" ]]; then
 fi
 
 log "Starting Minikube profile ${LABZ_MINIKUBE_PROFILE}"
-minikube start \
-  --profile "${LABZ_MINIKUBE_PROFILE}" \
-  --driver "${LABZ_MINIKUBE_DRIVER}" \
-  --cpus "${LABZ_MINIKUBE_CPUS}" \
-  --memory "${LABZ_MINIKUBE_MEMORY}" \
+MINIKUBE_ARGS=(
+  --profile "${LABZ_MINIKUBE_PROFILE}"
+  --driver "${LABZ_MINIKUBE_DRIVER}"
+  --cpus "${LABZ_MINIKUBE_CPUS}"
+  --memory "${LABZ_MINIKUBE_MEMORY}"
   --disk-size "${LABZ_MINIKUBE_DISK}"
+)
+if [[ -n "${LABZ_MINIKUBE_EXTRA_ARGS}" ]]; then
+  # shellcheck disable=SC2207
+  read -r -a EXTRA_ARGS <<<"${LABZ_MINIKUBE_EXTRA_ARGS}"
+  MINIKUBE_ARGS+=("${EXTRA_ARGS[@]}")
+fi
+if [[ "${SKIP_MINIKUBE_START}" == "true" ]]; then
+  if minikube status -p "${LABZ_MINIKUBE_PROFILE}" >/dev/null 2>&1; then
+    log "Skipping Minikube start (SKIP_MINIKUBE_START=true and profile already running)"
+  else
+    log "Minikube profile not running; starting despite SKIP_MINIKUBE_START=true"
+    minikube start "${MINIKUBE_ARGS[@]}"
+  fi
+else
+  minikube start "${MINIKUBE_ARGS[@]}"
+fi
 
 log "Switching kubectl context to ${LABZ_MINIKUBE_PROFILE}"
 kubectl config use-context "${LABZ_MINIKUBE_PROFILE}" >/dev/null

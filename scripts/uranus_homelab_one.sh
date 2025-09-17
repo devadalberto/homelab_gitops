@@ -78,6 +78,7 @@ load_env_file "${ENV_FILE}"
 require_vars LABZ_MINIKUBE_PROFILE LABZ_METALLB_RANGE METALLB_POOL_START METALLB_POOL_END
 
 : "${METALLB_HELM_VERSION:=0.14.5}"
+: "${TRAEFIK_LOCAL_IP:=${METALLB_POOL_START}}"
 
 require_command kubectl helm minikube openssl
 
@@ -166,7 +167,7 @@ helm upgrade --install traefik traefik/traefik \
   --namespace traefik \
   --create-namespace \
   --set service.type=LoadBalancer \
-  --set service.spec.loadBalancerIP="${METALLB_POOL_START}" \
+  --set service.spec.loadBalancerIP="${TRAEFIK_LOCAL_IP}" \
   --set ports.web.redirectTo=websecure \
   --set ports.websecure.tls.enabled=true \
   --set ingressRoute.dashboard.enabled=true \
