@@ -479,6 +479,7 @@ cp<span class="w"> </span>.env.example<span class="w"> </span>.env
 <span class="c1"># Edit passwords, ranges, and mount paths if needed</span>
 make<span class="w"> </span>up
 </code></pre></div>
+<p>The <code>make up</code> target first runs <code>scripts/preflight_and_bootstrap.sh</code> in preflight mode so host packages, kernel modules, and firewall rules are ready before Minikube is rebuilt. It then hands control to the combined bootstrap workflow in <code>scripts/uranus_homelab.sh</code> for cluster bring-up and application deployment.</p>
 <p>If you chose <code>br0</code>, the host will reboot once, then resume automatically:
 - pfSense VM defined with the <code>pfSense_config</code> ISO attached so first boot auto-imports <code>/opt/homelab/pfsense/config/config.xml</code>.
 - <code>make all</code> brings up Minikube + MetalLB + Traefik + cert-manager + Postgres + backups + AWX + Observability + Django + Flux.</p>
