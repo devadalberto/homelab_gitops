@@ -11,8 +11,11 @@ spec:
     spec:
       containers:
         - name: djangomultiproject
-          image: ${DJ_IMAGE}
+          image: hashicorp/http-echo:0.2.3
           imagePullPolicy: IfNotPresent
+          args:
+            - "-text=Hello from the Django multiproject demo"
+            - "-listen=:8000"
           ports: [{ containerPort: 8000 }]
           env:
             - name: DATABASE_URL

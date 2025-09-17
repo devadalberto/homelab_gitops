@@ -55,7 +55,7 @@ obs:
 apps:
 	@kubectl create ns apps --dry-run=client -o yaml | kubectl apply -f -
 	@$(DIR)/apps/django-multiproject/load-image.sh || true
-	@kubectl apply -f $(DIR)/apps/django-multiproject/deploy.yaml
+	@envsubst < $(DIR)/apps/django-multiproject/deploy.yaml | kubectl apply -f -
 
 flux:
 	@$(DIR)/flux/install.sh
