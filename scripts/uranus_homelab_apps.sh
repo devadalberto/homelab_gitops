@@ -89,116 +89,172 @@ require_vars LABZ_MINIKUBE_PROFILE LABZ_POSTGRES_DB \
   LABZ_MOUNT_NEXTCLOUD LABZ_NEXTCLOUD_HOST LABZ_JELLYFIN_HOST \
   LABZ_TRAEFIK_HOST LABZ_METALLB_RANGE PG_STORAGE_SIZE
 
-require_command kubectl helm
+require_command kubectl helm envsubst
+
+ensure_namespaces() {
+  local ns
+  for ns in "$@"; do
+    kubectl create namespace "${ns}" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+  done
+}
+
+verify_current_context() {
+  local current_context
+  if ! current_context=$(kubectl config current-context 2>/dev/null); then
+    echo "Failed to determine the current kubectl context" >&2
+    exit 1
+  fi
+  if [[ "${current_context}" != "${LABZ_MINIKUBE_PROFILE}" ]]; then
+    echo "kubectl current-context '${current_context}' does not match expected context '${LABZ_MINIKUBE_PROFILE}'" >&2
+    exit 1
+  fi
+}
+
+verify_cluster_nodes() {
+  if ! kubectl get nodes >/dev/null 2>&1; then
+    echo "Unable to list cluster nodes via kubectl" >&2
+    exit 1
+  fi
+}
+
+verify_cluster_dns() {
+  if ! kubectl run dns-check --rm --restart=Never --image=busybox:1.36.1 \
+    --command -- nslookup kubernetes.default.svc.cluster.local >/dev/null 2>&1; then
+    echo "BusyBox DNS lookup for kubernetes.default.svc.cluster.local failed" >&2
+    exit 1
+  fi
+}
+
+verify_cluster_connectivity() {
+  log "Verifying kubectl current-context"
+  verify_current_context
+  log "Verifying cluster node access"
+  verify_cluster_nodes
+  log "Verifying in-cluster DNS resolution"
+  verify_cluster_dns
+}
+
+apply_manifest_with_envsubst() {
+  local manifest=$1
+  envsubst <"${manifest}" | kubectl apply -f -
+}
+
+deploy_hostpath_storage() {
+  local manifest
+  for manifest in "${STORAGE_MANIFEST_DIR}"/*.yaml; do
+    if [[ -f "${manifest}" ]]; then
+      log "Applying storage manifest ${manifest}"
+      apply_manifest_with_envsubst "${manifest}"
+    fi
+  done
+}
+
+wait_for_pvc_bound() {
+  local namespace=$1
+  local pvc_name=$2
+  local pv_label_selector=$3
+  local timeout=${4:-60}
+  local interval=5
+  local elapsed=0
+
+  log "Waiting for PVC ${namespace}/${pvc_name} to become Bound"
+  while (( elapsed < timeout )); do
+    local phase
+    phase=$(kubectl -n "${namespace}" get pvc "${pvc_name}" -o jsonpath='{.status.phase}' 2>/dev/null || true)
+    if [[ "${phase}" == "Bound" ]]; then
+      log "PVC ${namespace}/${pvc_name} is Bound"
+      return 0
+    fi
+    sleep "${interval}"
+    elapsed=$((elapsed + interval))
+  done
+
+  echo "PVC ${namespace}/${pvc_name} failed to reach Bound within ${timeout} seconds" >&2
+  kubectl -n "${namespace}" describe pvc "${pvc_name}" || true
+  if [[ -n "${pv_label_selector}" ]]; then
+    kubectl describe pv -l "${pv_label_selector}" || true
+  fi
+  exit 1
+}
+
+wait_for_required_pvcs() {
+  wait_for_pvc_bound databases postgresql-data 'pv-role=postgresql-data'
+  wait_for_pvc_bound nextcloud nextcloud-data 'pv-role=nextcloud-data'
+  wait_for_pvc_bound jellyfin jellyfin-media 'pv-role=jellyfin-media'
+}
+
+collect_postgresql_diagnostics() {
+  log "Collecting PostgreSQL diagnostics"
+  helm status postgresql --namespace databases || true
+  kubectl -n databases get pods,pvc,svc,statefulset || true
+  kubectl -n databases describe statefulset postgresql || true
+  kubectl -n databases describe pods -l app.kubernetes.io/name=postgresql || true
+  kubectl get events --all-namespaces --sort-by='.metadata.creationTimestamp' | tail -n 50 || true
+}
+
+install_postgresql_with_retry() {
+  local attempt delay=5
+  for attempt in 1 2 3; do
+    log "Installing PostgreSQL (attempt ${attempt}/3)"
+    if helm upgrade --install postgresql bitnami/postgresql \
+      --namespace databases \
+      --create-namespace \
+      --wait \
+      --timeout 15m0s \
+      --values "${POSTGRES_VALUES_FILE}" \
+      --set fullnameOverride=postgresql \
+      --set global.postgresql.auth.database="${LABZ_POSTGRES_DB}" \
+      --set global.postgresql.auth.username="${LABZ_POSTGRES_USER}" \
+      --set global.postgresql.auth.password="${LABZ_POSTGRES_PASSWORD}"; then
+      log "PostgreSQL installed successfully"
+      return 0
+    fi
+
+    log "PostgreSQL installation attempt ${attempt} failed"
+    collect_postgresql_diagnostics
+    if (( attempt < 3 )); then
+      sleep "${delay}"
+      delay=$((delay * 2))
+    else
+      echo "PostgreSQL installation failed after ${attempt} attempts" >&2
+      exit 1
+    fi
+  done
+}
 
 log "Switching kubectl context to ${LABZ_MINIKUBE_PROFILE}"
 kubectl config use-context "${LABZ_MINIKUBE_PROFILE}" >/dev/null
 
+verify_cluster_connectivity
+
 POSTGRES_DATA_PATH="${LABZ_MOUNT_BACKUPS%/}/postgresql-data"
-mkdir -p "${POSTGRES_DATA_PATH}" "${LABZ_MOUNT_NEXTCLOUD}" "${LABZ_MOUNT_MEDIA}"
+NEXTCLOUD_DATA_PATH="${LABZ_MOUNT_NEXTCLOUD%/}"
+JELLYFIN_MEDIA_PATH="${LABZ_MOUNT_MEDIA%/}"
+STORAGE_MANIFEST_DIR="${REPO_ROOT}/k8s/storage"
+
+mkdir -p "${POSTGRES_DATA_PATH}" "${NEXTCLOUD_DATA_PATH}" "${JELLYFIN_MEDIA_PATH}"
+
+export POSTGRES_DATA_PATH NEXTCLOUD_DATA_PATH JELLYFIN_MEDIA_PATH PG_STORAGE_SIZE
+
+if [[ ! -d "${STORAGE_MANIFEST_DIR}" ]]; then
+  echo "Storage manifest directory not found: ${STORAGE_MANIFEST_DIR}" >&2
+  exit 1
+fi
+
+log "Ensuring application namespaces exist"
+ensure_namespaces databases nextcloud jellyfin
 
 log "Adding Bitnami Helm repository"
 helm repo add bitnami https://charts.bitnami.com/bitnami >/dev/null 2>&1 || true
 helm repo update >/dev/null
 
 log "Configuring PersistentVolumes for hostPath data"
-cat <<EOF_PV | kubectl apply -f -
-apiVersion: v1
-kind: PersistentVolume
-metadata:
-  name: labz-postgresql-pv
-spec:
-  capacity:
-    storage: ${PG_STORAGE_SIZE}
-  accessModes:
-    - ReadWriteOnce
-  persistentVolumeReclaimPolicy: Retain
-  storageClassName: ""
-  hostPath:
-    path: ${POSTGRES_DATA_PATH}
----
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: postgresql-data
-  namespace: data
-spec:
-  accessModes:
-    - ReadWriteOnce
-  storageClassName: ""
-  resources:
-    requests:
-      storage: ${PG_STORAGE_SIZE}
-  volumeName: labz-postgresql-pv
----
-apiVersion: v1
-kind: PersistentVolume
-metadata:
-  name: labz-nextcloud-pv
-spec:
-  capacity:
-    storage: 1Ti
-  accessModes:
-    - ReadWriteOnce
-  persistentVolumeReclaimPolicy: Retain
-  storageClassName: ""
-  hostPath:
-    path: ${LABZ_MOUNT_NEXTCLOUD}
----
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: nextcloud-data
-  namespace: apps
-spec:
-  accessModes:
-    - ReadWriteOnce
-  storageClassName: ""
-  resources:
-    requests:
-      storage: 1Ti
-  volumeName: labz-nextcloud-pv
----
-apiVersion: v1
-kind: PersistentVolume
-metadata:
-  name: labz-jellyfin-media-pv
-spec:
-  capacity:
-    storage: 5Ti
-  accessModes:
-    - ReadWriteOnce
-  persistentVolumeReclaimPolicy: Retain
-  storageClassName: ""
-  hostPath:
-    path: ${LABZ_MOUNT_MEDIA}
----
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: jellyfin-media
-  namespace: apps
-spec:
-  accessModes:
-    - ReadWriteOnce
-  storageClassName: ""
-  resources:
-    requests:
-      storage: 5Ti
-  volumeName: labz-jellyfin-media-pv
-EOF_PV
+deploy_hostpath_storage
+wait_for_required_pvcs
 
-log "Installing PostgreSQL"
-helm upgrade --install postgresql bitnami/postgresql \
-  --namespace data \
-  --create-namespace \
-  --values "${POSTGRES_VALUES_FILE}" \
-  --set fullnameOverride=postgresql \
-  --set global.postgresql.auth.database="${LABZ_POSTGRES_DB}" \
-  --set global.postgresql.auth.username="${LABZ_POSTGRES_USER}" \
-  --set global.postgresql.auth.password="${LABZ_POSTGRES_PASSWORD}" \
-  --wait \
-  --timeout 10m0s
+install_postgresql_with_retry
+log "Waiting for PostgreSQL rollout to complete"
+kubectl -n databases rollout status statefulset/postgresql
 
 log "Installing Redis"
 helm upgrade --install redis bitnami/redis \
@@ -218,13 +274,11 @@ apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
   name: labz-apps-tls
-  namespace: apps
+  namespace: nextcloud
 spec:
   secretName: labz-apps-tls
   dnsNames:
-    - ${LABZ_TRAEFIK_HOST}
     - ${LABZ_NEXTCLOUD_HOST}
-    - ${LABZ_JELLYFIN_HOST}
   issuerRef:
     kind: ClusterIssuer
     name: labz-selfsigned
@@ -241,11 +295,24 @@ spec:
   issuerRef:
     kind: ClusterIssuer
     name: labz-selfsigned
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: labz-apps-tls
+  namespace: jellyfin
+spec:
+  secretName: labz-apps-tls
+  dnsNames:
+    - ${LABZ_JELLYFIN_HOST}
+  issuerRef:
+    kind: ClusterIssuer
+    name: labz-selfsigned
 EOF_CERT
 
 log "Deploying Nextcloud"
 helm upgrade --install nextcloud bitnami/nextcloud \
-  --namespace apps \
+  --namespace nextcloud \
   --create-namespace \
   --set fullnameOverride=nextcloud \
   --set mariadb.enabled=false \
@@ -261,7 +328,7 @@ helm upgrade --install nextcloud bitnami/nextcloud \
   --set persistence.existingClaim=nextcloud-data \
   --set externalDatabase.enabled=true \
   --set externalDatabase.type=postgresql \
-  --set externalDatabase.host=postgresql.data.svc.cluster.local \
+  --set externalDatabase.host=postgresql.databases.svc.cluster.local \
   --set externalDatabase.port=5432 \
   --set externalDatabase.user="${LABZ_POSTGRES_USER}" \
   --set externalDatabase.password="${LABZ_POSTGRES_PASSWORD}" \
@@ -285,7 +352,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: jellyfin
-  namespace: apps
+  namespace: jellyfin
 spec:
   replicas: 1
   selector:
@@ -317,7 +384,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: jellyfin
-  namespace: apps
+  namespace: jellyfin
 spec:
   selector:
     app: jellyfin
@@ -331,7 +398,7 @@ apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: jellyfin
-  namespace: apps
+  namespace: jellyfin
 spec:
   ingressClassName: traefik
   tls:
