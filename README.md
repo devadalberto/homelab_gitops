@@ -156,7 +156,90 @@ state. Update `.env` as you make selections so both the scripts and the pfSense 
    - Once the values settle, verify that pfSense hands out its own LAN IP as the primary DNS server and that the DHCP range does
      not overlap the MetalLB pool. Reapply the generated configuration ISO if pfSense was provisioned previously.
 
+## Homelab Spin-Up Guide
+
+Follow this linear sequence after completing the [Preflight Checklist](#preflight-checklist) so a brand-new operator can take the
+platform from a bare host to a reconciled Flux cluster without bouncing between sections.
+
+1. **Prepare the host operating system**
+   ```bash
+   cp .env.example .env
+   $EDITOR .env
+   sudo ./scripts/host-prep.sh
+   ```
+   - Populate `.env` with your domain, LAN addressing, MetalLB pool, and pfSense installer details. Critical variables consumed
+     by downstream scripts include `PF_SERIAL_INSTALLER_PATH` (or `PF_ISO_PATH` for the VGA build), `PF_HEADLESS`, `WORK_ROOT`,
+     `VM_NAME`, `DISK_SIZE_GB`, `RAM_MB`, `VCPUS`, `WAN_MODE`, and `WAN_NIC`.
+   - `scripts/host-prep.sh` installs libvirt/KVM, Docker, Minikube, kubectl, helm, sops, and related tooling while enabling the
+     `libvirtd` and `docker` services. Run it with sudo on Debian/Ubuntu hosts or replicate the package list manually on other
+     distributions.
+   - The top-level `bootstrap.sh` wrapper can execute the host prep and subsequent make targets in one pass once the optional
+     network bridge hand-off completes.
+
+2. **Generate the pfSense configuration media**
+   ```bash
+   ./pfsense/pf-config-gen.sh
+   ```
+   - The generator sources `.env`, renders `config.xml` with your `LAN_*`, `LAB_DOMAIN_BASE`, `LAB_CLUSTER_SUB`, `METALLB_POOL_*`,
+     and `TRAEFIK_LOCAL_IP` values, then packages `${WORK_ROOT}/pfsense/config/pfSense-config.iso`.
+   - Ensure `genisoimage` or `mkisofs` is installed (step 1 covers this) and rerun the command whenever DNS overrides, VIPs, or
+     DHCP scope values change.
+
+3. **Bootstrap the pfSense VM**
+   ```bash
+   ./pfsense/pf-bootstrap.sh --installation-path "$PF_SERIAL_INSTALLER_PATH"
+   virsh start "${VM_NAME}"
+   virsh console "${VM_NAME}"
+   ```
+   - `PF_SERIAL_INSTALLER_PATH` should point at the downloaded `netgate-installer-amd64-serial.iso.gz`; set `PF_ISO_PATH` if you
+     must use the VGA ISO and pass `--no-headless` or export `PF_HEADLESS=false` to re-enable VNC access.
+   - The bootstrapper relies on `.env` for VM sizing (`VCPUS`, `RAM_MB`, `DISK_SIZE_GB`), naming (`VM_NAME`), storage (`WORK_ROOT`),
+     and network placement (`WAN_MODE`, `WAN_NIC`). It will decompress the installer if needed and guarantee the generated
+     `pfSense-config.iso` remains attached on the secondary CD-ROM.
+
+4. **Provision the Kubernetes cluster and core services**
+   ```bash
+   ./scripts/uranus_homelab.sh --delete-previous-environment --assume-yes --env-file ./.env
+   # or:
+   make up
+   ```
+   - The helper script applies the latest `.env` values, runs the preflight checks, recreates Minikube with the desired version,
+     and installs the networking and application stacks. Keep `kubectl`, `helm`, `minikube`, `flux`, `sops`, and `openssl`
+     available in `PATH` (the host-prep script handles these binaries).
+   - `bootstrap.sh` can drive the same workflow by delegating to `make pfSense` and `make all` after the host prerequisites are
+     met, which is useful for unattended rebuilds.
+
+5. **Bootstrap Flux against your Git repository**
+   ```bash
+   export GITHUB_TOKEN=<personal-access-token>
+   flux check --pre
+   flux bootstrap github \
+     --owner <github-user-or-org> \
+     --repository homelab_gitops \
+     --path clusters/minikube
+   ```
+   - Swap the provider (`github`, `gitlab`, etc.), repository coordinates, and cluster path as needed. The `GITHUB_TOKEN`
+     (or provider equivalent) must grant repo administration rights so Flux can create deploy keys and configure the branch.
+
+6. **Validate the freshly bootstrapped environment**
+   ```bash
+   kubectl get nodes -o wide
+   kubectl get pods --all-namespaces
+   flux check
+   kubectl -n traefik get svc traefik -o wide
+   ./scripts/preflight_and_bootstrap.sh --env-file ./.env --preflight-only
+   ```
+   - Confirm the Traefik service advertises the MetalLB VIP from `.env`, all core pods report `Running`/`Completed`, and the
+     preflight script returns without blocking errors.
+
+Continue with the [Post-Bootstrap Validation](#post-bootstrap-validation) checklist for deeper smoke tests and consult
+[Troubleshooting: PostgreSQL install timeouts](#troubleshooting-postgresql-install-timeouts) (and related sections) if anything
+deviates from the expected results.
+
 ## Quick Start
+
+> **Need the long-form walkthrough?** Follow the [Homelab Spin-Up Guide](#homelab-spin-up-guide) above. The condensed checklist
+> below is intended for repeat runs once you are comfortable with the flow.
 
 1. **Clone the repository and prepare environment variables**
    ```bash
