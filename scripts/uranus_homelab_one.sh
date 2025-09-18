@@ -172,7 +172,7 @@ helm upgrade --install traefik traefik/traefik \
   --version "${TRAEFIK_HELM_VERSION}" \
   --set service.type=LoadBalancer \
   --set service.spec.loadBalancerIP="${TRAEFIK_LOCAL_IP}" \
-  --set ports.web.redirectTo=websecure \
+  --set ports.web.redirectTo.port=websecure \
   --set ports.websecure.tls.enabled=true \
   --set ingressRoute.dashboard.enabled=true \
   --set ingressRoute.dashboard.tls.secretName=labz-traefik-tls \
