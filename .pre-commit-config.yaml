@@ -14,6 +14,14 @@ repos:
       - id: check-yaml
         args: [--allow-multiple-documents]
       - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: check-merge-conflict
+      - id: check-added-large-files
+      - id: check-json
+      - id: check-toml
+      - id: detect-private-key
+      - id: detect-aws-credentials
+        args: [--allow-missing-credentials]
   - repo: https://github.com/adrienverge/yamllint
     rev: v1.35.1
     hooks:
@@ -22,3 +30,32 @@ repos:
     rev: v0.9.0.6
     hooks:
       - id: shellcheck
+  - repo: https://github.com/mvdan/sh
+    rev: v3.7.0
+    hooks:
+      - id: shfmt
+        args: ["-w", "-i", "2"]
+        files: ^(scripts/|[^/]+\.sh$)
+  - repo: https://github.com/codespell-project/codespell
+    rev: v2.2.6
+    hooks:
+      - id: codespell
+        args: [--write-changes]
+        files: ^(docs/|README\.md$)
+  - repo: https://github.com/DavidAnson/markdownlint-cli2
+    rev: v0.12.1
+    hooks:
+      - id: markdownlint-cli2
+        files: ^(docs/|README\.md$)
+  - repo: https://github.com/yannh/kubeconform
+    rev: v0.6.4
+    hooks:
+      - id: kubeconform
+        args: [-strict, -ignore-missing-schemas]
+        files: ^k8s/.*\.ya?ml$
+  - repo: https://github.com/zricethezav/gitleaks
+    rev: v8.18.1
+    hooks:
+      - id: gitleaks
+        args: [detect, --source=., --no-git, --redact]
+        pass_filenames: false
