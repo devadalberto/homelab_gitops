@@ -1,44 +1,189 @@
 #!/usr/bin/env bash
-set -Eeuo pipefail
+set -euo pipefail
+IFS=$'\n\t'
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+COMMON_LIB="${SCRIPT_DIR}/lib/common.sh"
+if [[ -f "${COMMON_LIB}" ]]; then
+  # shellcheck source=scripts/lib/common.sh
+  source "${COMMON_LIB}"
+else
+  FALLBACK_LIB="${SCRIPT_DIR}/lib/common_fallback.sh"
+  if [[ -f "${FALLBACK_LIB}" ]]; then
+    # shellcheck source=scripts/lib/common_fallback.sh
+    source "${FALLBACK_LIB}"
+  else
+    echo "Unable to locate scripts/lib/common.sh or fallback helpers" >&2
+    exit 70
+  fi
+fi
+
+readonly EX_OK=0
+readonly EX_USAGE=64
+readonly EX_UNAVAILABLE=69
+readonly EX_SOFTWARE=70
+readonly EX_CONFIG=78
 
 ASSUME_YES=false
-ENV_FILE="./.env"
+ENV_FILE_OVERRIDE=""
+ENV_FILE_PATH=""
+DRY_RUN=false
+CONTEXT_ONLY=false
 
 usage() {
   cat <<'USAGE'
-Usage: uranus_homelab_one.sh [--env-file PATH] [--assume-yes]
+Usage: uranus_homelab_one.sh [OPTIONS]
 
-Installs core addons (MetalLB, cert-manager, Traefik) into the Uranus homelab cluster.
+Install core Uranus homelab addons (MetalLB, cert-manager, Traefik) into the
+Minikube cluster defined in the environment file.
+
+Options:
+  --env-file PATH         Load configuration overrides from PATH.
+  --assume-yes            Automatically confirm prompts when possible.
+  --dry-run               Log mutating actions without executing them.
+  --context-preflight     Validate cluster context and exit without changes.
+  --verbose               Increase logging verbosity to debug.
+  -h, --help              Show this help message.
+
+Exit codes:
+  0   Success.
+  64  Usage error (invalid CLI arguments).
+  69  Missing required dependencies.
+  70  Runtime failure while configuring addons.
+  78  Configuration error (missing environment variables).
 USAGE
 }
 
-log() {
-  printf '[%s] %s\n' "$(date +'%F %T')" "$*"
+format_command() {
+  local formatted=""
+  local arg
+  for arg in "$@"; do
+    if [[ -z ${formatted} ]]; then
+      formatted=$(printf '%q' "$arg")
+    else
+      formatted+=" $(printf '%q' "$arg")"
+    fi
+  done
+  printf '%s' "$formatted"
 }
 
-require_command() {
-  local cmd
-  for cmd in "$@"; do
-    if ! command -v "${cmd}" >/dev/null 2>&1; then
-      echo "Required command not found: ${cmd}" >&2
-      exit 1
+run_cmd() {
+  if [[ ${DRY_RUN} == true ]]; then
+    log_info "[DRY-RUN] $(format_command "$@")"
+    return 0
+  fi
+  log_debug "Executing: $(format_command "$@")"
+  "$@"
+}
+
+kubectl_apply_manifest() {
+  local manifest=$1
+  if [[ ${DRY_RUN} == true ]]; then
+    log_info "[DRY-RUN] kubectl apply -f - <<'EOF'"
+    printf '%s\n' "${manifest}"
+    log_info "[DRY-RUN] EOF"
+    return 0
+  fi
+  need kubectl || return $?
+  printf '%s\n' "${manifest}" | kubectl apply -f -
+}
+
+ensure_namespace_safe() {
+  local namespace=$1
+  if [[ ${DRY_RUN} == true ]]; then
+    if kubectl get namespace "${namespace}" >/dev/null 2>&1; then
+      log_debug "Namespace ${namespace} already exists"
+    else
+      log_info "[DRY-RUN] kubectl create namespace ${namespace}"
     fi
+    return 0
+  fi
+  ensure_namespace "${namespace}"
+}
+
+load_environment() {
+  if [[ -n ${ENV_FILE_OVERRIDE} ]]; then
+    log_info "Loading environment overrides from ${ENV_FILE_OVERRIDE}"
+    if [[ ! -f ${ENV_FILE_OVERRIDE} ]]; then
+      die ${EX_CONFIG} "Environment file not found: ${ENV_FILE_OVERRIDE}"
+    fi
+    ENV_FILE_PATH="${ENV_FILE_OVERRIDE}"
+    load_env "${ENV_FILE_OVERRIDE}" || die ${EX_CONFIG} "Failed to load ${ENV_FILE_OVERRIDE}"
+    return
+  fi
+
+  local candidates=(
+    "${REPO_ROOT}/.env"
+    "${SCRIPT_DIR}/.env"
+    "/opt/homelab/.env"
+  )
+  local candidate
+  for candidate in "${candidates[@]}"; do
+    log_debug "Checking for environment file at ${candidate}"
+    if [[ -f ${candidate} ]]; then
+      log_info "Loading environment from ${candidate}"
+      ENV_FILE_PATH="${candidate}"
+      load_env "${candidate}" || die ${EX_CONFIG} "Failed to load ${candidate}"
+      return
+    fi
+  done
+  ENV_FILE_PATH=""
+  log_debug "No environment file present in default search locations"
+}
+
+parse_args() {
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --env-file)
+        if [[ $# -lt 2 ]]; then
+          usage
+          die ${EX_USAGE} "--env-file requires a path argument"
+        fi
+        ENV_FILE_OVERRIDE="$2"
+        shift 2
+        ;;
+      --assume-yes)
+        ASSUME_YES=true
+        shift
+        ;;
+      --dry-run)
+        DRY_RUN=true
+        shift
+        ;;
+      --context-preflight)
+        CONTEXT_ONLY=true
+        shift
+        ;;
+      --verbose)
+        log_set_level debug
+        shift
+        ;;
+      -h|--help)
+        usage
+        exit ${EX_OK}
+        ;;
+      --)
+        shift
+        if [[ $# -gt 0 ]]; then
+          usage
+          die ${EX_USAGE} "Unexpected positional arguments: $*"
+        fi
+        ;;
+      -* )
+        usage
+        die ${EX_USAGE} "Unknown option: $1"
+        ;;
+      * )
+        usage
+        die ${EX_USAGE} "Positional arguments are not supported"
+        ;;
+    esac
   done
 }
 
-load_env_file() {
-  local file=$1
-  if [[ ! -f "${file}" ]]; then
-    echo "Environment file not found: ${file}" >&2
-    exit 1
-  fi
-  # shellcheck disable=SC1090
-  set -a
-  source "${file}"
-  set +a
-}
-
-require_vars() {
+require_env_vars() {
   local missing=()
   local var
   for var in "$@"; do
@@ -46,88 +191,86 @@ require_vars() {
       missing+=("${var}")
     fi
   done
-  if [[ ${#missing[@]} -ne 0 ]]; then
-    echo "Missing required variables: ${missing[*]}" >&2
-    exit 1
+  if [[ ${#missing[@]} -gt 0 ]]; then
+    die ${EX_CONFIG} "Missing required variables: ${missing[*]}"
   fi
 }
 
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    --env-file)
-      ENV_FILE="$2"
-      shift 2
-      ;;
-    --assume-yes)
-      ASSUME_YES=true
-      shift
-      ;;
-    -h|--help)
-      usage
-      exit 0
-      ;;
-    *)
-      echo "Unknown argument: $1" >&2
-      usage
-      exit 1
-      ;;
-  esac
-done
-
-load_env_file "${ENV_FILE}"
-require_vars LABZ_MINIKUBE_PROFILE LABZ_METALLB_RANGE METALLB_POOL_START METALLB_POOL_END
-
-: "${METALLB_HELM_VERSION:=0.14.7}"
-: "${CERT_MANAGER_HELM_VERSION:=1.16.3}"
-: "${TRAEFIK_HELM_VERSION:=27.0.2}"
-: "${TRAEFIK_LOCAL_IP:=${METALLB_POOL_START}}"
-
-require_command kubectl helm minikube openssl
-
-log "Switching kubectl context to ${LABZ_MINIKUBE_PROFILE}"
-kubectl config use-context "${LABZ_MINIKUBE_PROFILE}" >/dev/null
-
-log "Adding/refreshing Helm repos"
-helm repo add metallb https://metallb.github.io/metallb >/dev/null 2>&1 || true
-helm repo add jetstack https://charts.jetstack.io >/dev/null 2>&1 || true
-helm repo add traefik https://traefik.github.io/charts >/dev/null 2>&1 || true
-helm repo update >/dev/null
-
-log "Installing MetalLB (chart version ${METALLB_HELM_VERSION})"
-# Ensure namespace exists before creating secrets or deployments
-kubectl create namespace metallb-system --dry-run=client -o yaml | kubectl apply -f -
-# Ensure memberlist secret exists for MetalLB's internal communication
-if ! kubectl get secret -n metallb-system metallb-memberlist >/dev/null 2>&1; then
-  kubectl create secret generic -n metallb-system metallb-memberlist \
-    --from-literal=secretkey="$(openssl rand -base64 128)"
-fi
-# Install MetalLB with an extended timeout and capture diagnostics on failure
-if ! helm upgrade --install metallb metallb/metallb \
-  --namespace metallb-system \
-  --create-namespace \
-  --version "${METALLB_HELM_VERSION}" \
-  --wait \
-  --timeout 10m0s; then
-  kubectl get pods -n metallb-system || true
-  kubectl logs -n metallb-system deployment/metallb-controller --tail=20 || true
-  kubectl logs -n metallb-system daemonset/metallb-speaker --tail=20 || true
-  exit 1
-fi
-# Wait for MetalLB components to become ready
-kubectl -n metallb-system rollout status deployment/metallb-controller --timeout=180s
-kubectl -n metallb-system rollout status daemonset/metallb-speaker --timeout=180s
-
-if [[ -z "${METALLB_POOL_START}" || -z "${METALLB_POOL_END}" ]]; then
-  if [[ "${LABZ_METALLB_RANGE}" == *-* ]]; then
-    METALLB_POOL_START=${LABZ_METALLB_RANGE%%-*}
-    METALLB_POOL_END=${LABZ_METALLB_RANGE##*-}
+ensure_context() {
+  need kubectl || die ${EX_UNAVAILABLE} "kubectl is required"
+  local desired=${LABZ_MINIKUBE_PROFILE}
+  local current
+  current=$(kubectl config current-context 2>/dev/null || true)
+  if [[ ${current} != "${desired}" ]]; then
+    if [[ ${DRY_RUN} == true ]]; then
+      log_info "[DRY-RUN] kubectl config use-context ${desired}"
+    else
+      run_cmd kubectl config use-context "${desired}"
+    fi
   else
-    METALLB_POOL_START=${LABZ_METALLB_RANGE}
-    METALLB_POOL_END=${LABZ_METALLB_RANGE}
+    log_info "kubectl context already set to ${desired}"
   fi
-fi
+}
 
-cat <<EOF_APPLY | kubectl apply -f -
+ensure_helm_repo_safe() {
+  local name=$1
+  local url=$2
+  need helm || die ${EX_UNAVAILABLE} "helm is required"
+  if helm repo list 2>/dev/null | awk 'NR>1 {print $1}' | grep -Fxq "${name}"; then
+    log_debug "Helm repository ${name} already present"
+  else
+    if [[ ${DRY_RUN} == true ]]; then
+      log_info "[DRY-RUN] helm repo add ${name} ${url}"
+    else
+      run_cmd helm repo add "${name}" "${url}"
+    fi
+  fi
+  if [[ ${DRY_RUN} == true ]]; then
+    log_info "[DRY-RUN] helm repo update ${name}"
+  else
+    run_cmd helm repo update "${name}"
+  fi
+}
+
+install_metallb() {
+  ensure_namespace_safe metallb-system
+  if [[ ${DRY_RUN} == true ]]; then
+    log_info "[DRY-RUN] kubectl create secret metallb-memberlist"
+  else
+    if ! kubectl -n metallb-system get secret metallb-memberlist >/dev/null 2>&1; then
+      run_cmd kubectl create secret generic -n metallb-system metallb-memberlist \
+        --from-literal=secretkey="$(openssl rand -base64 128)"
+    fi
+  fi
+
+  local version=${METALLB_HELM_VERSION}
+  local install_cmd=(
+    helm upgrade --install metallb metallb/metallb
+    --namespace metallb-system
+    --create-namespace
+    --version "${version}"
+    --wait
+    --timeout 10m0s
+  )
+  if [[ ${DRY_RUN} == true ]]; then
+    log_info "[DRY-RUN] $(format_command "${install_cmd[@]}")"
+  else
+    if ! "${install_cmd[@]}"; then
+      log_error "MetalLB installation failed"
+      kubectl -n metallb-system get pods || true
+      kubectl -n metallb-system describe daemonset metallb-speaker || true
+      die ${EX_SOFTWARE} "Failed to install MetalLB"
+    fi
+  fi
+  if [[ ${DRY_RUN} == false ]]; then
+    kubectl -n metallb-system rollout status deployment/metallb-controller --timeout=180s
+    kubectl -n metallb-system rollout status daemonset/metallb-speaker --timeout=180s
+  fi
+}
+
+apply_metallb_pool() {
+  local manifest
+  manifest=$(cat <<EOM
 apiVersion: metallb.io/v1beta1
 kind: IPAddressPool
 metadata:
@@ -145,42 +288,101 @@ metadata:
 spec:
   ipAddressPools:
     - labz-pool
-EOF_APPLY
+EOM
+)
+  kubectl_apply_manifest "${manifest}"
+}
 
-log "Installing cert-manager"
-helm upgrade --install cert-manager jetstack/cert-manager \
-  --namespace cert-manager \
-  --create-namespace \
-  --version "${CERT_MANAGER_HELM_VERSION}" \
-  --set crds.enabled=true \
-  --wait \
-  --timeout 10m0s
+install_cert_manager() {
+  ensure_namespace_safe cert-manager
+  local version=${CERT_MANAGER_HELM_VERSION}
+  local install_cmd=(
+    helm upgrade --install cert-manager jetstack/cert-manager
+    --namespace cert-manager
+    --create-namespace
+    --version "${version}"
+    --set crds.enabled=true
+    --wait
+    --timeout 10m0s
+  )
+  if [[ ${DRY_RUN} == true ]]; then
+    log_info "[DRY-RUN] $(format_command "${install_cmd[@]}")"
+  else
+    "${install_cmd[@]}"
+  fi
 
-cat <<'EOF_ISSUER' | kubectl apply -f -
+  local issuer
+  issuer=$(cat <<'EOM'
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
 metadata:
   name: labz-selfsigned
 spec:
   selfSigned: {}
-EOF_ISSUER
+EOM
+)
+  kubectl_apply_manifest "${issuer}"
+}
 
-log "Installing Traefik"
-helm upgrade --install traefik traefik/traefik \
-  --namespace traefik \
-  --create-namespace \
-  --version "${TRAEFIK_HELM_VERSION}" \
-  --set service.type=LoadBalancer \
-  --set service.spec.loadBalancerIP="${TRAEFIK_LOCAL_IP}" \
-  --set ports.web.redirectTo.port=websecure \
-  --set ports.websecure.tls.enabled=true \
-  --set ingressRoute.dashboard.enabled=true \
-  --set ingressRoute.dashboard.tls.secretName=labz-traefik-tls \
-  --wait \
-  --timeout 10m0s
+install_traefik() {
+  ensure_namespace_safe traefik
+  local version=${TRAEFIK_HELM_VERSION}
+  local install_cmd=(
+    helm upgrade --install traefik traefik/traefik
+    --namespace traefik
+    --create-namespace
+    --version "${version}"
+    --set service.type=LoadBalancer
+    --set service.spec.loadBalancerIP="${TRAEFIK_LOCAL_IP}"
+    --set ports.web.redirectTo.port=websecure
+    --set ports.websecure.tls.enabled=true
+    --set ingressRoute.dashboard.enabled=true
+    --set ingressRoute.dashboard.tls.secretName=labz-traefik-tls
+    --wait
+    --timeout 10m0s
+  )
+  if [[ ${DRY_RUN} == true ]]; then
+    log_info "[DRY-RUN] $(format_command "${install_cmd[@]}")"
+  else
+    "${install_cmd[@]}"
+  fi
+}
 
-log "Creating namespaces for data and apps"
-kubectl create namespace data --dry-run=client -o yaml | kubectl apply -f -
-kubectl create namespace apps --dry-run=client -o yaml | kubectl apply -f -
+create_support_namespaces() {
+  ensure_namespace_safe data
+  ensure_namespace_safe apps
+}
 
-log "Core addons installed. Proceed with uranus_homelab_apps.sh for stateful workloads."
+main() {
+  parse_args "$@"
+  load_environment
+
+  require_env_vars LABZ_MINIKUBE_PROFILE LABZ_METALLB_RANGE METALLB_POOL_START METALLB_POOL_END
+  : "${METALLB_HELM_VERSION:=0.14.7}"
+  : "${CERT_MANAGER_HELM_VERSION:=1.16.3}"
+  : "${TRAEFIK_HELM_VERSION:=27.0.2}"
+  : "${TRAEFIK_LOCAL_IP:=${METALLB_POOL_START}}"
+
+  if [[ ${CONTEXT_ONLY} == true ]]; then
+    ensure_context
+    log_info "Context preflight complete"
+    return
+  fi
+
+  need kubectl helm openssl || die ${EX_UNAVAILABLE} "kubectl, helm, and openssl are required"
+
+  ensure_context
+  ensure_helm_repo_safe metallb https://metallb.github.io/metallb
+  ensure_helm_repo_safe jetstack https://charts.jetstack.io
+  ensure_helm_repo_safe traefik https://traefik.github.io/charts
+
+  install_metallb
+  apply_metallb_pool
+  install_cert_manager
+  install_traefik
+  create_support_namespaces
+
+  log_info "Core addons installed. Proceed with application deployment."
+}
+
+main "$@"

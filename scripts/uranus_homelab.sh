@@ -1,76 +1,242 @@
 #!/usr/bin/env bash
-set -Eeuo pipefail
+set -euo pipefail
+IFS=$'\n\t'
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+COMMON_LIB="${SCRIPT_DIR}/lib/common.sh"
+if [[ -f "${COMMON_LIB}" ]]; then
+  # shellcheck source=scripts/lib/common.sh
+  source "${COMMON_LIB}"
+else
+  FALLBACK_LIB="${SCRIPT_DIR}/lib/common_fallback.sh"
+  if [[ -f "${FALLBACK_LIB}" ]]; then
+    # shellcheck source=scripts/lib/common_fallback.sh
+    source "${FALLBACK_LIB}"
+  else
+    echo "Unable to locate scripts/lib/common.sh or fallback helpers" >&2
+    exit 70
+  fi
+fi
+
+readonly EX_OK=0
+readonly EX_USAGE=64
+readonly EX_UNAVAILABLE=69
+readonly EX_SOFTWARE=70
+readonly EX_CONFIG=78
 
 ASSUME_YES=false
-ENV_FILE="./.env"
 DELETE_PREVIOUS=false
+ENV_FILE_OVERRIDE=""
+ENV_FILE_PATH=""
+DRY_RUN=false
+CONTEXT_ONLY=false
 
 usage() {
   cat <<'USAGE'
-Usage: uranus_homelab.sh [--env-file PATH] [--assume-yes] [--delete-previous-environment]
+Usage: uranus_homelab.sh [OPTIONS]
 
-Runs the full Uranus homelab bootstrap, core addons, and app deployment.
+Run the full Uranus homelab workflow (preflight, bootstrap, core addons, and
+applications) using the shared helpers.
+
+Options:
+  --env-file PATH               Load configuration overrides from PATH.
+  --assume-yes                  Automatically confirm prompts in child scripts.
+  --delete-previous-environment Remove any existing Minikube profile before bootstrap.
+  --dry-run                     Invoke child scripts in dry-run mode.
+  --context-preflight           Only run context discovery via preflight script.
+  --verbose                     Increase logging verbosity to debug.
+  -h, --help                    Show this help message.
+
+Exit codes:
+  0   Success.
+  64  Usage error (invalid CLI arguments).
+  69  Missing required dependencies.
+  70  Runtime failure in a child script.
+  78  Configuration error (missing environment file).
 USAGE
 }
 
-log() {
-  printf '[%s] %s\n' "$(date +'%F %T')" "$*"
+format_command() {
+  local formatted=""
+  local arg
+  for arg in "$@"; do
+    if [[ -z ${formatted} ]]; then
+      formatted=$(printf '%q' "$arg")
+    else
+      formatted+=" $(printf '%q' "$arg")"
+    fi
+  done
+  printf '%s' "$formatted"
 }
 
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    --env-file)
-      ENV_FILE="$2"
-      shift 2
-      ;;
-    --assume-yes)
-      ASSUME_YES=true
-      shift
-      ;;
-    --delete-previous-environment)
-      DELETE_PREVIOUS=true
-      shift
-      ;;
-    -h|--help)
-      usage
-      exit 0
-      ;;
-    *)
-      echo "Unknown argument: $1" >&2
-      usage
-      exit 1
-      ;;
-  esac
-done
+load_environment() {
+  if [[ -n ${ENV_FILE_OVERRIDE} ]]; then
+    log_info "Loading environment overrides from ${ENV_FILE_OVERRIDE}"
+    if [[ ! -f ${ENV_FILE_OVERRIDE} ]]; then
+      die ${EX_CONFIG} "Environment file not found: ${ENV_FILE_OVERRIDE}"
+    fi
+    ENV_FILE_PATH="${ENV_FILE_OVERRIDE}"
+    load_env "${ENV_FILE_OVERRIDE}" || die ${EX_CONFIG} "Failed to load ${ENV_FILE_OVERRIDE}"
+    return
+  fi
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  local candidates=(
+    "${REPO_ROOT}/.env"
+    "${SCRIPT_DIR}/.env"
+    "/opt/homelab/.env"
+  )
+  local candidate
+  for candidate in "${candidates[@]}"; do
+    log_debug "Checking for environment file at ${candidate}"
+    if [[ -f ${candidate} ]]; then
+      log_info "Loading environment from ${candidate}"
+      ENV_FILE_PATH="${candidate}"
+      load_env "${candidate}" || die ${EX_CONFIG} "Failed to load ${candidate}"
+      return
+    fi
+  done
+  ENV_FILE_PATH=""
+  log_debug "No environment file present in default search locations"
+}
 
-COMMON_ARGS=("--env-file" "${ENV_FILE}")
-if [[ "${ASSUME_YES}" == "true" ]]; then
-  COMMON_ARGS+=("--assume-yes")
-fi
+parse_args() {
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --env-file)
+        if [[ $# -lt 2 ]]; then
+          usage
+          die ${EX_USAGE} "--env-file requires a path argument"
+        fi
+        ENV_FILE_OVERRIDE="$2"
+        shift 2
+        ;;
+      --assume-yes)
+        ASSUME_YES=true
+        shift
+        ;;
+      --delete-previous-environment)
+        DELETE_PREVIOUS=true
+        shift
+        ;;
+      --dry-run)
+        DRY_RUN=true
+        shift
+        ;;
+      --context-preflight)
+        CONTEXT_ONLY=true
+        shift
+        ;;
+      --verbose)
+        log_set_level debug
+        shift
+        ;;
+      -h|--help)
+        usage
+        exit ${EX_OK}
+        ;;
+      --)
+        shift
+        if [[ $# -gt 0 ]]; then
+          usage
+          die ${EX_USAGE} "Unexpected positional arguments: $*"
+        fi
+        ;;
+      -* )
+        usage
+        die ${EX_USAGE} "Unknown option: $1"
+        ;;
+      * )
+        usage
+        die ${EX_USAGE} "Positional arguments are not supported"
+        ;;
+    esac
+  done
+}
 
-BOOTSTRAP_ARGS=("${COMMON_ARGS[@]}")
-if [[ "${DELETE_PREVIOUS}" == "true" ]]; then
-  BOOTSTRAP_ARGS+=("--delete-previous-environment")
-fi
+build_common_args() {
+  local -n target=$1
+  target=()
+  if [[ -n ${ENV_FILE_PATH} ]]; then
+    target+=("--env-file" "${ENV_FILE_PATH}")
+  fi
+  if [[ ${ASSUME_YES} == true ]]; then
+    target+=("--assume-yes")
+  fi
+  if [[ ${DRY_RUN} == true ]]; then
+    target+=("--dry-run")
+  fi
+}
 
-PREFLIGHT_ARGS=("${COMMON_ARGS[@]}")
-if [[ "${DELETE_PREVIOUS}" == "true" ]]; then
-  PREFLIGHT_ARGS+=("--delete-previous-environment")
-fi
-PREFLIGHT_ARGS+=("--preflight-only")
+run_script() {
+  local description=$1
+  local relative=$2
+  shift 2
+  local args=("$@")
+  local script_path="${REPO_ROOT}/${relative}"
 
-log "Running preflight checks"
-"${SCRIPT_DIR}/preflight_and_bootstrap.sh" "${PREFLIGHT_ARGS[@]}"
+  if [[ ! -x ${script_path} ]]; then
+    log_warn "${relative} not found or not executable"
+    return
+  fi
 
-log "Running nuke and bootstrap"
-"${SCRIPT_DIR}/uranus_nuke_and_bootstrap.sh" "${BOOTSTRAP_ARGS[@]}"
+  log_info "${description}"
+  log_debug "Invoking: ${relative} $(format_command "${args[@]}")"
+  if ! (cd "${REPO_ROOT}" && "${script_path}" "${args[@]}"); then
+    die ${EX_SOFTWARE} "${relative} failed"
+  fi
+}
 
-log "Installing core addons"
-"${SCRIPT_DIR}/uranus_homelab_one.sh" "${COMMON_ARGS[@]}"
+run_preflight() {
+  local args=()
+  build_common_args args
+  if [[ ${DELETE_PREVIOUS} == true ]]; then
+    args+=("--delete-previous-environment")
+  fi
+  if [[ ${CONTEXT_ONLY} == true ]]; then
+    args+=("--context-preflight")
+  else
+    args+=("--preflight-only")
+  fi
+  run_script "Running preflight checks" "scripts/preflight_and_bootstrap.sh" "${args[@]}"
+}
 
-log "Deploying applications"
-"${SCRIPT_DIR}/uranus_homelab_apps.sh" "${COMMON_ARGS[@]}"
+run_bootstrap() {
+  local args=()
+  build_common_args args
+  if [[ ${DELETE_PREVIOUS} == true ]]; then
+    args+=("--delete-previous-environment")
+  fi
+  run_script "Running nuke and bootstrap" "scripts/uranus_nuke_and_bootstrap.sh" "${args[@]}"
+}
 
-log "Uranus homelab setup complete."
+run_core_addons() {
+  local args=()
+  build_common_args args
+  run_script "Installing core addons" "scripts/uranus_homelab_one.sh" "${args[@]}"
+}
+
+run_applications() {
+  local args=()
+  build_common_args args
+  run_script "Deploying applications" "scripts/uranus_homelab_apps.sh" "${args[@]}"
+}
+
+main() {
+  parse_args "$@"
+  load_environment
+
+  run_preflight
+  if [[ ${CONTEXT_ONLY} == true ]]; then
+    log_info "Context preflight complete"
+    return
+  fi
+
+  run_bootstrap
+  run_core_addons
+  run_applications
+  log_info "Uranus homelab setup complete."
+}
+
+main "$@"
