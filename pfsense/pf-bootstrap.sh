@@ -147,61 +147,6 @@ parse_args() {
   done
 }
 
-resolve_existing_dir() {
-  local path=$1
-  local dir=$path
-  if [[ -d $dir ]]; then
-    printf '%s\n' "$dir"
-    return 0
-  fi
-  if [[ -e $dir ]]; then
-    dir=$(dirname "$dir")
-  else
-    dir=$(dirname "$dir")
-    while [[ ! -d $dir && $dir != '/' ]]; do
-      dir=$(dirname "$dir")
-    done
-  fi
-  printf '%s\n' "$dir"
-}
-
-maybe_reexec_for_privileged_paths() {
-  local guard_var=$1
-  shift
-  [[ ${DRY_RUN} == true ]] && return
-  (( EUID == 0 )) && return
-
-  local path existing needs_sudo=0
-  for path in "$@"; do
-    [[ -z ${path} ]] && continue
-    existing=$(resolve_existing_dir "$path")
-    if [[ ${existing} == /opt/homelab* ]]; then
-      needs_sudo=1
-      break
-    fi
-    if [[ ! -w ${existing} ]]; then
-      needs_sudo=1
-      break
-    fi
-  done
-
-  if (( needs_sudo == 0 )); then
-    return
-  fi
-
-  if [[ -n ${!guard_var:-} ]]; then
-    return
-  fi
-
-  if ! command -v sudo >/dev/null 2>&1; then
-    die ${EX_UNAVAILABLE} "Root privileges required to modify ${path}; install sudo or rerun as root."
-  fi
-
-  log_warn "Elevating privileges via sudo to write under privileged directories."
-  export "${guard_var}=1"
-  exec sudo -E -- "$0" "${ORIGINAL_ARGS[@]}"
-}
-
 load_environment() {
   local candidates=()
   if [[ -n ${ENV_FILE} ]]; then
@@ -643,7 +588,8 @@ main() {
   init_defaults
   validate_headless
 
-  maybe_reexec_for_privileged_paths PF_BOOTSTRAP_SUDO_GUARD     "${WORK_ROOT}" "${PF_WORK}" "${CONFIG_DIR}" "${IMAGES_DIR}" "${PF_INSTALLER_DIR}"
+  homelab_maybe_reexec_for_privileged_paths PF_BOOTSTRAP_SUDO_GUARD \
+    "${WORK_ROOT}" "${PF_WORK}" "${CONFIG_DIR}" "${IMAGES_DIR}" "${PF_INSTALLER_DIR}"
 
   check_dependencies
   ensure_directories

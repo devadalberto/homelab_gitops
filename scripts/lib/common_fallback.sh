@@ -143,6 +143,93 @@ load_env() {
   eval "$prev_state"
 }
 
+homelab_resolve_existing_dir() {
+  if [[ $# -ne 1 ]]; then
+    log_error "Usage: homelab_resolve_existing_dir <path>"
+    return 64
+  fi
+
+  local path=$1
+  if [[ -z ${path} ]]; then
+    printf '%s\n' ""
+    return 0
+  fi
+
+  local dir=$path
+  if [[ -d ${dir} ]]; then
+    printf '%s\n' "$dir"
+    return 0
+  fi
+
+  if [[ -e ${dir} ]]; then
+    dir=$(dirname "$dir")
+  else
+    dir=$(dirname "$dir")
+    while [[ $dir != '/' && ! -d $dir ]]; do
+      dir=$(dirname "$dir")
+    done
+  fi
+
+  printf '%s\n' "$dir"
+}
+
+homelab_maybe_reexec_for_privileged_paths() {
+  if [[ $# -lt 1 ]]; then
+    log_error "Usage: homelab_maybe_reexec_for_privileged_paths <guard-var> [paths...]"
+    return 64
+  fi
+
+  local guard_var=$1
+  shift || true
+
+  if [[ ${DRY_RUN:-false} == true ]]; then
+    return 0
+  fi
+
+  if (( EUID == 0 )); then
+    return 0
+  fi
+
+  local path existing escalate_target=""
+  for path in "$@"; do
+    [[ -z ${path} ]] && continue
+    existing=$(homelab_resolve_existing_dir "$path") || return $?
+    if [[ -z ${existing} ]]; then
+      continue
+    fi
+    if [[ ${existing} == /opt/homelab* ]]; then
+      escalate_target=${existing}
+      break
+    fi
+    if [[ ! -w ${existing} ]]; then
+      escalate_target=${existing}
+      break
+    fi
+  done
+
+  if [[ -z ${escalate_target} ]]; then
+    return 0
+  fi
+
+  if [[ -n ${!guard_var-} ]]; then
+    return 0
+  fi
+
+  if ! command -v sudo >/dev/null 2>&1; then
+    die "${EX_UNAVAILABLE:-69}" \
+      "Root privileges required to modify ${escalate_target}. Install sudo or rerun as root."
+  fi
+
+  if [[ -z ${ORIGINAL_ARGS+x} ]]; then
+    die "${EX_SOFTWARE:-70}" \
+      "ORIGINAL_ARGS is not defined; cannot re-execute with sudo."
+  fi
+
+  log_warn "Elevating privileges via sudo to modify ${escalate_target}. Re-executing..."
+  export "${guard_var}=1"
+  exec sudo -E -- "$0" "${ORIGINAL_ARGS[@]}"
+}
+
 ensure_namespace() {
   if [[ $# -ne 1 ]]; then
     log_error "Usage: ensure_namespace <namespace>"
