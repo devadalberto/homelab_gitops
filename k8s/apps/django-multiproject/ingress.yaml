@@ -1,0 +1,22 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: djangomultiproject
+  annotations:
+    kubernetes.io/ingress.class: traefik
+spec:
+  tls:
+    - secretName: djangomultiproject-tls
+      hosts:
+        - "app.lab-minikube.labz.home.arpa"
+  rules:
+    - host: app.lab-minikube.labz.home.arpa
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: djangomultiproject
+                port:
+                  number: 80

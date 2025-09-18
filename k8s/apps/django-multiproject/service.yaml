@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: djangomultiproject
+spec:
+  selector:
+    app: djangomultiproject
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8000
+  type: ClusterIP

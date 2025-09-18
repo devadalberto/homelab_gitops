@@ -74,7 +74,7 @@ flowchart LR
    ```
    Adjust the bootstrap command for your Git provider (GitHub, GitLab, etc.) and cluster path.
 
-   Flux currently reconciles the `k8s/base` tree (core namespaces and addon scaffolding). The `k8s/apps/*` directories are placeholders until the application manifests are migrated into Flux; for now the workloads are deployed by `scripts/uranus_homelab_apps.sh`.
+   Flux currently reconciles the `k8s/base` tree, which now includes the Django multiproject demo alongside the core namespaces and addon scaffolding. The remaining `k8s/apps/*` directories are placeholders until their manifests are migrated into Flux; for now those workloads are deployed by `scripts/uranus_homelab_apps.sh`.
 
 4. **Access the applications**
    - Configure pfSense DNS overrides (see below).
@@ -180,7 +180,7 @@ Use a TTL of 300 seconds (5 minutes). Ensure pfSense hands out its own IP as the
 ```text
 .
 ├── apps/                       # Imperative manifests/scripts used by helper automation
-│   ├── django-multiproject/    # Example workload applied by scripts/uranus_homelab_apps.sh
+│   ├── django-multiproject/    # Legacy example manifests (Flux-managed version lives in k8s/apps/django-multiproject)
 │   └── pihole/                 # Sample secrets (encrypt with SOPS before use)
 ├── clusters/
 │   └── minikube/               # Flux bootstrap configuration for the minikube cluster
@@ -188,7 +188,7 @@ Use a TTL of 300 seconds (5 minutes). Ensure pfSense hands out its own IP as the
 ├── flux/                       # Flux installation helper scripts
 ├── k8s/                        # Kubernetes manifests organized by component
 │   ├── addons/                 # MetalLB, Traefik, cert-manager, AWX Operator, etc.
-│   ├── apps/                   # Placeholders reserved for future Flux-managed apps
+│   ├── apps/                   # Flux-managed applications (Django multiproject demo plus placeholders for future apps)
 │   ├── base/                   # Aggregates addons and (placeholder) app trees for Flux
 │   ├── cert-manager/           # Additional cert-manager configuration
 │   └── traefik/                # Traefik-specific manifests
