@@ -234,7 +234,8 @@ platform from a bare host to a reconciled Flux cluster without bouncing between 
 
 Continue with the [Post-Bootstrap Validation](#post-bootstrap-validation) checklist for deeper smoke tests and consult
 [Troubleshooting: PostgreSQL install timeouts](#troubleshooting-postgresql-install-timeouts) (and related sections) if anything
-deviates from the expected results.
+deviates from the expected results. Operators who need secure remote CLI access without exposing services publicly can follow
+the [WireGuard Remote Access (Host-Only)](#wireguard-remote-access-host-only) workflow before handing the environment to others.
 
 ## Quick Start
 
@@ -325,7 +326,7 @@ Run these checks after `scripts/uranus_homelab.sh` (or `make up`) completes and 
 
 ## Troubleshooting: PostgreSQL install timeouts
 
-If the database stack fails to finish installing (for example, the `make db` target or `scripts/uranus_homelab.sh` exits while waiting for PostgreSQL), gather the same diagnostics the automation prints so you can identify the blocker:
+If the database stack fails to finish installing (for example, the `make db` target or `scripts/uranus_homelab.sh` exits while waiting for PostgreSQL), gather the same diagnostics the automation prints so you can identify the blocker. Need to reach the host from afar before collecting data? Establish the tunnel described in [WireGuard Remote Access (Host-Only)](#wireguard-remote-access-host-only) first.
 
 ```bash
 helm status postgresql -n databases
@@ -379,6 +380,80 @@ When bumping versions:
    - Spot-check `helm list -A` and `kubectl get pods --all-namespaces` for healthy rollouts.
 
 Document the results in the pull request so the Flux-managed environments can be updated confidently.
+
+## WireGuard Remote Access (Host-Only)
+
+Some operators prefer a lightweight remote access tunnel that lives entirely on the virtualization host instead of deploying another Kubernetes addon. The repository does **not** ship in-cluster WireGuard manifests, but the steps below harden a host-only `wg0` interface so trusted peers can reach lab services such as `traefik.labz.home.arpa` without exposing those endpoints to the Internet.
+
+1. **Install WireGuard packages on the host.**
+   - Debian/Ubuntu: `sudo apt install wireguard wireguard-tools`.
+   - RHEL/Fedora: `sudo dnf install wireguard-tools` (enable the `wireguard` kmod if prompted).
+   - Confirm the kernel module is present with `sudo modprobe wireguard` and ensure the host firewall allows UDP/51820.
+
+2. **Generate persistent keys.**
+   ```bash
+   sudo install -d -m 700 /etc/wireguard
+   sudo sh -c 'umask 077 && wg genkey > /etc/wireguard/server.key'
+   sudo sh -c 'wg pubkey < /etc/wireguard/server.key > /etc/wireguard/server.pub'
+   ```
+   Capture each client key pair separately (`wg genkey | tee client.key | wg pubkey > client.pub`) so you can define individual peers later.
+
+3. **Author `/etc/wireguard/wg0.conf` (server side).**
+   The snippet below omits secrets on purpose; substitute the placeholders with the generated keys and adjust interface names if your lab bridge differs from `br0`.
+   ```ini
+   [Interface]
+   Address = 192.168.88.1/24
+   ListenPort = 51820
+   PrivateKey = <host-private-key>
+   SaveConfig = false
+   PostUp = sysctl -w net.ipv4.ip_forward=1
+   PostUp = iptables -t nat -A POSTROUTING -s 192.168.88.0/24 -o br0 -j MASQUERADE
+   PostUp = iptables -A FORWARD -i wg0 -o br0 -j ACCEPT
+   PostUp = iptables -A FORWARD -i br0 -o wg0 -m state --state RELATED,ESTABLISHED -j ACCEPT
+   PostDown = sysctl -w net.ipv4.ip_forward=0
+   PostDown = iptables -t nat -D POSTROUTING -s 192.168.88.0/24 -o br0 -j MASQUERADE
+   PostDown = iptables -D FORWARD -i wg0 -o br0 -j ACCEPT
+   PostDown = iptables -D FORWARD -i br0 -o wg0 -m state --state RELATED,ESTABLISHED -j ACCEPT
+
+   [Peer]
+   # Example laptop
+   PublicKey = <client-public-key>
+   AllowedIPs = 192.168.88.2/32
+   ```
+   The overlay network `192.168.88.0/24` stays private to WireGuard peers while pfSense continues to route the primary lab LAN (`10.10.0.0/24`). Add multiple `[Peer]` entries as required, assigning each remote a unique `/32` address.
+
+4. **Account for upstream routers or VPS platforms.**
+   - If the homelab sits behind pfSense, forward UDP/51820 from the WAN to the virtualization host so remote peers can establish the tunnel.
+   - For a VPS jump box, ensure the provider security group mirrors the port forward and that the instance has a static public IP.
+   - Persist firewall rules with `nftables`, `firewalld`, or pfSense NAT rules so reboots do not drop the forwarding policy.
+
+5. **Distribute client configuration.**
+   Give each user a minimal profile similar to the example below. Include any additional lab subnets (such as `10.10.0.0/24`) under `AllowedIPs` so clients route traffic toward the cluster and pfSense services.
+   ```ini
+   [Interface]
+   Address = 192.168.88.2/24
+   PrivateKey = <client-private-key>
+   DNS = 10.10.0.1
+
+   [Peer]
+   PublicKey = <host-public-key>
+   AllowedIPs = 192.168.88.0/24, 10.10.0.0/24
+   Endpoint = <public-ip-or-ddns>:51820
+   PersistentKeepalive = 25
+   ```
+   Use the pfSense DNS overrides so WireGuard clients can resolve names like `app.lab-minikube.labz.home.arpa` while connected.
+
+6. **Verify connectivity.**
+   ```bash
+   sudo wg-quick up wg0         # bring up the server interface
+   sudo wg show                 # confirm the peer handshake
+   ping -c3 192.168.88.2        # from the host, target the client overlay IP
+   ping -c3 10.10.0.1           # from the client, reach pfSense over the tunnel
+   dig traefik.labz.home.arpa   # ensure DNS answers arrive through WireGuard
+   ```
+   Replace `ping` with `curl https://traefik.lab-minikube.labz.home.arpa` to validate TLS ingress once DNS resolves.
+
+Persist the interface with `sudo systemctl enable --now wg-quick@wg0.service` after validating the tunnel. Because this workflow never touches Kubernetes, GitOps still owns the cluster manifests while the host-only WireGuard layer secures administrative access.
 
 ## Secrets Management with SOPS and age
 
