@@ -1,52 +1,201 @@
 #!/usr/bin/env bash
-set -Eeuo pipefail
+set -euo pipefail
+IFS=$'\n\t'
 
-ASSUME_YES=false
-ENV_FILE="./.env"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 POSTGRES_VALUES_FILE="${REPO_ROOT}/values/postgresql.yaml"
+STORAGE_MANIFEST_DIR="${REPO_ROOT}/k8s/storage"
 
-if [[ ! -f "${POSTGRES_VALUES_FILE}" ]]; then
-  echo "PostgreSQL values file not found: ${POSTGRES_VALUES_FILE}" >&2
-  exit 1
+COMMON_LIB="${SCRIPT_DIR}/lib/common.sh"
+if [[ -f "${COMMON_LIB}" ]]; then
+  # shellcheck source=scripts/lib/common.sh
+  source "${COMMON_LIB}"
+else
+  FALLBACK_LIB="${SCRIPT_DIR}/lib/common_fallback.sh"
+  if [[ -f "${FALLBACK_LIB}" ]]; then
+    # shellcheck source=scripts/lib/common_fallback.sh
+    source "${FALLBACK_LIB}"
+  else
+    echo "Unable to locate scripts/lib/common.sh or fallback helpers" >&2
+    exit 70
+  fi
 fi
+
+readonly EX_OK=0
+readonly EX_USAGE=64
+readonly EX_UNAVAILABLE=69
+readonly EX_SOFTWARE=70
+readonly EX_CONFIG=78
+
+ASSUME_YES=false
+ENV_FILE_OVERRIDE=""
+ENV_FILE_PATH=""
+DRY_RUN=false
+CONTEXT_ONLY=false
 
 usage() {
   cat <<'USAGE'
-Usage: uranus_homelab_apps.sh [--env-file PATH] [--assume-yes]
+Usage: uranus_homelab_apps.sh [OPTIONS]
 
-Deploys Postgres, Redis, Nextcloud, and Jellyfin workloads into the Uranus homelab cluster.
+Deploy PostgreSQL, Redis, Nextcloud, and Jellyfin workloads into the Uranus
+homelab cluster using environment configuration.
+
+Options:
+  --env-file PATH         Load configuration overrides from PATH.
+  --assume-yes            Automatically confirm prompts when possible.
+  --dry-run               Log mutating actions without executing them.
+  --context-preflight     Validate cluster context and exit without changes.
+  --verbose               Increase logging verbosity to debug.
+  -h, --help              Show this help message.
+
+Exit codes:
+  0   Success.
+  64  Usage error (invalid CLI arguments).
+  69  Missing required dependencies.
+  70  Runtime failure during workload deployment.
+  78  Configuration error (missing environment variables or values files).
 USAGE
 }
 
-log() {
-  printf '[%s] %s\n' "$(date +'%F %T')" "$*"
+format_command() {
+  local formatted=""
+  local arg
+  for arg in "$@"; do
+    if [[ -z ${formatted} ]]; then
+      formatted=$(printf '%q' "$arg")
+    else
+      formatted+=" $(printf '%q' "$arg")"
+    fi
+  done
+  printf '%s' "$formatted"
 }
 
-require_command() {
-  local cmd
-  for cmd in "$@"; do
-    if ! command -v "${cmd}" >/dev/null 2>&1; then
-      echo "Required command not found: ${cmd}" >&2
-      exit 1
+run_cmd() {
+  if [[ ${DRY_RUN} == true ]]; then
+    log_info "[DRY-RUN] $(format_command "$@")"
+    return 0
+  fi
+  log_debug "Executing: $(format_command "$@")"
+  "$@"
+}
+
+kubectl_apply_manifest() {
+  local manifest=$1
+  if [[ ${DRY_RUN} == true ]]; then
+    log_info "[DRY-RUN] kubectl apply -f - <<'EOF'"
+    printf '%s\n' "${manifest}"
+    log_info "[DRY-RUN] EOF"
+    return 0
+  fi
+  need kubectl || return $?
+  printf '%s\n' "${manifest}" | kubectl apply -f -
+}
+
+ensure_namespace_safe() {
+  local namespace=$1
+  if [[ ${DRY_RUN} == true ]]; then
+    if kubectl get namespace "${namespace}" >/dev/null 2>&1; then
+      log_debug "Namespace ${namespace} already exists"
+    else
+      log_info "[DRY-RUN] kubectl create namespace ${namespace}"
     fi
+    return 0
+  fi
+  ensure_namespace "${namespace}"
+}
+
+apply_manifest_with_envsubst() {
+  local manifest=$1
+  if [[ ${DRY_RUN} == true ]]; then
+    log_info "[DRY-RUN] envsubst <${manifest} | kubectl apply -f -"
+    return 0
+  fi
+  need envsubst || return $?
+  envsubst <"${manifest}" | kubectl apply -f -
+}
+
+load_environment() {
+  if [[ -n ${ENV_FILE_OVERRIDE} ]]; then
+    log_info "Loading environment overrides from ${ENV_FILE_OVERRIDE}"
+    if [[ ! -f ${ENV_FILE_OVERRIDE} ]]; then
+      die ${EX_CONFIG} "Environment file not found: ${ENV_FILE_OVERRIDE}"
+    fi
+    ENV_FILE_PATH="${ENV_FILE_OVERRIDE}"
+    load_env "${ENV_FILE_OVERRIDE}" || die ${EX_CONFIG} "Failed to load ${ENV_FILE_OVERRIDE}"
+    return
+  fi
+
+  local candidates=(
+    "${REPO_ROOT}/.env"
+    "${SCRIPT_DIR}/.env"
+    "/opt/homelab/.env"
+  )
+  local candidate
+  for candidate in "${candidates[@]}"; do
+    log_debug "Checking for environment file at ${candidate}"
+    if [[ -f ${candidate} ]]; then
+      log_info "Loading environment from ${candidate}"
+      ENV_FILE_PATH="${candidate}"
+      load_env "${candidate}" || die ${EX_CONFIG} "Failed to load ${candidate}"
+      return
+    fi
+  done
+  ENV_FILE_PATH=""
+  log_debug "No environment file present in default search locations"
+}
+
+parse_args() {
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --env-file)
+        if [[ $# -lt 2 ]]; then
+          usage
+          die ${EX_USAGE} "--env-file requires a path argument"
+        fi
+        ENV_FILE_OVERRIDE="$2"
+        shift 2
+        ;;
+      --assume-yes)
+        ASSUME_YES=true
+        shift
+        ;;
+      --dry-run)
+        DRY_RUN=true
+        shift
+        ;;
+      --context-preflight)
+        CONTEXT_ONLY=true
+        shift
+        ;;
+      --verbose)
+        log_set_level debug
+        shift
+        ;;
+      -h|--help)
+        usage
+        exit ${EX_OK}
+        ;;
+      --)
+        shift
+        if [[ $# -gt 0 ]]; then
+          usage
+          die ${EX_USAGE} "Unexpected positional arguments: $*"
+        fi
+        ;;
+      -* )
+        usage
+        die ${EX_USAGE} "Unknown option: $1"
+        ;;
+      * )
+        usage
+        die ${EX_USAGE} "Positional arguments are not supported"
+        ;;
+    esac
   done
 }
 
-load_env_file() {
-  local file=$1
-  if [[ ! -f "${file}" ]]; then
-    echo "Environment file not found: ${file}" >&2
-    exit 1
-  fi
-  # shellcheck disable=SC1090
-  set -a
-  source "${file}"
-  set +a
-}
-
-require_vars() {
+require_env_vars() {
   local missing=()
   local var
   for var in "$@"; do
@@ -54,137 +203,60 @@ require_vars() {
       missing+=("${var}")
     fi
   done
-  if [[ ${#missing[@]} -ne 0 ]]; then
-    echo "Missing required variables: ${missing[*]}" >&2
-    exit 1
+  if [[ ${#missing[@]} -gt 0 ]]; then
+    die ${EX_CONFIG} "Missing required variables: ${missing[*]}"
   fi
 }
 
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    --env-file)
-      ENV_FILE="$2"
-      shift 2
-      ;;
-    --assume-yes)
-      ASSUME_YES=true
-      shift
-      ;;
-    -h|--help)
-      usage
-      exit 0
-      ;;
-    *)
-      echo "Unknown argument: $1" >&2
-      usage
-      exit 1
-      ;;
-  esac
-done
-
-load_env_file "${ENV_FILE}"
-require_vars LABZ_MINIKUBE_PROFILE LABZ_POSTGRES_DB \
-  LABZ_POSTGRES_USER LABZ_POSTGRES_PASSWORD LABZ_REDIS_PASSWORD \
-  LABZ_PHP_UPLOAD_LIMIT LABZ_MOUNT_BACKUPS LABZ_MOUNT_MEDIA \
-  LABZ_MOUNT_NEXTCLOUD LABZ_NEXTCLOUD_HOST LABZ_JELLYFIN_HOST \
-  LABZ_TRAEFIK_HOST LABZ_METALLB_RANGE PG_STORAGE_SIZE
-
-require_command kubectl helm envsubst
-
-ensure_namespaces() {
-  local ns
-  for ns in "$@"; do
-    kubectl create namespace "${ns}" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
-  done
-}
-
-verify_current_context() {
-  local current_context
-  if ! current_context=$(kubectl config current-context 2>/dev/null); then
-    echo "Failed to determine the current kubectl context" >&2
-    exit 1
-  fi
-  if [[ "${current_context}" != "${LABZ_MINIKUBE_PROFILE}" ]]; then
-    echo "kubectl current-context '${current_context}' does not match expected context '${LABZ_MINIKUBE_PROFILE}'" >&2
-    exit 1
-  fi
-}
-
-verify_cluster_nodes() {
-  if ! kubectl get nodes >/dev/null 2>&1; then
-    echo "Unable to list cluster nodes via kubectl" >&2
-    exit 1
-  fi
-}
-
-verify_cluster_dns() {
-  if ! kubectl run dns-check --rm --restart=Never --image=busybox:1.36.1 \
-    --command -- nslookup kubernetes.default.svc.cluster.local >/dev/null 2>&1; then
-    echo "BusyBox DNS lookup for kubernetes.default.svc.cluster.local failed" >&2
-    exit 1
-  fi
-}
-
-verify_cluster_connectivity() {
-  log "Verifying kubectl current-context"
-  verify_current_context
-  log "Verifying cluster node access"
-  verify_cluster_nodes
-  log "Verifying in-cluster DNS resolution"
-  verify_cluster_dns
-}
-
-apply_manifest_with_envsubst() {
-  local manifest=$1
-  envsubst <"${manifest}" | kubectl apply -f -
-}
-
-deploy_hostpath_storage() {
-  local manifest
-  for manifest in "${STORAGE_MANIFEST_DIR}"/*.yaml; do
-    if [[ -f "${manifest}" ]]; then
-      log "Applying storage manifest ${manifest}"
-      apply_manifest_with_envsubst "${manifest}"
+ensure_context() {
+  need kubectl || die ${EX_UNAVAILABLE} "kubectl is required"
+  local desired=${LABZ_MINIKUBE_PROFILE}
+  local current
+  current=$(kubectl config current-context 2>/dev/null || true)
+  if [[ ${current} != "${desired}" ]]; then
+    if [[ ${DRY_RUN} == true ]]; then
+      log_info "[DRY-RUN] kubectl config use-context ${desired}"
+    else
+      run_cmd kubectl config use-context "${desired}"
     fi
-  done
-}
-
-wait_for_pvc_bound() {
-  local namespace=$1
-  local pvc_name=$2
-  local pv_label_selector=$3
-  local timeout=${4:-60}
-  local interval=5
-  local elapsed=0
-
-  log "Waiting for PVC ${namespace}/${pvc_name} to become Bound"
-  while (( elapsed < timeout )); do
-    local phase
-    phase=$(kubectl -n "${namespace}" get pvc "${pvc_name}" -o jsonpath='{.status.phase}' 2>/dev/null || true)
-    if [[ "${phase}" == "Bound" ]]; then
-      log "PVC ${namespace}/${pvc_name} is Bound"
-      return 0
-    fi
-    sleep "${interval}"
-    elapsed=$((elapsed + interval))
-  done
-
-  echo "PVC ${namespace}/${pvc_name} failed to reach Bound within ${timeout} seconds" >&2
-  kubectl -n "${namespace}" describe pvc "${pvc_name}" || true
-  if [[ -n "${pv_label_selector}" ]]; then
-    kubectl describe pv -l "${pv_label_selector}" || true
+  else
+    log_info "kubectl context already set to ${desired}"
   fi
-  exit 1
 }
 
-wait_for_required_pvcs() {
-  wait_for_pvc_bound databases postgresql-data 'pv-role=postgresql-data'
-  wait_for_pvc_bound nextcloud nextcloud-data 'pv-role=nextcloud-data'
-  wait_for_pvc_bound jellyfin jellyfin-media 'pv-role=jellyfin-media'
+ensure_helm_repo_safe() {
+  local name=$1
+  local url=$2
+  need helm || die ${EX_UNAVAILABLE} "helm is required"
+  if helm repo list 2>/dev/null | awk 'NR>1 {print $1}' | grep -Fxq "${name}"; then
+    log_debug "Helm repository ${name} already present"
+  else
+    if [[ ${DRY_RUN} == true ]]; then
+      log_info "[DRY-RUN] helm repo add ${name} ${url}"
+    else
+      run_cmd helm repo add "${name}" "${url}"
+    fi
+  fi
+  if [[ ${DRY_RUN} == true ]]; then
+    log_info "[DRY-RUN] helm repo update ${name}"
+  else
+    run_cmd helm repo update "${name}"
+  fi
+}
+
+print_context_summary() {
+  log_info "Context summary"
+  log_info "  Environment file: ${ENV_FILE_PATH:-<not found>}"
+  log_info "  Postgres values file: ${POSTGRES_VALUES_FILE}"
+  log_info "  Storage manifests: ${STORAGE_MANIFEST_DIR}"
+  log_info "  Cluster profile: ${LABZ_MINIKUBE_PROFILE}"
+  log_info "  Nextcloud host: ${LABZ_NEXTCLOUD_HOST}"
+  log_info "  Jellyfin host: ${LABZ_JELLYFIN_HOST}"
+  log_info "  MetalLB range: ${LABZ_METALLB_RANGE}"
 }
 
 collect_postgresql_diagnostics() {
-  log "Collecting PostgreSQL diagnostics"
+  log_warn "Collecting PostgreSQL diagnostics"
   helm status postgresql --namespace databases || true
   kubectl -n databases get pods,pvc,svc,statefulset || true
   kubectl -n databases describe statefulset postgresql || true
@@ -192,84 +264,63 @@ collect_postgresql_diagnostics() {
   kubectl get events --all-namespaces --sort-by='.metadata.creationTimestamp' | tail -n 50 || true
 }
 
-install_postgresql_with_retry() {
-  local attempt delay=5
-  for attempt in 1 2 3; do
-    log "Installing PostgreSQL (attempt ${attempt}/3)"
-    if helm upgrade --install postgresql bitnami/postgresql \
-      --namespace databases \
-      --create-namespace \
-      --wait \
-      --timeout 15m0s \
-      --values "${POSTGRES_VALUES_FILE}" \
-      --set fullnameOverride=postgresql \
-      --set global.postgresql.auth.database="${LABZ_POSTGRES_DB}" \
-      --set global.postgresql.auth.username="${LABZ_POSTGRES_USER}" \
-      --set global.postgresql.auth.password="${LABZ_POSTGRES_PASSWORD}"; then
-      log "PostgreSQL installed successfully"
-      return 0
-    fi
-
-    log "PostgreSQL installation attempt ${attempt} failed"
-    collect_postgresql_diagnostics
-    if (( attempt < 3 )); then
-      sleep "${delay}"
-      delay=$((delay * 2))
-    else
-      echo "PostgreSQL installation failed after ${attempt} attempts" >&2
-      exit 1
-    fi
-  done
+wait_for_pvc_bound_safe() {
+  local namespace=$1
+  local pvc=$2
+  if [[ ${DRY_RUN} == true ]]; then
+    log_info "[DRY-RUN] Wait for PVC ${namespace}/${pvc}"
+    return 0
+  fi
+  pvc_wait_bound "${pvc}" "${namespace}" 300s
 }
 
-log "Switching kubectl context to ${LABZ_MINIKUBE_PROFILE}"
-kubectl config use-context "${LABZ_MINIKUBE_PROFILE}" >/dev/null
+install_postgresql() {
+  local cmd=(
+    helm upgrade --install postgresql bitnami/postgresql
+    --namespace databases
+    --create-namespace
+    --wait
+    --timeout 15m0s
+    --values "${POSTGRES_VALUES_FILE}"
+    --set fullnameOverride=postgresql
+    --set global.postgresql.auth.database="${LABZ_POSTGRES_DB}"
+    --set global.postgresql.auth.username="${LABZ_POSTGRES_USER}"
+    --set global.postgresql.auth.password="${LABZ_POSTGRES_PASSWORD}"
+  )
+  if [[ ${DRY_RUN} == true ]]; then
+    log_info "[DRY-RUN] $(format_command "${cmd[@]}")"
+    return 0
+  fi
+  if ! retry 3 5 "${cmd[@]}"; then
+    collect_postgresql_diagnostics
+    die ${EX_SOFTWARE} "PostgreSQL installation failed after retries"
+  fi
+  retry 5 10 kubectl -n databases rollout status statefulset/postgresql --timeout=5m
+}
 
-verify_cluster_connectivity
+install_redis() {
+  local cmd=(
+    helm upgrade --install redis bitnami/redis
+    --namespace data
+    --create-namespace
+    --set fullnameOverride=redis
+    --set architecture=standalone
+    --set auth.enabled=true
+    --set auth.password="${LABZ_REDIS_PASSWORD}"
+    --set master.persistence.enabled=true
+    --wait
+    --timeout 10m0s
+  )
+  if [[ ${DRY_RUN} == true ]]; then
+    log_info "[DRY-RUN] $(format_command "${cmd[@]}")"
+    return 0
+  fi
+  "${cmd[@]}"
+}
 
-POSTGRES_DATA_PATH="${LABZ_MOUNT_BACKUPS%/}/postgresql-data"
-NEXTCLOUD_DATA_PATH="${LABZ_MOUNT_NEXTCLOUD%/}"
-JELLYFIN_MEDIA_PATH="${LABZ_MOUNT_MEDIA%/}"
-STORAGE_MANIFEST_DIR="${REPO_ROOT}/k8s/storage"
-
-mkdir -p "${POSTGRES_DATA_PATH}" "${NEXTCLOUD_DATA_PATH}" "${JELLYFIN_MEDIA_PATH}"
-
-export POSTGRES_DATA_PATH NEXTCLOUD_DATA_PATH JELLYFIN_MEDIA_PATH PG_STORAGE_SIZE
-
-if [[ ! -d "${STORAGE_MANIFEST_DIR}" ]]; then
-  echo "Storage manifest directory not found: ${STORAGE_MANIFEST_DIR}" >&2
-  exit 1
-fi
-
-log "Ensuring application namespaces exist"
-ensure_namespaces databases nextcloud jellyfin
-
-log "Adding Bitnami Helm repository"
-helm repo add bitnami https://charts.bitnami.com/bitnami >/dev/null 2>&1 || true
-helm repo update >/dev/null
-
-log "Configuring PersistentVolumes for hostPath data"
-deploy_hostpath_storage
-wait_for_required_pvcs
-
-install_postgresql_with_retry
-log "Waiting for PostgreSQL rollout to complete"
-kubectl -n databases rollout status statefulset/postgresql
-
-log "Installing Redis"
-helm upgrade --install redis bitnami/redis \
-  --namespace data \
-  --create-namespace \
-  --set fullnameOverride=redis \
-  --set architecture=standalone \
-  --set auth.enabled=true \
-  --set auth.password="${LABZ_REDIS_PASSWORD}" \
-  --set master.persistence.enabled=true \
-  --wait \
-  --timeout 10m0s
-
-log "Creating shared TLS certificates"
-cat <<EOF_CERT | kubectl apply -f -
+create_certificates() {
+  local manifest
+  manifest=$(cat <<EOM
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
@@ -308,46 +359,58 @@ spec:
   issuerRef:
     kind: ClusterIssuer
     name: labz-selfsigned
-EOF_CERT
+EOM
+)
+  kubectl_apply_manifest "${manifest}"
+}
 
-log "Deploying Nextcloud"
-helm upgrade --install nextcloud bitnami/nextcloud \
-  --namespace nextcloud \
-  --create-namespace \
-  --set fullnameOverride=nextcloud \
-  --set mariadb.enabled=false \
-  --set postgresql.enabled=false \
-  --set redis.enabled=false \
-  --set nextcloudHost="${LABZ_NEXTCLOUD_HOST}" \
-  --set ingress.enabled=true \
-  --set ingress.ingressClassName=traefik \
-  --set ingress.hostname="${LABZ_NEXTCLOUD_HOST}" \
-  --set ingress.tls[0].hosts[0]="${LABZ_NEXTCLOUD_HOST}" \
-  --set ingress.tls[0].secretName=labz-apps-tls \
-  --set persistence.enabled=true \
-  --set persistence.existingClaim=nextcloud-data \
-  --set externalDatabase.enabled=true \
-  --set externalDatabase.type=postgresql \
-  --set externalDatabase.host=postgresql.databases.svc.cluster.local \
-  --set externalDatabase.port=5432 \
-  --set externalDatabase.user="${LABZ_POSTGRES_USER}" \
-  --set externalDatabase.password="${LABZ_POSTGRES_PASSWORD}" \
-  --set externalDatabase.database="${LABZ_POSTGRES_DB}" \
-  --set externalCache.enabled=true \
-  --set externalCache.host=redis-master.data.svc.cluster.local \
-  --set externalCache.port=6379 \
-  --set externalCache.password="${LABZ_REDIS_PASSWORD}" \
-  --set phpClient.maxUploadSize="${LABZ_PHP_UPLOAD_LIMIT}" \
-  --set podSecurityContext.enabled=true \
-  --set podSecurityContext.fsGroup=33 \
-  --set containerSecurityContext.enabled=true \
-  --set containerSecurityContext.runAsUser=33 \
-  --set containerSecurityContext.runAsGroup=33 \
-  --wait \
-  --timeout 10m0s
+install_nextcloud() {
+  local cmd=(
+    helm upgrade --install nextcloud bitnami/nextcloud
+    --namespace nextcloud
+    --create-namespace
+    --set fullnameOverride=nextcloud
+    --set mariadb.enabled=false
+    --set postgresql.enabled=false
+    --set redis.enabled=false
+    --set nextcloudHost="${LABZ_NEXTCLOUD_HOST}"
+    --set ingress.enabled=true
+    --set ingress.ingressClassName=traefik
+    --set ingress.hostname="${LABZ_NEXTCLOUD_HOST}"
+    --set ingress.tls[0].hosts[0]="${LABZ_NEXTCLOUD_HOST}"
+    --set ingress.tls[0].secretName=labz-apps-tls
+    --set persistence.enabled=true
+    --set persistence.existingClaim=nextcloud-data
+    --set externalDatabase.enabled=true
+    --set externalDatabase.type=postgresql
+    --set externalDatabase.host=postgresql.databases.svc.cluster.local
+    --set externalDatabase.port=5432
+    --set externalDatabase.user="${LABZ_POSTGRES_USER}"
+    --set externalDatabase.password="${LABZ_POSTGRES_PASSWORD}"
+    --set externalDatabase.database="${LABZ_POSTGRES_DB}"
+    --set externalCache.enabled=true
+    --set externalCache.host=redis-master.data.svc.cluster.local
+    --set externalCache.port=6379
+    --set externalCache.password="${LABZ_REDIS_PASSWORD}"
+    --set phpClient.maxUploadSize="${LABZ_PHP_UPLOAD_LIMIT}"
+    --set podSecurityContext.enabled=true
+    --set podSecurityContext.fsGroup=33
+    --set containerSecurityContext.enabled=true
+    --set containerSecurityContext.runAsUser=33
+    --set containerSecurityContext.runAsGroup=33
+    --wait
+    --timeout 10m0s
+  )
+  if [[ ${DRY_RUN} == true ]]; then
+    log_info "[DRY-RUN] $(format_command "${cmd[@]}")"
+    return 0
+  fi
+  "${cmd[@]}"
+}
 
-log "Deploying Jellyfin"
-cat <<EOF_JELLY | kubectl apply -f -
+install_jellyfin() {
+  local manifest
+  manifest=$(cat <<EOM
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -416,12 +479,76 @@ spec:
                 name: jellyfin
                 port:
                   number: 80
-EOF_JELLY
+EOM
+)
+  kubectl_apply_manifest "${manifest}"
+}
 
-log "Deployment summary"
-cat <<SUMMARY
-Traefik dashboard: https://${LABZ_TRAEFIK_HOST}/dashboard/
-Nextcloud:         https://${LABZ_NEXTCLOUD_HOST}/
-Jellyfin:          https://${LABZ_JELLYFIN_HOST}/
-Use pfSense DNS overrides to point these hosts at an IP from ${LABZ_METALLB_RANGE}.
-SUMMARY
+main() {
+  parse_args "$@"
+  load_environment
+
+  if [[ ! -f ${POSTGRES_VALUES_FILE} ]]; then
+    die ${EX_CONFIG} "PostgreSQL values file not found: ${POSTGRES_VALUES_FILE}"
+  fi
+  if [[ ! -d ${STORAGE_MANIFEST_DIR} ]]; then
+    die ${EX_CONFIG} "Storage manifest directory not found: ${STORAGE_MANIFEST_DIR}"
+  fi
+
+  require_env_vars \
+    LABZ_MINIKUBE_PROFILE LABZ_POSTGRES_DB LABZ_POSTGRES_USER LABZ_POSTGRES_PASSWORD \
+    LABZ_REDIS_PASSWORD LABZ_PHP_UPLOAD_LIMIT LABZ_MOUNT_BACKUPS LABZ_MOUNT_MEDIA \
+    LABZ_MOUNT_NEXTCLOUD LABZ_NEXTCLOUD_HOST LABZ_JELLYFIN_HOST LABZ_TRAEFIK_HOST \
+    LABZ_METALLB_RANGE PG_STORAGE_SIZE
+
+  local POSTGRES_DATA_PATH="${LABZ_MOUNT_BACKUPS%/}/postgresql-data"
+  local NEXTCLOUD_DATA_PATH="${LABZ_MOUNT_NEXTCLOUD%/}"
+  local JELLYFIN_MEDIA_PATH="${LABZ_MOUNT_MEDIA%/}"
+
+  print_context_summary
+
+  if [[ ${CONTEXT_ONLY} == true ]]; then
+    ensure_context
+    log_info "Context preflight complete"
+    return
+  fi
+
+  need kubectl helm envsubst || die ${EX_UNAVAILABLE} "kubectl, helm, and envsubst are required"
+
+  ensure_context
+  ensure_helm_repo_safe bitnami https://charts.bitnami.com/bitnami
+
+  run_cmd mkdir -p "${POSTGRES_DATA_PATH}" "${NEXTCLOUD_DATA_PATH}" "${JELLYFIN_MEDIA_PATH}"
+  export POSTGRES_DATA_PATH NEXTCLOUD_DATA_PATH JELLYFIN_MEDIA_PATH PG_STORAGE_SIZE
+
+  ensure_namespace_safe databases
+  ensure_namespace_safe data
+  ensure_namespace_safe nextcloud
+  ensure_namespace_safe jellyfin
+
+  log_info "Applying hostPath storage manifests"
+  local manifest_file
+  for manifest_file in "${STORAGE_MANIFEST_DIR}"/*.yaml; do
+    [[ -f ${manifest_file} ]] || continue
+    log_info "Applying ${manifest_file}"
+    apply_manifest_with_envsubst "${manifest_file}"
+  done
+
+  wait_for_pvc_bound_safe databases postgresql-data
+  wait_for_pvc_bound_safe nextcloud nextcloud-data
+  wait_for_pvc_bound_safe jellyfin jellyfin-media
+
+  install_postgresql
+  install_redis
+  create_certificates
+  install_nextcloud
+  install_jellyfin
+
+  log_info "Deployment summary"
+  log_info "  Traefik dashboard: https://${LABZ_TRAEFIK_HOST}/dashboard/"
+  log_info "  Nextcloud:         https://${LABZ_NEXTCLOUD_HOST}/"
+  log_info "  Jellyfin:          https://${LABZ_JELLYFIN_HOST}/"
+  log_info "Use pfSense DNS overrides to point these hosts at an IP from ${LABZ_METALLB_RANGE}."
+}
+
+main "$@"

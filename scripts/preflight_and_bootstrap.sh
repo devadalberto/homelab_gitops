@@ -1,12 +1,41 @@
 #!/usr/bin/env bash
 set -euo pipefail
+IFS=$'\n\t'
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+COMMON_LIB="${SCRIPT_DIR}/lib/common.sh"
+if [[ -f "${COMMON_LIB}" ]]; then
+  # shellcheck source=scripts/lib/common.sh
+  source "${COMMON_LIB}"
+else
+  FALLBACK_LIB="${SCRIPT_DIR}/lib/common_fallback.sh"
+  if [[ -f "${FALLBACK_LIB}" ]]; then
+    # shellcheck source=scripts/lib/common_fallback.sh
+    source "${FALLBACK_LIB}"
+  else
+    echo "Unable to locate scripts/lib/common.sh or fallback helpers" >&2
+    exit 70
+  fi
+fi
+
+readonly EX_OK=0
+readonly EX_USAGE=64
+readonly EX_UNAVAILABLE=69
+readonly EX_SOFTWARE=70
+readonly EX_TEMPFAIL=75
+readonly EX_CONFIG=78
 
 ASSUME_YES=false
-VERBOSE=false
 ALLOW_UFW=false
 DELETE_PREVIOUS=false
 PREFLIGHT_ONLY=false
-ENV_FILE="./.env"
+CONTEXT_ONLY=false
+DRY_RUN=false
+ENV_FILE_OVERRIDE=""
+ENV_FILE_PATH=""
+
 STATE_DIR="${HOME}/.homelab"
 STATE_PATH="${STATE_DIR}/state.json"
 export STATE_DIR
@@ -19,81 +48,160 @@ METALLB_POOL_START="${METALLB_POOL_START:-}"
 METALLB_POOL_END="${METALLB_POOL_END:-}"
 TRAEFIK_LOCAL_IP="${TRAEFIK_LOCAL_IP:-}"
 
-SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-REPO_ROOT=$(cd "${SCRIPT_DIR}/.." && pwd)
+usage() {
+  cat <<'USAGE'
+Usage: preflight_and_bootstrap.sh [OPTIONS]
 
-timestamp() {
-  date -u +"%Y-%m-%d %H:%M:%S"
+Run host preflight checks, align MetalLB networking, and optionally execute the
+bootstrap workflow for the Uranus homelab Minikube cluster.
+
+Options:
+  --env-file PATH               Load configuration overrides from PATH.
+  --assume-yes                  Automatically confirm interactive prompts.
+  --allow-ufw                   Keep UFW enabled and add Kubernetes rules.
+  --delete-previous-environment Remove any existing Minikube profile.
+  --preflight-only              Run checks and exit without bootstrapping.
+  --dry-run                     Log mutating actions without executing them.
+  --context-preflight           Discover environment details and exit.
+  --verbose                     Increase logging verbosity to debug.
+  -h, --help                    Show this help message.
+
+Exit codes:
+  0   Success.
+  64  Usage error (invalid CLI arguments).
+  69  Missing required dependencies.
+  70  Runtime failure such as download errors.
+  75  Temporary failure (retry later).
+  78  Configuration error (missing environment file).
+USAGE
 }
 
-log() {
-  printf '[%s] %s\n' "$(timestamp)" "$*"
+format_command() {
+  local formatted=""
+  local arg
+  for arg in "$@"; do
+    if [[ -z ${formatted} ]]; then
+      formatted=$(printf '%q' "$arg")
+    else
+      formatted+=" $(printf '%q' "$arg")"
+    fi
+  done
+  printf '%s' "$formatted"
 }
 
-log_info() {
-  log "INFO  $*"
+run_cmd() {
+  if [[ ${DRY_RUN} == true ]]; then
+    log_info "[DRY-RUN] $(format_command "$@")"
+    return 0
+  fi
+  log_debug "Executing: $(format_command "$@")"
+  "$@"
 }
 
-log_warn() {
-  log "WARN  $*"
-}
-
-log_error() {
-  log "ERROR $*"
-}
-
-log_debug() {
-  if [[ "${VERBOSE}" == "true" ]]; then
-    log "DEBUG $*"
+write_root_file() {
+  local path=$1
+  shift || true
+  local content=$1
+  if [[ ${DRY_RUN} == true ]]; then
+    log_info "[DRY-RUN] tee ${path} <<'EOF'"
+    printf '%s\n' "${content}"
+    log_info "[DRY-RUN] EOF"
+    return 0
+  fi
+  if [[ $(id -u) -eq 0 ]]; then
+    printf '%s' "${content}" >"${path}"
+  else
+    if ! command -v sudo >/dev/null 2>&1; then
+      die ${EX_UNAVAILABLE} "sudo is required to modify ${path}"
+    fi
+    printf '%s' "${content}" | sudo tee "${path}" >/dev/null
   fi
 }
 
-usage() {
-  cat <<'USAGE'
-Usage: preflight_and_bootstrap.sh [--env-file PATH] [--assume-yes] [--allow-ufw] [--verbose]
-                                      [--delete-previous-environment] [--preflight-only]
+kubectl_apply_manifest() {
+  local manifest=$1
+  if [[ ${DRY_RUN} == true ]]; then
+    log_info "[DRY-RUN] kubectl apply -f - <<'EOF'"
+    printf '%s\n' "${manifest}"
+    log_info "[DRY-RUN] EOF"
+    return 0
+  fi
+  need kubectl || return $?
+  printf '%s\n' "${manifest}" | kubectl apply -f -
+}
 
-Runs homelab preflight checks, adapts networking, and bootstraps the Minikube stack.
-Use --preflight-only to run host checks without invoking the bootstrap script.
-USAGE
+ensure_namespace_safe() {
+  local namespace=$1
+  if [[ ${DRY_RUN} == true ]]; then
+    if kubectl get namespace "${namespace}" >/dev/null 2>&1; then
+      log_debug "Namespace ${namespace} already exists"
+    else
+      log_info "[DRY-RUN] kubectl create namespace ${namespace}"
+    fi
+    return 0
+  fi
+  ensure_namespace "${namespace}"
+}
+
+declare -a CLEANUP_PODS=()
+
+register_cleanup_pod() {
+  CLEANUP_PODS+=("$1/$2")
+}
+
+cleanup() {
+  local entry namespace name
+  if [[ ${DRY_RUN} == true || ${#CLEANUP_PODS[@]} -eq 0 ]]; then
+    return
+  fi
+  for entry in "${CLEANUP_PODS[@]}"; do
+    namespace=${entry%%/*}
+    name=${entry##*/}
+    if command -v kubectl >/dev/null 2>&1; then
+      kubectl -n "${namespace}" delete pod "${name}" --ignore-not-found >/dev/null 2>&1 || true
+    fi
+  done
+}
+
+trap cleanup EXIT INT TERM
+
+load_environment() {
+  if [[ -n ${ENV_FILE_OVERRIDE} ]]; then
+    ENV_FILE_PATH="${ENV_FILE_OVERRIDE}"
+    if [[ ! -f ${ENV_FILE_OVERRIDE} ]]; then
+      die ${EX_CONFIG} "Environment file not found: ${ENV_FILE_OVERRIDE}"
+    fi
+    load_env "${ENV_FILE_OVERRIDE}" || die ${EX_CONFIG} "Failed to load ${ENV_FILE_OVERRIDE}"
+    return
+  fi
+  local candidates=(
+    "${REPO_ROOT}/.env"
+    "${SCRIPT_DIR}/.env"
+    "/opt/homelab/.env"
+  )
+  local candidate
+  for candidate in "${candidates[@]}"; do
+    log_debug "Checking for environment file at ${candidate}"
+    if [[ -f ${candidate} ]]; then
+      ENV_FILE_PATH="${candidate}"
+      log_info "Loading environment from ${candidate}"
+      load_env "${candidate}" || die ${EX_CONFIG} "Failed to load ${candidate}"
+      return
+    fi
+  done
+  ENV_FILE_PATH=""
+  log_debug "No environment file present in default search locations"
 }
 
 maybe_sudo() {
   if [[ $(id -u) -eq 0 ]]; then
-    "$@"
+    run_cmd "$@"
   else
     if command -v sudo >/dev/null 2>&1; then
-      sudo "$@"
+      run_cmd sudo "$@"
     else
-      log_error "sudo is required for $*"
-      exit 1
+      die ${EX_UNAVAILABLE} "sudo is required for $*"
     fi
-  fi
-}
-
-require_command() {
-  local missing=()
-  local cmd
-  for cmd in "$@"; do
-    if ! command -v "$cmd" >/dev/null 2>&1; then
-      missing+=("$cmd")
-    fi
-  done
-  if [[ ${#missing[@]} -gt 0 ]]; then
-    log_error "Missing required commands: ${missing[*]}"
-    exit 1
-  fi
-}
-
-load_env_file() {
-  if [[ -f "${ENV_FILE}" ]]; then
-    log_info "Loading environment from ${ENV_FILE}"
-    # shellcheck disable=SC1090
-    set -a
-    source "${ENV_FILE}"
-    set +a
-  else
-    log_warn "Environment file ${ENV_FILE} not found; continuing with defaults"
   fi
 }
 
@@ -101,7 +209,11 @@ parse_args() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --env-file)
-        ENV_FILE="$2"
+        if [[ $# -lt 2 ]]; then
+          usage
+          die ${EX_USAGE} "--env-file requires a path argument"
+        fi
+        ENV_FILE_OVERRIDE="$2"
         shift 2
         ;;
       --assume-yes)
@@ -113,7 +225,7 @@ parse_args() {
         shift
         ;;
       --verbose)
-        VERBOSE=true
+        log_set_level debug
         shift
         ;;
       --delete-previous-environment)
@@ -124,14 +236,33 @@ parse_args() {
         PREFLIGHT_ONLY=true
         shift
         ;;
+      --dry-run)
+        DRY_RUN=true
+        PREFLIGHT_ONLY=true
+        shift
+        ;;
+      --context-preflight)
+        CONTEXT_ONLY=true
+        shift
+        ;;
       -h|--help)
         usage
-        exit 0
+        exit ${EX_OK}
         ;;
-      *)
-        log_error "Unknown argument: $1"
+      --)
+        shift
+        if [[ $# -gt 0 ]]; then
+          usage
+          die ${EX_USAGE} "Unexpected positional arguments: $*"
+        fi
+        ;;
+      -* )
         usage
-        exit 1
+        die ${EX_USAGE} "Unknown option: $1"
+        ;;
+      * )
+        usage
+        die ${EX_USAGE} "Positional arguments are not supported"
         ;;
     esac
   done
@@ -187,7 +318,9 @@ PY
 }
 
 collect_network_context() {
-  require_command ip python3
+  if ! need ip python3; then
+    die ${EX_UNAVAILABLE} "ip and python3 are required for network discovery"
+  fi
   local json
   if ! json=$(python3 <<'PY'
 import ipaddress
@@ -236,8 +369,7 @@ print(json.dumps({
 }, separators=(',', ':')))
 PY
 ); then
-    log_error "Unable to determine active network context"
-    exit 1
+    die ${EX_SOFTWARE} "Unable to determine active network context"
   fi
   NETWORK_IFACE=$(python3 -c 'import json,sys; data=json.load(sys.stdin); print(data["iface"])' <<<"${json}")
   NETWORK_GW=$(python3 -c 'import json,sys; data=json.load(sys.stdin); print(data.get("gw", ""))' <<<"${json}")
@@ -257,11 +389,12 @@ compare_fingerprint() {
     log_warn "Previous: iface=${PREV_IFACE:-?}, addr=${PREV_ADDR:-?}, gw=${PREV_GW:-?}, mtu=${PREV_MTU:-?}"
     log_warn "Current : iface=${NETWORK_IFACE}, addr=${NETWORK_ADDR}, gw=${NETWORK_GW}, mtu=${NETWORK_MTU}"
     if [[ "${ASSUME_YES}" != "true" ]]; then
-      printf '[%s] WARN  %s' "$(timestamp)" "Continue with new network context? [Y/n]: "
+      local prompt_ts reply
+      prompt_ts=$(date +'%Y-%m-%dT%H:%M:%S%z')
+      printf '%s [WARN ] %s' "${prompt_ts}" "Continue with new network context? [Y/n]: "
       read -r reply
       if [[ ! ${reply} =~ ^([Yy]|)$ ]]; then
-        log_error "Aborting due to network change"
-        exit 1
+        die ${EX_SOFTWARE} "Aborting due to network change"
       fi
     else
       log_info "--assume-yes supplied; continuing despite network change"
@@ -449,13 +582,33 @@ adapt_address_pools() {
   export TRAEFIK_LOCAL_IP
 }
 
+print_context_summary() {
+  log_info "Context summary"
+  if [[ -n ${ENV_FILE_PATH} ]]; then
+    log_info "  Environment file: ${ENV_FILE_PATH}"
+  else
+    log_info "  Environment file: <not found>"
+  fi
+  log_info "  State file: ${STATE_PATH}"
+  log_info "  Network interface: ${NETWORK_IFACE} (${NETWORK_CLASS})"
+  log_info "  Address: ${NETWORK_ADDR}/${NETWORK_PREFIX}"
+  log_info "  Gateway: ${NETWORK_GW:-<none>}"
+  log_info "  MTU: ${NETWORK_MTU:-unknown}"
+  log_info "  MetalLB pool: ${METALLB_POOL_START}-${METALLB_POOL_END}"
+  log_info "  Traefik IP: ${TRAEFIK_LOCAL_IP}"
+}
+
 ensure_state_dir() {
   if [[ ! -d "${STATE_DIR}" ]]; then
-    mkdir -p "${STATE_DIR}"
+    run_cmd mkdir -p "${STATE_DIR}"
   fi
 }
 
 write_state() {
+  if [[ ${DRY_RUN} == true ]]; then
+    log_info "[DRY-RUN] Updating state file at ${STATE_PATH}"
+    return 0
+  fi
   python3 <<'PY'
 import json
 import os
@@ -521,7 +674,7 @@ ensure_br_netfilter() {
   local modules_file="/etc/modules-load.d/k8s.conf"
   if [[ ! -f "${modules_file}" ]] || ! grep -q '^br_netfilter' "${modules_file}"; then
     log_info "Ensuring br_netfilter loads on boot"
-    printf 'br_netfilter\n' | maybe_sudo tee "${modules_file}" >/dev/null
+    write_root_file "${modules_file}" $'br_netfilter\n'
   fi
 }
 
@@ -530,21 +683,21 @@ ensure_sysctls() {
   local desired=$'net.bridge.bridge-nf-call-iptables=1\nnet.bridge.bridge-nf-call-ip6tables=1\nnet.ipv4.ip_forward=1\n'
   if [[ ! -f "${kube_conf}" ]] || ! diff -q <(printf '%s' "${desired}") "${kube_conf}" >/dev/null 2>&1; then
     log_info "Updating ${kube_conf}"
-    printf '%s' "${desired}" | maybe_sudo tee "${kube_conf}" >/dev/null
+    write_root_file "${kube_conf}" "${desired}"
     NEED_SYSCTL_RELOAD=1
     NEED_MINIKUBE_RESTART=1
   fi
   local inotify_conf="/etc/sysctl.d/99-inotify.conf"
   if [[ ! -f "${inotify_conf}" ]] || ! grep -q 'fs.inotify.max_user_watches=524288' "${inotify_conf}"; then
     log_info "Setting inotify limits"
-    printf 'fs.inotify.max_user_watches=524288\n' | maybe_sudo tee "${inotify_conf}" >/dev/null
+    write_root_file "${inotify_conf}" $'fs.inotify.max_user_watches=524288\n'
     NEED_SYSCTL_RELOAD=1
     NEED_MINIKUBE_RESTART=1
   fi
   local fsfile_conf="/etc/sysctl.d/99-fsfilemax.conf"
   if [[ ! -f "${fsfile_conf}" ]] || ! grep -q 'fs.file-max=1048576' "${fsfile_conf}"; then
     log_info "Raising fs.file-max limit"
-    printf 'fs.file-max=1048576\n' | maybe_sudo tee "${fsfile_conf}" >/dev/null
+    write_root_file "${fsfile_conf}" $'fs.file-max=1048576\n'
     NEED_SYSCTL_RELOAD=1
     NEED_MINIKUBE_RESTART=1
   fi
@@ -561,10 +714,7 @@ ensure_limits_conf() {
     return
   fi
   log_info "Writing ${limits_file}"
-  cat <<'LIMITS' | maybe_sudo tee "${limits_file}" >/dev/null
-* soft nofile 1048576
-* hard nofile 1048576
-LIMITS
+  write_root_file "${limits_file}" $'* soft nofile 1048576\n* hard nofile 1048576\n'
 }
 
 reload_sysctl_if_needed() {
@@ -681,10 +831,12 @@ restart_minikube_if_needed() {
       log_warn "System changes detected; defer Minikube restart until bootstrap runs"
       SKIP_MINIKUBE_START="false"
     else
-      require_command minikube
+      if ! need minikube; then
+        die ${EX_UNAVAILABLE} "minikube is required to restart the cluster"
+      fi
       log_warn "System changes detected; restarting Minikube profile ${profile}"
-      minikube stop -p "${profile}" >/dev/null 2>&1 || true
-      minikube start \
+      run_cmd minikube stop -p "${profile}" || true
+      run_cmd minikube start \
         -p "${profile}" \
         --driver="${driver}" \
         --cpus="${cpus}" \
@@ -708,9 +860,14 @@ run_child_scripts() {
   if [[ "${ASSUME_YES}" == "true" ]]; then
     args+=("--assume-yes")
   fi
-  args+=("--env-file" "${ENV_FILE}")
+  if [[ -n ${ENV_FILE_PATH} ]]; then
+    args+=("--env-file" "${ENV_FILE_PATH}")
+  fi
   if [[ "${DELETE_PREVIOUS}" == "true" ]]; then
     args+=("--delete-previous-environment")
+  fi
+  if [[ ${DRY_RUN} == true ]]; then
+    args+=("--dry-run")
   fi
   if [[ -x "scripts/uranus_nuke_and_bootstrap.sh" ]]; then
     log_info "Executing uranus_nuke_and_bootstrap.sh"
@@ -721,13 +878,18 @@ run_child_scripts() {
 }
 
 ensure_kubectl_context() {
-  require_command kubectl
+  if ! need kubectl; then
+    die ${EX_UNAVAILABLE} "kubectl is required to configure the cluster context"
+  fi
   local profile="${LABZ_MINIKUBE_PROFILE:-labz}"
   log_info "Switching kubectl context to ${profile}"
-  kubectl config use-context "${profile}" >/dev/null
+  run_cmd kubectl config use-context "${profile}"
 }
 
 ensure_kube_proxy_mode() {
+  if ! need kubectl; then
+    die ${EX_UNAVAILABLE} "kubectl is required for kube-proxy configuration"
+  fi
   log_info "Ensuring kube-proxy operates in iptables mode"
   local tmp
   tmp=$(mktemp)
@@ -761,19 +923,27 @@ PY
     return
   fi
   log_info "Patching kube-proxy ConfigMap"
-  kubectl apply -f "${tmp}" >/dev/null
+  run_cmd kubectl apply -f "${tmp}"
   rm -f "${tmp}"
-  kubectl -n kube-system rollout restart daemonset/kube-proxy
-  kubectl -n kube-system rollout status daemonset/kube-proxy --timeout=5m
+  run_cmd kubectl -n kube-system rollout restart daemonset/kube-proxy
+  retry 5 5 kubectl -n kube-system rollout status daemonset/kube-proxy --timeout=5m
 }
 
 wait_for_readiness() {
+  if ! need kubectl; then
+    die ${EX_UNAVAILABLE} "kubectl is required for cluster readiness checks"
+  fi
   log_info "Waiting for kube-proxy DaemonSet to become ready"
-  kubectl -n kube-system rollout status daemonset/kube-proxy --timeout=5m
+  retry 5 5 kubectl -n kube-system rollout status daemonset/kube-proxy --timeout=5m
   log_info "Waiting for CoreDNS deployment to become available"
-  kubectl -n kube-system rollout status deployment/coredns --timeout=5m
+  retry 5 5 kubectl -n kube-system rollout status deployment/coredns --timeout=5m
   log_info "Running API reachability probe via netshoot"
+  if [[ ${DRY_RUN} == true ]]; then
+    log_info "[DRY-RUN] kubectl netshoot connectivity probe"
+    return
+  fi
   kubectl -n kube-system delete pod netshoot-preflight --ignore-not-found >/dev/null 2>&1 || true
+  register_cleanup_pod kube-system netshoot-preflight
   kubectl -n kube-system run netshoot-preflight \
     --image=nicolaka/netshoot:latest \
     --restart=Never \
@@ -785,9 +955,15 @@ wait_for_readiness() {
 }
 
 run_core_addons() {
-  local args=("--env-file" "${ENV_FILE}")
+  local args=()
+  if [[ -n ${ENV_FILE_PATH} ]]; then
+    args+=("--env-file" "${ENV_FILE_PATH}")
+  fi
   if [[ "${ASSUME_YES}" == "true" ]]; then
     args+=("--assume-yes")
+  fi
+  if [[ ${DRY_RUN} == true ]]; then
+    args+=("--dry-run")
   fi
   if [[ -x "scripts/uranus_homelab_one.sh" ]]; then
     log_info "Executing uranus_homelab_one.sh"
@@ -798,8 +974,13 @@ run_core_addons() {
 }
 
 reconcile_metallb_pool() {
+  if ! need kubectl; then
+    die ${EX_UNAVAILABLE} "kubectl is required to reconcile MetalLB"
+  fi
   log_info "Applying MetalLB IPAddressPool ${LABZ_METALLB_RANGE}"
-  cat <<EOF | kubectl apply -f - >/dev/null
+  ensure_namespace_safe metallb-system
+  local manifest
+  manifest=$(cat <<EOF
 apiVersion: metallb.io/v1beta1
 kind: IPAddressPool
 metadata:
@@ -818,6 +999,8 @@ spec:
   ipAddressPools:
     - labz-pool
 EOF
+)
+  kubectl_apply_manifest "${manifest}"
 }
 
 restart_flux_controllers() {
@@ -830,13 +1013,16 @@ restart_flux_controllers() {
   for ctrl in "${controllers[@]}"; do
     if kubectl -n flux-system get deploy "${ctrl}" >/dev/null 2>&1; then
       log_info "Restarting Flux deployment ${ctrl}"
-      kubectl -n flux-system rollout restart deploy/"${ctrl}"
+      run_cmd kubectl -n flux-system rollout restart deploy/"${ctrl}"
       kubectl -n flux-system rollout status deploy/"${ctrl}" --timeout=5m
     fi
   done
 }
 
 final_diagnostics() {
+  if ! need kubectl; then
+    die ${EX_UNAVAILABLE} "kubectl is required for final diagnostics"
+  fi
   log_info "Final diagnostics"
   log_info "Default route overview"
   ip route show default
@@ -855,15 +1041,20 @@ final_diagnostics() {
     log_warn "MetalLB namespace missing"
   fi
   log_info "Validation: running netshoot probe"
-  kubectl -n kube-system delete pod netshoot-validate --ignore-not-found >/dev/null 2>&1 || true
-  kubectl -n kube-system run netshoot-validate \
-    --image=nicolaka/netshoot:latest \
-    --restart=Never \
-    --command \
-    -- curl -sk https://10.96.0.1:443/ -m 2
-  kubectl -n kube-system wait --for=condition=complete pod/netshoot-validate --timeout=120s >/dev/null
-  kubectl -n kube-system logs netshoot-validate || true
-  kubectl -n kube-system delete pod netshoot-validate --ignore-not-found >/dev/null 2>&1 || true
+  if [[ ${DRY_RUN} == true ]]; then
+    log_info "[DRY-RUN] kubectl netshoot validation"
+  else
+    kubectl -n kube-system delete pod netshoot-validate --ignore-not-found >/dev/null 2>&1 || true
+    register_cleanup_pod kube-system netshoot-validate
+    kubectl -n kube-system run netshoot-validate \
+      --image=nicolaka/netshoot:latest \
+      --restart=Never \
+      --command \
+      -- curl -sk https://10.96.0.1:443/ -m 2
+    kubectl -n kube-system wait --for=condition=complete pod/netshoot-validate --timeout=120s >/dev/null
+    kubectl -n kube-system logs netshoot-validate || true
+    kubectl -n kube-system delete pod netshoot-validate --ignore-not-found >/dev/null 2>&1 || true
+  fi
   if kubectl get ns flux-system >/dev/null 2>&1; then
     log_info "Validation: Flux resources"
     kubectl -n flux-system get gitrepositories,kustomizations
@@ -873,13 +1064,18 @@ final_diagnostics() {
 main() {
   parse_args "$@"
   ensure_state_dir
-  load_env_file
+  load_environment
   load_previous_state
   collect_network_context
   compare_fingerprint
   adapt_address_pools
+  print_context_summary
   : "${METALLB_HELM_VERSION:=0.14.7}"
   export METALLB_HELM_VERSION
+  if [[ ${CONTEXT_ONLY} == true ]]; then
+    log_info "Context preflight requested; exiting without mutating actions"
+    return
+  fi
   run_os_preflight
   restart_minikube_if_needed
   if [[ "${PREFLIGHT_ONLY}" == "true" ]]; then
