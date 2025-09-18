@@ -1,13 +1,53 @@
 SHELL := /bin/bash
-DIR := $(shell pwd)
-ENVFILE := $(DIR)/.env
-ifeq ("$(wildcard $(ENVFILE))","")
-  ENVFILE := $(DIR)/.env.example
-endif
-include $(ENVFILE)
-export
 
-.PHONY: all pfSense k8s db awx obs apps flux clean up nukedown docs docs-serve docs-diagrams
+REPO_ROOT := $(CURDIR)
+
+# Detect the environment file once so all targets share the same configuration.
+ifeq ($(origin ENV_FILE), undefined)
+ENV_FILE := $(firstword $(wildcard $(REPO_ROOT)/.env) $(wildcard $(REPO_ROOT)/.env.example))
+endif
+ifeq ($(ENV_FILE),)
+$(error No environment file found. Set ENV_FILE=/path/to/.env or copy .env.example to .env.)
+endif
+ENV_FILE := $(abspath $(ENV_FILE))
+ifeq (,$(wildcard $(ENV_FILE)))
+$(error Environment file '$(ENV_FILE)' not found. Set ENV_FILE to an existing file.)
+endif
+
+ASSUME_YES ?= true
+DELETE_EXISTING ?= true
+
+TRUE_VALUES := 1 true yes on
+ASSUME_YES_NORMALIZED := $(shell printf '%s' "$(ASSUME_YES)" | tr '[:upper:]' '[:lower:]')
+DELETE_EXISTING_NORMALIZED := $(shell printf '%s' "$(DELETE_EXISTING)" | tr '[:upper:]' '[:lower:]')
+
+ASSUME_ARG := $(if $(filter $(TRUE_VALUES),$(ASSUME_YES_NORMALIZED)),--assume-yes,)
+DELETE_ARG := $(if $(filter $(TRUE_VALUES),$(DELETE_EXISTING_NORMALIZED)),--delete-previous-environment,)
+
+ENV_ARG := --env-file $(ENV_FILE)
+COMMON_ARGS := $(ENV_ARG) $(ASSUME_ARG)
+
+KUBECTL ?= kubectl
+FLUX ?= flux
+PRECOMMIT ?= pre-commit
+MINIKUBE ?= minikube
+
+MINIKUBE_PROFILE ?= $(strip $(shell sed -n 's/^LABZ_MINIKUBE_PROFILE=//p' "$(ENV_FILE)" | tail -n 1))
+ifeq ($(MINIKUBE_PROFILE),)
+MINIKUBE_PROFILE := labz
+endif
+
+FLUX_NAMESPACE ?= flux-system
+FLUX_KUSTOMIZATION ?= flux-system
+
+LOGS_NAMESPACE ?= $(FLUX_NAMESPACE)
+LOGS_SELECTOR ?= app.kubernetes.io/name=kustomize-controller
+LOGS_CONTAINER ?=
+LOGS_TAIL ?= 200
+LOGS_SINCE ?=
+LOGS_FOLLOW ?= false
+LOGS_FOLLOW_NORMALIZED := $(shell printf '%s' "$(LOGS_FOLLOW)" | tr '[:upper:]' '[:lower:]')
+LOGS_FOLLOW_FLAG := $(if $(filter $(TRUE_VALUES),$(LOGS_FOLLOW_NORMALIZED)),--follow,)
 
 MERMAID_CLI ?= npx --yes @mermaid-js/mermaid-cli@10.6.1
 MERMAID_SOURCES := $(shell find docs -name '*.mmd' 2>/dev/null)
@@ -15,62 +55,69 @@ MERMAID_TARGETS := $(MERMAID_SOURCES:.mmd=.svg)
 MKDOCS ?= mkdocs
 MKDOCS_BUILD_FLAGS ?= --strict
 
-POSTGRES_HELM_VERSION ?= $(LABZ_POSTGRES_HELM_VERSION)
-POSTGRES_HELM_VERSION ?= 16.2.6
-KPS_HELM_VERSION ?= $(LABZ_KPS_HELM_VERSION)
-KPS_HELM_VERSION ?= 65.5.0
+.PHONY: up preflight bootstrap core-addons apps post-check down status logs reconcile destroy fmt lint docs docs-serve docs-diagrams
+
+$(info Using environment file $(ENV_FILE))
+
+up: preflight core-addons apps post-check
+@echo "Homelab bootstrap complete."
+
+preflight:
+./scripts/preflight_and_bootstrap.sh $(COMMON_ARGS) $(DELETE_ARG) --preflight-only
+
+bootstrap: preflight
+./scripts/uranus_nuke_and_bootstrap.sh $(COMMON_ARGS) $(DELETE_ARG)
+
+core-addons: bootstrap
+./scripts/uranus_homelab_one.sh $(COMMON_ARGS)
+
+apps: core-addons
+./scripts/uranus_homelab_apps.sh $(COMMON_ARGS)
+
+post-check:
+$(KUBECTL) get nodes -o wide
+$(KUBECTL) get pods --all-namespaces
+$(KUBECTL) -n metallb-system get ippools,l2advertisements
+$(KUBECTL) -n traefik get svc traefik -o wide
+$(KUBECTL) -n cert-manager get certificaterequests,certificates
+
+# Stop the Minikube profile without deleting workloads.
+down:
+$(MINIKUBE) stop -p $(MINIKUBE_PROFILE)
+
+status:
+$(KUBECTL) get nodes -o wide
+$(KUBECTL) get pods --all-namespaces
+@if command -v $(FLUX) >/dev/null 2>&1; then \
+$(FLUX) get kustomizations --namespace $(FLUX_NAMESPACE); \
+else \
+echo "flux CLI not found; skipping Flux status" >&2; \
+fi
+
+logs:
+$(KUBECTL) -n $(LOGS_NAMESPACE) logs -l $(LOGS_SELECTOR) --tail=$(LOGS_TAIL) $(LOGS_FOLLOW_FLAG) $(if $(LOGS_SINCE),--since=$(LOGS_SINCE),) $(if $(LOGS_CONTAINER),-c $(LOGS_CONTAINER),)
+
+reconcile:
+$(FLUX) reconcile kustomization $(FLUX_KUSTOMIZATION) --namespace $(FLUX_NAMESPACE) --with-source
+
+# WARNING: Permanently deletes the Minikube profile and its workloads.
+destroy:
+@echo "Deleting Minikube profile '$(MINIKUBE_PROFILE)'."
+$(MINIKUBE) delete -p $(MINIKUBE_PROFILE)
+
+fmt:
+$(PRECOMMIT) run --all-files
+
+lint: fmt
 
 docs-diagrams: $(MERMAID_TARGETS)
 
 docs/%.svg: docs/%.mmd
-	@mkdir -p $(dir $@)
-	$(MERMAID_CLI) -i $< -o $@
+@mkdir -p $(dir $@)
+$(MERMAID_CLI) -i $< -o $@
 
 docs: docs-diagrams
-	$(MKDOCS) build $(MKDOCS_BUILD_FLAGS)
+$(MKDOCS) build $(MKDOCS_BUILD_FLAGS)
 
 docs-serve: docs-diagrams
-	$(MKDOCS) serve -a 0.0.0.0:8000
-
-all: k8s db awx obs apps flux
-
-pfSense:
-	@$(DIR)/pfsense/pf-bootstrap.sh
-	@$(DIR)/pfsense/pf-config-gen.sh
-
-k8s:
-	@$(DIR)/k8s/cluster-up.sh
-
-db:
-	@kubectl apply -f $(DIR)/data/postgres/backup-pv.yaml
-	@helm upgrade --install pg bitnami/postgresql --version $(POSTGRES_HELM_VERSION) -n data --values $(DIR)/values/postgresql.yaml --create-namespace --wait
-	@kubectl apply -f $(DIR)/data/postgres/backup-cron.yaml
-
-awx:
-	@kubectl create ns awx --dry-run=client -o yaml | kubectl apply -f -
-	@kubectl apply -f $(DIR)/awx/certs.yaml
-	@kubectl apply -f $(DIR)/awx/awx-small.yaml
-
-obs:
-	@kubectl create ns observability --dry-run=client -o yaml | kubectl apply -f -
-	@helm upgrade --install kps prometheus-community/kube-prometheus-stack --version $(KPS_HELM_VERSION) -n observability -f $(DIR)/observability/kps-values.yaml --wait
-	@kubectl apply -f $(DIR)/observability/certs.yaml
-
-apps:
-	@kubectl create ns apps --dry-run=client -o yaml | kubectl apply -f -
-	@$(DIR)/apps/django-multiproject/load-image.sh || true
-	@envsubst < $(DIR)/apps/django-multiproject/deploy.yaml | kubectl apply -f -
-
-flux:
-	@$(DIR)/flux/install.sh
-
-clean:
-	@echo "Nothing destructive here; clean by namespaces if needed."
-
-up:
-	@chmod +x scripts/*.sh
-	./scripts/uranus_homelab.sh --delete-previous-environment --assume-yes --env-file ./.env
-
-nukedown:
-	@chmod +x scripts/*.sh
-	./scripts/uranus_nuke_and_bootstrap.sh --delete-previous-environment --assume-yes --env-file ./.env
+$(MKDOCS) serve -a 0.0.0.0:8000

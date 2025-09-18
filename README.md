@@ -199,15 +199,17 @@ platform from a bare host to a reconciled Flux cluster without bouncing between 
 
 4. **Provision the Kubernetes cluster and core services**
    ```bash
-   ./scripts/uranus_homelab.sh --delete-previous-environment --assume-yes --env-file ./.env
-   # or:
    make up
+   # or call the helpers manually:
+   ./scripts/uranus_homelab.sh --delete-previous-environment --assume-yes --env-file ./.env
    ```
-   - The helper script applies the latest `.env` values, runs the preflight checks, recreates Minikube with the desired version,
-     and installs the networking and application stacks. Keep `kubectl`, `helm`, `minikube`, `flux`, `sops`, and `openssl`
-     available in `PATH` (the host-prep script handles these binaries).
-   - `bootstrap.sh` can drive the same workflow by delegating to `make pfSense` and `make all` after the host prerequisites are
-     met, which is useful for unattended rebuilds.
+   - `make up` loads `.env` (override with `ENV_FILE=/path/to/.env`) and sequentially runs host preflight checks, recreates the
+     Minikube profile, installs the core addons, provisions the hostPath PV/PVCs, deploys the application stack, and finishes
+     with the post-rollout checks outlined below. The target stops on the first non-zero exit so failures are surfaced quickly.
+   - Set `ASSUME_YES=false` if you want the scripts to prompt for confirmation or `DELETE_EXISTING=false` to keep an existing
+     Minikube profile instead of deleting it up front.
+   - `bootstrap.sh` can still drive the same workflow after the host prerequisites are met if you prefer a single entry point
+     for unattended rebuilds.
 
 5. **Bootstrap Flux against your Git repository**
    ```bash
@@ -261,12 +263,10 @@ deviates from the expected results.
 
 3. **Provision or reset the homelab cluster**
    ```bash
-   ./scripts/uranus_homelab.sh --delete-previous-environment --assume-yes --env-file ./.env
-   ```
-   The helper script prepares the host, launches Minikube with the desired configuration, installs the core addons, and invokes the imperative app deployment helpers in `scripts/`. Ensure `kubectl`, `helm`, `minikube`, and `openssl` are installed and available in your `PATH` before running the helper scripts. You can run the same workflow from the Makefile:
-   ```bash
    make up
    ```
+   The Makefile loads `.env`, runs the host preflight checks, recreates the Minikube profile, installs the core addons, provisions the hostPath PV/PVCs, deploys the application helpers in `scripts/`, and performs the post-rollout validation commands. Override the defaults with variables such as `ENV_FILE=/path/to/.env`, `ASSUME_YES=false`, or `DELETE_EXISTING=false` when you need different behavior. If you prefer to bypass the Makefile, invoke the consolidated helper directly: `./scripts/uranus_homelab.sh --delete-previous-environment --assume-yes --env-file ./.env`.
+
    The pfSense VM boots with the serial installer by default; attach to the console with `virsh console "${VM_NAME}"` once the domain is defined. Pass `--no-headless` to `pfsense/pf-bootstrap.sh` if you need to re-enable a graphical viewer.
 
 4. **Bootstrap Flux against your Git remote**
@@ -286,9 +286,34 @@ deviates from the expected results.
    - Use the published ingress hostnames such as `https://app.lab-minikube.labz.home.arpa/` for the Django multiproject demo (Traefik terminates TLS and routes traffic internally).
    - Traefik still uses a MetalLB VIP, but workloads are accessed through their DNS entries rather than a service load balancer IP.
 
+### Makefile automation
+
+The Makefile automatically loads `.env` (falling back to `.env.example` when a dedicated file is absent). Create a dedicated
+`.env` before running real workloads—the fallback is intended for documentation or dry-run scenarios. Override the detection on
+any invocation with `ENV_FILE=/path/to/.env make ...`. Additional knobs such as `ASSUME_YES=false` and `DELETE_EXISTING=false`
+let you
+opt out of the defaults that auto-confirm prompts and delete the previous Minikube profile.
+
+Common targets include:
+
+- `make up` – runs the host preflight checks, recreates the Minikube profile, installs the core addons, provisions the
+  hostPath PV/PVCs, deploys the applications, and executes the post-rollout validation commands. The target stops on the first
+  failure.
+- `make post-check` – reruns the kubectl validation commands without reapplying any manifests (useful for spot checks after
+  manual changes).
+- `make status` – prints the cluster-wide pod inventory and, when the Flux CLI is installed locally, lists Flux kustomizations
+  in the configured namespace (defaults to `flux-system`).
+- `make logs LOGS_SELECTOR='app.kubernetes.io/name=traefik' LOGS_NAMESPACE=traefik LOGS_FOLLOW=true` – tails logs for the
+  selected controllers. Adjust `LOGS_TAIL`, `LOGS_SINCE`, or `LOGS_CONTAINER` for deeper inspection.
+- `make reconcile FLUX_KUSTOMIZATION=cluster` – forces a Flux kustomization reconcile with `--with-source`.
+- `make down` – stops the Minikube profile without deleting workloads.
+- `make destroy` – **destructive**. Deletes the Minikube profile referenced by `MINIKUBE_PROFILE` and removes all workloads
+  inside the VM. Persistent hostPath data remains on the host filesystem; remove it manually if you no longer need the files.
+- `make fmt` / `make lint` – runs `pre-commit run --all-files` so local formatting and linting matches CI.
+
 ## Post-Bootstrap Validation
 
-Run these checks after `scripts/uranus_homelab.sh` (or `make up`) completes and before handing the environment to other operators.
+Run these checks after `make up` completes (or after you invoke the helper scripts manually) and before handing the environment to other operators.
 
 1. **Verify cluster health.**
    ```bash
