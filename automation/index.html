@@ -475,7 +475,7 @@
 <h2 id="database-and-backup-workflow">Database and Backup Workflow<a class="headerlink" href="#database-and-backup-workflow" title="Permanent link">&para;</a></h2>
 <p>Flux now manages the PostgreSQL stack under <code>k8s/data/postgres/</code>. The co-located
 <code>HelmRepository</code> pulls the Bitnami index while the <code>HelmRelease</code> pins chart version
-<code>15.5.32</code>, loads overrides from <code>data/postgres/pg-values.yaml</code>, and installs the
+<code>16.2.6</code>, loads overrides from <code>data/postgres/pg-values.yaml</code>, and installs the
 workload into the <code>data</code> namespace. Backups are also reconciled by the same
 Kustomization via the hostPath <code>PersistentVolume</code>, <code>PersistentVolumeClaim</code>, and
 nightly <code>CronJob</code> that execute <code>pg_dump</code> into the mounted backup share.</p>
