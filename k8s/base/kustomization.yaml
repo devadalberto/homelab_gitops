@@ -5,6 +5,7 @@ resources:
   - ../addons/traefik
   - ../addons/cert-manager
   - ../addons/awx-operator
+  - ../observability
   - ../data/postgres
   - ../apps/awx
   - ../apps/pihole
