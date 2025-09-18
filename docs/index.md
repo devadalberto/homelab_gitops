@@ -81,6 +81,7 @@ pfSense GUI → **Firewall** → **NAT** → **Port Forward** → edit example �
 - MetalLB not advertising? Ensure pfSense LAN is `10.10.0.0/24` and does not overlap with WAN ranges.
 - Traefik returning `404`? Check the Ingress class `traefik` and confirm certificate secrets exist.
 - AWX pending? Wait for operator rollout; check `kubectl -n awx get pods` for image pulls and migrations.
+- Need remote access to troubleshoot without exposing services? Follow the [WireGuard Remote Access (Host-Only)](../README.md#wireguard-remote-access-host-only) steps in the README.
 
 ## Working on the Docs
 

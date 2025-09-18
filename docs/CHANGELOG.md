@@ -1,3 +1,8 @@
+## 2025-09-19T00:00:00.000000Z
+- Documented a host-only WireGuard workflow in the README, including package installation, key management, sample `wg0.conf`,
+  router/VPS considerations, client configuration, and verification guidance for the `192.168.88.0/24` overlay.
+- Linked troubleshooting content to the new remote access guidance so runbooks point operators at the same procedure.
+
 ## 2025-09-18T00:00:00.000000Z
 - Recorded current release cadence and pinned the GitOps stack to the n-1 builds exercised in testing: Kubernetes v1.31.3, MetalLB 0.14.7, Traefik 27.0.2, cert-manager 1.16.3, Bitnami PostgreSQL 16.2.6, kube-prometheus-stack 65.5.0, and AWX operator 2.20.0.
 - Updated the Flux CLI bootstrap helper to install v2.3.0 so local environments reconcile with the same binary verified in automation.
