@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-FLUX_VERSION="2.2.3"
+FLUX_VERSION="2.3.0"
 INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
 
 run_with_sudo_if_needed() {

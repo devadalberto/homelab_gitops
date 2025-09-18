@@ -10,7 +10,7 @@
    * Option A - manual, pinned, and checksum verified:
 
      ```sh
-     FLUX_VERSION=2.2.3
+     FLUX_VERSION=2.3.0
      FLUX_OS=$(uname -s | tr '[:upper:]' '[:lower:]')
      FLUX_ARCH=amd64 # use arm64 for Apple Silicon, etc.
      curl -fsSLO "https://github.com/fluxcd/flux2/releases/download/v${FLUX_VERSION}/flux_${FLUX_VERSION}_${FLUX_OS}_${FLUX_ARCH}.tar.gz"
