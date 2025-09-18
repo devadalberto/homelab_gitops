@@ -251,6 +251,21 @@ Kubernetes, networking addons, and Helm-installed workloads are pinned through e
 - `LABZ_POSTGRES_HELM_VERSION`
 - `LABZ_KPS_HELM_VERSION`
 
+The table below tracks the current upstream release alongside the pinned "n-1"
+version that automation exercises. Update both columns when planning a new
+upgrade so the lab and Flux stay in lockstep.
+
+| Component | Latest stable (n) | Pinned (n-1) |
+| --- | --- | --- |
+| Kubernetes | v1.32.0 | v1.31.3 |
+| MetalLB | 0.14.8 | 0.14.7 |
+| Traefik Helm chart | 28.0.0 | 27.0.2 |
+| cert-manager Helm chart | 1.17.1 | 1.16.3 |
+| Flux CLI | 2.4.0 | 2.3.0 |
+| Bitnami PostgreSQL Helm chart | 17.0.2 | 16.2.6 |
+| kube-prometheus-stack Helm chart | 66.2.0 | 65.5.0 |
+| AWX operator Helm chart | 2.21.0 | 2.20.0 |
+
 When bumping versions:
 
 1. Update `.env` (and mirror the change in `.env.example`) with the new chart or Kubernetes release numbers.

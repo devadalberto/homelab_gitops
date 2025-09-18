@@ -671,7 +671,7 @@ restart_minikube_if_needed() {
   local cpus="${LABZ_MINIKUBE_CPUS:-4}"
   local memory="${LABZ_MINIKUBE_MEMORY:-8192}"
   local disk="${LABZ_MINIKUBE_DISK:-60g}"
-  local kube_version="${LABZ_KUBERNETES_VERSION:-${KUBERNETES_VERSION:-v1.29.4}}"
+  local kube_version="${LABZ_KUBERNETES_VERSION:-${KUBERNETES_VERSION:-v1.31.3}}"
   if [[ ${kube_version} != v* ]]; then
     kube_version="v${kube_version}"
   fi
@@ -878,7 +878,7 @@ main() {
   collect_network_context
   compare_fingerprint
   adapt_address_pools
-  : "${METALLB_HELM_VERSION:=0.14.5}"
+  : "${METALLB_HELM_VERSION:=0.14.7}"
   export METALLB_HELM_VERSION
   run_os_preflight
   restart_minikube_if_needed

@@ -4,7 +4,7 @@
 
 Flux now manages the PostgreSQL stack under `k8s/data/postgres/`. The co-located
 `HelmRepository` pulls the Bitnami index while the `HelmRelease` pins chart version
-`15.5.32`, loads overrides from `data/postgres/pg-values.yaml`, and installs the
+`16.2.6`, loads overrides from `data/postgres/pg-values.yaml`, and installs the
 workload into the `data` namespace. Backups are also reconciled by the same
 Kustomization via the hostPath `PersistentVolume`, `PersistentVolumeClaim`, and
 nightly `CronJob` that execute `pg_dump` into the mounted backup share.
