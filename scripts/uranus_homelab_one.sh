@@ -152,7 +152,7 @@ helm upgrade --install cert-manager jetstack/cert-manager \
   --namespace cert-manager \
   --create-namespace \
   --version "${CERT_MANAGER_HELM_VERSION}" \
-  --set installCRDs=true \
+  --set crds.enabled=true \
   --wait \
   --timeout 10m0s
 

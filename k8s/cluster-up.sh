@@ -34,5 +34,5 @@ kubectl create ns traefik --dry-run=client -o yaml | kubectl apply -f -
 helm upgrade --install traefik traefik/traefik --version "${TRAEFIK_CHART_VERSION}" -n traefik -f "$ROOT/k8s/traefik/values.yaml" --wait
 
 kubectl create ns cert-manager --dry-run=client -o yaml | kubectl apply -f -
-helm upgrade --install cert-manager jetstack/cert-manager --version "${CERT_MANAGER_CHART_VERSION}" -n cert-manager --set installCRDs=true --wait
+helm upgrade --install cert-manager jetstack/cert-manager --version "${CERT_MANAGER_CHART_VERSION}" -n cert-manager --set crds.enabled=true --wait
 kubectl apply -f "$ROOT/k8s/cert-manager/cm-internal-ca.yaml"
