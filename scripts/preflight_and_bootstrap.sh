@@ -581,17 +581,46 @@ switch_iptables_legacy() {
     "arptables /usr/sbin/arptables-legacy"
     "ebtables /usr/sbin/ebtables-legacy"
   )
-  local entry name path
+  local entry name path link_path before after
+  local alternatives_changed=0
   for entry in "${targets[@]}"; do
     name=${entry%% *}
     path=${entry##* }
+    link_path="/etc/alternatives/${name}"
+    before=""
+    if [[ -e "${link_path}" || -L "${link_path}" ]]; then
+      before=$(readlink -f "${link_path}" 2>/dev/null || true)
+    fi
     if maybe_sudo update-alternatives --set "${name}" "${path}" >/dev/null 2>&1; then
       log_info "Switched ${name} to legacy backend"
       NEED_MINIKUBE_RESTART=1
+      after=""
+      if [[ -e "${link_path}" || -L "${link_path}" ]]; then
+        after=$(readlink -f "${link_path}" 2>/dev/null || true)
+      fi
+      if [[ "${after}" != "${before}" ]]; then
+        alternatives_changed=1
+      fi
     else
       log_warn "Could not switch ${name} to legacy backend"
     fi
   done
+
+  if [[ ${alternatives_changed} -eq 1 ]] && command -v docker >/dev/null 2>&1; then
+    log_info "iptables alternatives changed; restarting Docker to refresh legacy chains"
+    if command -v systemctl >/dev/null 2>&1; then
+      if maybe_sudo systemctl restart docker >/dev/null 2>&1; then
+        log_info "Docker daemon restarted"
+        return
+      fi
+      log_warn "systemctl restart docker failed; attempting service fallback"
+    fi
+    if maybe_sudo service docker restart >/dev/null 2>&1; then
+      log_info "Docker daemon restarted via service command"
+    else
+      log_warn "Unable to restart Docker via service command"
+    fi
+  fi
 }
 
 handle_ufw() {
