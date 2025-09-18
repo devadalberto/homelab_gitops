@@ -1,0 +1,21 @@
+# Centralized PostgreSQL overrides for static storage and external secrets.
+global:
+  storageClass: ""
+
+primary:
+  persistence:
+    enabled: true
+    existingClaim: postgresql-data
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+
+volumePermissions:
+  enabled: true
+
+auth:
+  existingSecret: postgresql-secrets
+  secretKeys:
+    adminPasswordKey: postgres-password
+  # TODO: Manage the postgresql-secrets secret with SOPS once it is created.
