@@ -1,3 +1,8 @@
+## 2025-09-19T00:00:00.000000Z
+- Split GitHub Actions into a dedicated static analysis job that runs ShellCheck, yamllint, and kubeconform with cached tool downloads for faster feedback.
+- Added `scripts/run-lint-suite.sh` plus a `make lint` target so contributors can reproduce the CI linting locally.
+- Documented the lint workflow and prerequisites in the README to keep manifest and script validation consistent across environments.
+
 ## 2025-09-18T00:00:00.000000Z
 - Recorded current release cadence and pinned the GitOps stack to the n-1 builds exercised in testing: Kubernetes v1.31.3, MetalLB 0.14.7, Traefik 27.0.2, cert-manager 1.16.3, Bitnami PostgreSQL 16.2.6, kube-prometheus-stack 65.5.0, and AWX operator 2.20.0.
 - Updated the Flux CLI bootstrap helper to install v2.3.0 so local environments reconcile with the same binary verified in automation.

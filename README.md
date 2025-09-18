@@ -108,6 +108,16 @@ so pfSense, Minikube, and Flux start from a known-good foundation.
    - Resolve any reported blockers (for example, missing commands or conflicting address pools) before proceeding with the full
      bootstrap.
 
+## Linting and Validation
+
+Keep local changes aligned with the continuous integration checks by running `make lint` before opening a pull request. The target executes the following commands through `scripts/run-lint-suite.sh`:
+
+1. **ShellCheck** runs against every tracked `*.sh` file to catch quoting mistakes and unsafe patterns in the automation scripts.
+2. **yamllint** recursively scans the Kubernetes manifests under `apps/`, `clusters/`, `data/`, `flux/`, `infra/`, `k8s/`, and `observability/` using the repository's `.yamllint.yaml` configuration.
+3. **kubeconform** renders each Kustomization and validates the output against upstream schemas with strict mode enabled.
+
+Install `shellcheck`, `yamllint`, `kustomize`, and `kubeconform` on your workstation before invoking `make lint` so the tooling matches what the GitHub Actions workflow executes.
+
 ## Plan LAN, DHCP, and MetalLB Addressing
 
 MetalLB and pfSense share the same L2 segment, so plan the LAN, DHCP, and VIP ranges deliberately before the automation rewrites

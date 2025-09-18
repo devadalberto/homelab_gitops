@@ -26,15 +26,149 @@ on:
 permissions:
   contents: read
 
+env:
+  SHELLCHECK_VERSION: '0.10.0'
+  KUBECONFORM_VERSION: '0.6.3'
+  CONFTEST_VERSION: '0.52.1'
+  TOOL_CACHE_DIR: ~/.cache/homelab-tooling
+
 jobs:
-  validate:
-    name: Validate GitOps Manifests
+  lint:
+    name: Static Analysis
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Prepare tool cache directories
+        run: |
+          set -euo pipefail
+          mkdir -p "$TOOL_CACHE_DIR/shellcheck/bin"
+          mkdir -p "$TOOL_CACHE_DIR/kubeconform/bin"
+          echo "$TOOL_CACHE_DIR/shellcheck/bin" >> "$GITHUB_PATH"
+          echo "$TOOL_CACHE_DIR/kubeconform/bin" >> "$GITHUB_PATH"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Cache ShellCheck
+        id: cache-shellcheck
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.TOOL_CACHE_DIR }}/shellcheck
+          key: ${{ runner.os }}-shellcheck-${{ env.SHELLCHECK_VERSION }}
+
+      - name: Install ShellCheck
+        if: steps.cache-shellcheck.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          tmpdir="$(mktemp -d)"
+          curl -sSLo "${tmpdir}/shellcheck.tar.xz" "https://github.com/koalaman/shellcheck/releases/download/v${SHELLCHECK_VERSION}/shellcheck-v${SHELLCHECK_VERSION}.linux.x86_64.tar.xz"
+          tar -xJf "${tmpdir}/shellcheck.tar.xz" -C "${tmpdir}"
+          install -m 0755 "${tmpdir}/shellcheck-v${SHELLCHECK_VERSION}/shellcheck" "${TOOL_CACHE_DIR}/shellcheck/bin/shellcheck"
+          rm -rf "${tmpdir}"
+
+      - name: Cache kubeconform
+        id: cache-kubeconform
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.TOOL_CACHE_DIR }}/kubeconform
+          key: ${{ runner.os }}-kubeconform-${{ env.KUBECONFORM_VERSION }}
+
+      - name: Install kubeconform
+        if: steps.cache-kubeconform.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          tmpdir="$(mktemp -d)"
+          curl -sSLo "${tmpdir}/kubeconform.tar.gz" "https://github.com/yannh/kubeconform/releases/download/v${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz"
+          tar -xzf "${tmpdir}/kubeconform.tar.gz" -C "${tmpdir}" kubeconform
+          install -m 0755 "${tmpdir}/kubeconform" "${TOOL_CACHE_DIR}/kubeconform/bin/kubeconform"
+          rm -rf "${tmpdir}"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install yamllint
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install yamllint
+
+      - name: Install Kustomize
+        uses: imranismail/setup-kustomize@v2
+        with:
+          kustomize-version: '5.3.0'
+
+      - name: Run lint suite
+        run: ./scripts/run-lint-suite.sh
+
+  validate:
+    name: Validate GitOps Manifests
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Prepare tool cache directories
+        run: |
+          set -euo pipefail
+          mkdir -p "$TOOL_CACHE_DIR/kubeconform/bin"
+          mkdir -p "$TOOL_CACHE_DIR/conftest/bin"
+          echo "$TOOL_CACHE_DIR/kubeconform/bin" >> "$GITHUB_PATH"
+          echo "$TOOL_CACHE_DIR/conftest/bin" >> "$GITHUB_PATH"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Cache kubeconform
+        id: cache-kubeconform-validate
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.TOOL_CACHE_DIR }}/kubeconform
+          key: ${{ runner.os }}-kubeconform-${{ env.KUBECONFORM_VERSION }}
+
+      - name: Install kubeconform
+        if: steps.cache-kubeconform-validate.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          tmpdir="$(mktemp -d)"
+          curl -sSLo "${tmpdir}/kubeconform.tar.gz" "https://github.com/yannh/kubeconform/releases/download/v${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz"
+          tar -xzf "${tmpdir}/kubeconform.tar.gz" -C "${tmpdir}" kubeconform
+          install -m 0755 "${tmpdir}/kubeconform" "${TOOL_CACHE_DIR}/kubeconform/bin/kubeconform"
+          rm -rf "${tmpdir}"
+
+      - name: Cache Conftest
+        id: cache-conftest
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.TOOL_CACHE_DIR }}/conftest
+          key: ${{ runner.os }}-conftest-${{ env.CONFTEST_VERSION }}
+
+      - name: Install Conftest
+        if: steps.cache-conftest.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          tmpdir="$(mktemp -d)"
+          curl -sSLo "${tmpdir}/conftest.tar.gz" "https://github.com/open-policy-agent/conftest/releases/download/v${CONFTEST_VERSION}/conftest_${CONFTEST_VERSION}_Linux_x86_64.tar.gz"
+          tar -xzf "${tmpdir}/conftest.tar.gz" -C "${tmpdir}" conftest
+          install -m 0755 "${tmpdir}/conftest" "${TOOL_CACHE_DIR}/conftest/bin/conftest"
+          rm -rf "${tmpdir}"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install Python dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install pyyaml
 
       - name: Set up Flux CLI
         uses: fluxcd/flux2/action@v2
@@ -55,31 +189,6 @@ jobs:
         uses: azure/setup-helm@v4
         with:
           version: 'latest'
-
-      - name: Install kubeconform
-        run: |
-          set -euo pipefail
-          KUBECONFORM_VERSION="0.6.3"
-          curl -L "https://github.com/yannh/kubeconform/releases/download/v${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz" -o kubeconform.tar.gz
-          tar -xf kubeconform.tar.gz kubeconform
-          sudo install -m 0755 kubeconform /usr/local/bin/kubeconform
-          rm -f kubeconform kubeconform.tar.gz
-
-      - name: Install Conftest
-        run: |
-          set -euo pipefail
-          CONTFEST_VERSION="0.52.1"
-          curl -L "https://github.com/open-policy-agent/conftest/releases/download/v${CONTFEST_VERSION}/conftest_${CONTFEST_VERSION}_Linux_x86_64.tar.gz" -o conftest.tar.gz
-          tar -xf conftest.tar.gz conftest
-          sudo install -m 0755 conftest /usr/local/bin/conftest
-          rm -f conftest conftest.tar.gz
-
-      - name: Install Python dependencies
-        run: |
-          set -euo pipefail
-          python3 -m pip install --user --upgrade pip
-          python3 -m pip install --user pyyaml
-          echo "PATH=$HOME/.local/bin:$PATH" >> "$GITHUB_ENV"
 
       - name: Create kind cluster
         uses: helm/kind-action@v1.8.0

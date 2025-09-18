@@ -7,7 +7,7 @@ endif
 include $(ENVFILE)
 export
 
-.PHONY: all pfSense k8s db awx obs apps flux clean up nukedown docs docs-serve docs-diagrams
+.PHONY: all pfSense k8s db awx obs apps flux clean up nukedown docs docs-serve docs-diagrams lint
 
 MERMAID_CLI ?= npx --yes @mermaid-js/mermaid-cli@10.6.1
 MERMAID_SOURCES := $(shell find docs -name '*.mmd' 2>/dev/null)
@@ -66,6 +66,9 @@ flux:
 
 clean:
 	@echo "Nothing destructive here; clean by namespaces if needed."
+
+lint:
+	@$(DIR)/scripts/run-lint-suite.sh
 
 up:
 	@chmod +x scripts/*.sh
