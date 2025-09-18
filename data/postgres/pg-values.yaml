@@ -1,7 +1,7 @@
 primary:
   persistence:
     enabled: true
-    size: ${PG_STORAGE_SIZE}
+    size: 10Gi
 auth:
   existingSecret: pg-superuser
   secretKeys:

@@ -7,7 +7,7 @@ spec:
   accessModes: [ReadWriteMany]
   persistentVolumeReclaimPolicy: Retain
   storageClassName: ""
-  hostPath: { path: ${PG_BACKUP_HOSTPATH} }
+  hostPath: { path: /opt/homelab/backups }
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
