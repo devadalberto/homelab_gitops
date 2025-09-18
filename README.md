@@ -240,6 +240,24 @@ Run these checks after `scripts/uranus_homelab.sh` (or `make up`) completes and 
 5. **Inspect saved diagnostics.**
    - The preflight script writes the evaluated network fingerprint and MetalLB assignment to `~/.homelab/state.json`. Archive this file with the bootstrap logs so future runs can detect unexpected network changes.
 
+## Troubleshooting: PostgreSQL install timeouts
+
+If the database stack fails to finish installing (for example, the `make db` target or `scripts/uranus_homelab.sh` exits while waiting for PostgreSQL), gather the same diagnostics the automation prints so you can identify the blocker:
+
+```bash
+helm status postgresql -n databases
+kubectl -n databases get pods,svc,pvc -o wide
+kubectl -n databases describe pods -l app.kubernetes.io/name=postgresql
+kubectl -n databases describe pvc postgresql-data
+kubectl get events -A --sort-by=.lastTimestamp | tail -n 200
+```
+
+Interpretation tips:
+
+- Pods that stay in `Pending` with PVC events typically indicate a storage class or CSI issue. Inspect the PVC description for provisioning errors and confirm the Minikube storage addons are running.
+- `ImagePullBackOff` or `ErrImagePull` statuses point to container registry or DNS reachability problems. Verify the host can reach the registry, required credentials are configured, and pfSense is advertising the expected DNS servers.
+- Cluster-wide events near the timeout can reveal quota limits, node pressure, or admission webhooks that blocked the rollout. Review the tail of the event log for repeated warnings.
+
 ## Version Management and Pre-Rollout Testing
 
 Kubernetes, networking addons, and Helm-installed workloads are pinned through environment variables so bootstrap scripts and Flux reconcile against the same chart releases. The defaults live in `.env.example`:
