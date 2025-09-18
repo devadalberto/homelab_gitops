@@ -21,6 +21,7 @@ else
 fi
 
 readonly EX_OK=0
+readonly EX_TIMEOUT=4
 readonly EX_USAGE=64
 readonly EX_UNAVAILABLE=69
 readonly EX_SOFTWARE=70
@@ -36,38 +37,6 @@ ENV_FILE_PATH=""
 
 REGISTRY_LOCAL_PORT=5000
 REGISTRY_SERVICE_PORT=80
-
-declare -a BACKGROUND_PIDS=()
-
-cleanup_background_jobs() {
-  local pid
-  for pid in "${BACKGROUND_PIDS[@]}"; do
-    if [[ -n ${pid} ]] && kill -0 "${pid}" >/dev/null 2>&1; then
-      log_debug "Stopping background job ${pid}"
-      kill "${pid}" >/dev/null 2>&1 || true
-      wait "${pid}" >/dev/null 2>&1 || true
-    fi
-  done
-}
-
-register_background_job() {
-  BACKGROUND_PIDS+=("$1")
-}
-
-wait_for_background_jobs() {
-  local pid
-  if [[ ${#BACKGROUND_PIDS[@]} -eq 0 ]]; then
-    return
-  fi
-  log_info "Waiting for background jobs to finish (press Ctrl+C to exit)"
-  for pid in "${BACKGROUND_PIDS[@]}"; do
-    if [[ -n ${pid} ]] && kill -0 "${pid}" >/dev/null 2>&1; then
-      wait "${pid}" || true
-    fi
-  done
-}
-
-trap cleanup_background_jobs EXIT INT TERM
 
 usage() {
   cat <<'USAGE'
@@ -87,25 +56,13 @@ Options:
 
 Exit codes:
   0   Success.
+  4   Timeout waiting for registry deployment readiness.
   64  Usage error (invalid CLI arguments).
   69  Missing required dependencies.
   70  Runtime failure while bootstrapping Minikube.
   75  Temporary failure (e.g., registry addon not ready).
   78  Configuration error (missing environment file or variables).
 USAGE
-}
-
-format_command() {
-  local formatted=""
-  local arg
-  for arg in "$@"; do
-    if [[ -z ${formatted} ]]; then
-      formatted=$(printf '%q' "$arg")
-    else
-      formatted+=" $(printf '%q' "$arg")"
-    fi
-  done
-  printf '%s' "$formatted"
 }
 
 run_cmd() {
@@ -372,40 +329,63 @@ wait_for_registry() {
     log_info "[DRY-RUN] $(format_command kubectl -n kube-system rollout status deployment/registry --timeout=120s)"
     return
   fi
-  if ! retry 3 10 kubectl -n kube-system rollout status deployment/registry --timeout=120s; then
-    log_error "Registry deployment failed to become ready"
-    kubectl -n kube-system get pods || true
-    kubectl -n kube-system describe deployment registry || true
-    kubectl -n kube-system logs deployment/registry --tail=100 || true
-    die ${EX_TEMPFAIL} "Registry deployment is not ready"
+  local attempts=3
+  local delay=10
+  local rollout_timeout=120
+  local total_timeout=$((attempts * rollout_timeout + (attempts - 1) * delay))
+  local attempt=1
+  local exit_code=0
+  local ready=false
+
+  while (( attempt <= attempts )); do
+    log_debug "Checking registry readiness (attempt ${attempt}/${attempts}, timeout ${rollout_timeout}s)"
+    if kubectl -n kube-system rollout status deployment/registry --timeout="${rollout_timeout}s"; then
+      ready=true
+      break
+    fi
+    exit_code=$?
+    if (( attempt < attempts )); then
+      log_warn "Registry deployment not ready after attempt ${attempt}/${attempts}. Retrying in ${delay}s..."
+      sleep "${delay}"
+    fi
+    ((attempt++))
+  done
+
+  if [[ ${ready} == true ]]; then
+    log_info "Registry deployment is ready"
+    return
   fi
+
+  log_error "Timed out after approximately ${total_timeout}s waiting for the registry deployment to become ready (last exit ${exit_code})."
+  kubectl -n kube-system get pods || true
+  kubectl -n kube-system describe deployment registry || true
+  kubectl -n kube-system logs deployment/registry --tail=100 || true
+  die ${EX_TIMEOUT} "Registry deployment readiness check timed out"
 }
 
 start_registry_port_forward() {
-  local cmd=(
+  local local_endpoint="localhost:${REGISTRY_LOCAL_PORT}"
+  local -a cmd=(
     kubectl -n kube-system port-forward --address 0.0.0.0 svc/registry \
       "${REGISTRY_LOCAL_PORT}:${REGISTRY_SERVICE_PORT}"
   )
-  if [[ ${DRY_RUN} == true ]]; then
-    log_info "[DRY-RUN] $(format_command "${cmd[@]}")"
-    return
-  fi
-  "${cmd[@]}" >/dev/null 2>&1 &
-  local pf_pid=$!
-  sleep 2
-  if ! kill -0 "${pf_pid}" >/dev/null 2>&1; then
+  local -a success_messages=(
+    "Bootstrap complete. Local registry is reachable at ${local_endpoint} while this script is running."
+    "To push images:   docker tag IMAGE ${local_endpoint}/IMAGE && docker push ${local_endpoint}/IMAGE"
+    "To pull in cluster: use image reference ${local_endpoint}/IMAGE"
+    "Press Ctrl+C when you are finished to stop the registry port-forward."
+  )
+
+  if ! start_port_forward \
+    --name "registry" \
+    --dry-run "${DRY_RUN}" \
+    --success-message "${success_messages[0]}" \
+    --success-message "${success_messages[1]}" \
+    --success-message "${success_messages[2]}" \
+    --success-message "${success_messages[3]}" \
+    -- "${cmd[@]}"; then
     die ${EX_TEMPFAIL} "Registry port-forward failed to start"
   fi
-  register_background_job "${pf_pid}"
-  log_info "Registry port-forward active at localhost:${REGISTRY_LOCAL_PORT} (PID ${pf_pid})"
-}
-
-print_summary() {
-  local registry_url="localhost:${REGISTRY_LOCAL_PORT}"
-  log_info "Bootstrap complete. Local registry is reachable while this script is running."
-  log_info "To push images:   docker tag IMAGE ${registry_url}/IMAGE && docker push ${registry_url}/IMAGE"
-  log_info "To pull in cluster: use image reference ${registry_url}/IMAGE"
-  log_info "Press Ctrl+C when you are finished to stop the registry port-forward."
 }
 
 main() {
@@ -443,8 +423,7 @@ main() {
     return
   fi
 
-  print_summary
-  wait_for_background_jobs
+  wait_for_port_forwards
 }
 
 main "$@"
