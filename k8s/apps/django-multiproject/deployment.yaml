@@ -1,0 +1,29 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: djangomultiproject
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: djangomultiproject
+  template:
+    metadata:
+      labels:
+        app: djangomultiproject
+    spec:
+      containers:
+        - name: djangomultiproject
+          image: hashicorp/http-echo:0.2.3
+          imagePullPolicy: IfNotPresent
+          args:
+            - "-text=Hello from the Django multiproject demo"
+            - "-listen=:8000"
+          ports:
+            - containerPort: 8000
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: pg-superuser
+                  key: database-url
