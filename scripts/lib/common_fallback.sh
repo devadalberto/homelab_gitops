@@ -123,6 +123,158 @@ retry() {
   return "$exit_code"
 }
 
+format_command() {
+  if [[ $# -eq 0 ]]; then
+    printf ''
+    return 0
+  fi
+  local formatted=""
+  local arg
+  for arg in "$@"; do
+    if [[ -z ${formatted} ]]; then
+      formatted=$(printf '%q' "$arg")
+    else
+      formatted+=" $(printf '%q' "$arg")"
+    fi
+  done
+  printf '%s' "$formatted"
+}
+
+declare -A _HOMELAB_FALLBACK_TRAP_HANDLERS=()
+
+trap_add() {
+  if [[ $# -lt 1 ]]; then
+    log_error "trap_add: handler is required"
+    return 64
+  fi
+  local handler=$1
+  shift || true
+  if [[ $# -eq 0 ]]; then
+    set -- EXIT
+  fi
+  local sig
+  for sig in "$@"; do
+    if [[ -n ${_HOMELAB_FALLBACK_TRAP_HANDLERS[$sig]:-} ]]; then
+      _HOMELAB_FALLBACK_TRAP_HANDLERS[$sig]+=";${handler}"
+    else
+      _HOMELAB_FALLBACK_TRAP_HANDLERS[$sig]="${handler}"
+    fi
+    trap "${_HOMELAB_FALLBACK_TRAP_HANDLERS[$sig]}" "$sig"
+  done
+}
+
+declare -a _HOMELAB_FALLBACK_PORT_FORWARD_PIDS=()
+declare _HOMELAB_FALLBACK_PORT_FORWARD_TRAPS_INSTALLED=0
+
+_homelab_fallback_port_forward_cleanup() {
+  local pid
+  for pid in "${_HOMELAB_FALLBACK_PORT_FORWARD_PIDS[@]}"; do
+    if [[ -n ${pid} ]] && kill -0 "${pid}" >/dev/null 2>&1; then
+      log_debug "Stopping port-forward process ${pid}"
+      kill "${pid}" >/dev/null 2>&1 || true
+      wait "${pid}" >/dev/null 2>&1 || true
+    fi
+  done
+}
+
+_homelab_fallback_port_forward_register_traps() {
+  if [[ ${_HOMELAB_FALLBACK_PORT_FORWARD_TRAPS_INSTALLED:-0} -eq 1 ]]; then
+    return
+  fi
+  trap_add _homelab_fallback_port_forward_cleanup EXIT INT TERM
+  _HOMELAB_FALLBACK_PORT_FORWARD_TRAPS_INSTALLED=1
+}
+
+start_port_forward() {
+  local name=""
+  local dry_run=false
+  local startup_delay=2
+  local -a success_messages=()
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --name)
+        name=$2
+        shift 2
+        ;;
+      --dry-run)
+        dry_run=$2
+        shift 2
+        ;;
+      --startup-delay)
+        startup_delay=$2
+        shift 2
+        ;;
+      --success-message)
+        success_messages+=("$2")
+        shift 2
+        ;;
+      --)
+        shift
+        break
+        ;;
+      *)
+        log_error "start_port_forward: unknown option: $1"
+        return 64
+        ;;
+    esac
+  done
+
+  if [[ $# -eq 0 ]]; then
+    log_error "start_port_forward: command is required"
+    return 64
+  fi
+
+  local -a cmd=("$@")
+  if [[ -z ${name} ]]; then
+    name=${cmd[0]}
+  fi
+
+  local formatted
+  formatted=$(format_command "${cmd[@]}")
+
+  if [[ ${dry_run} == true ]]; then
+    log_info "[DRY-RUN] ${name} port-forward: ${formatted}"
+    return 0
+  fi
+
+  log_debug "Launching ${name} port-forward: ${formatted}"
+  "${cmd[@]}" >/dev/null 2>&1 &
+  local pf_pid=$!
+  sleep "${startup_delay}"
+
+  if ! kill -0 "${pf_pid}" >/dev/null 2>&1; then
+    wait "${pf_pid}" >/dev/null 2>&1 || true
+    log_error "${name} port-forward failed to start"
+    return 1
+  fi
+
+  _HOMELAB_FALLBACK_PORT_FORWARD_PIDS+=("${pf_pid}")
+  _homelab_fallback_port_forward_register_traps
+
+  log_info "${name} port-forward active (PID ${pf_pid})"
+  local message
+  for message in "${success_messages[@]}"; do
+    log_info "${message}"
+  done
+
+  return 0
+}
+
+wait_for_port_forwards() {
+  if [[ ${#_HOMELAB_FALLBACK_PORT_FORWARD_PIDS[@]} -eq 0 ]]; then
+    return 0
+  fi
+
+  log_info "Waiting for active port-forwards to terminate."
+  local pid
+  for pid in "${_HOMELAB_FALLBACK_PORT_FORWARD_PIDS[@]}"; do
+    if [[ -n ${pid} ]] && kill -0 "${pid}" >/dev/null 2>&1; then
+      wait "${pid}" || true
+    fi
+  done
+}
+
 load_env() {
   if [[ $# -ne 1 ]]; then
     log_error "Usage: load_env <env-file>"
