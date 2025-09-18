@@ -1,0 +1,7 @@
+fullnameOverride: postgresql
+primary:
+  persistence:
+    enabled: true
+    existingClaim: postgresql-data
+volumePermissions:
+  enabled: true
