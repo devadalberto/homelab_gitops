@@ -134,59 +134,14 @@ parse_args() {
   done
 }
 
-resolve_existing_dir() {
-  local path=$1
-  local dir=$path
-  if [[ -d $dir ]]; then
-    printf '%s\n' "$dir"
-    return 0
-  fi
-  if [[ -e $dir ]]; then
-    dir=$(dirname "$dir")
-  else
-    dir=$(dirname "$dir")
-    while [[ ! -d $dir && $dir != '/' ]]; do
-      dir=$(dirname "$dir")
-    done
-  fi
-  printf '%s\n' "$dir"
-}
-
-maybe_reexec_for_privileged_paths() {
-  local guard_var=$1
-  shift
-  [[ ${DRY_RUN} == true ]] && return
-  (( EUID == 0 )) && return
-
-  local path existing needs_sudo=0
-  for path in "$@"; do
-    [[ -z ${path} ]] && continue
-    existing=$(resolve_existing_dir "$path")
-    if [[ ${existing} == /opt/homelab* ]]; then
-      needs_sudo=1
-      break
-    fi
-    if [[ ! -w ${existing} ]]; then
-      needs_sudo=1
-      break
-    fi
-  done
-
-  if (( needs_sudo == 0 )); then
+cleanup_temp_dir() {
+  local dir=$1
+  if [[ -z ${dir} ]]; then
     return
   fi
-
-  if [[ -n ${!guard_var:-} ]]; then
-    return
+  if [[ -d ${dir} ]]; then
+    rm -rf -- "${dir:?}"
   fi
-
-  if ! command -v sudo >/dev/null 2>&1; then
-    die ${EX_UNAVAILABLE} "Root privileges required to modify ${path}; install sudo or rerun as root."
-  fi
-
-  log_warn "Elevating privileges via sudo to write under privileged directories."
-  export "${guard_var}=1"
-  exec sudo -E -- "$0" "${ORIGINAL_ARGS[@]}"
 }
 
 load_environment() {
@@ -404,7 +359,7 @@ main() {
     template_path="${SCRIPT_DIR}/templates/config.xml.j2"
   fi
 
-  maybe_reexec_for_privileged_paths PF_CONFIG_GEN_SUDO_GUARD "${output_dir}" "${WORK_ROOT}"
+  homelab_maybe_reexec_for_privileged_paths PF_CONFIG_GEN_SUDO_GUARD "${output_dir}" "${WORK_ROOT}"
 
   check_dependencies
   ensure_required_env
@@ -423,7 +378,7 @@ main() {
   local staging_dir=""
   if [[ ${DRY_RUN} == false ]]; then
     staging_dir=$(prepare_iso_root "${config_path}")
-    trap '[[ -n ${staging_dir} ]] && rm -rf -- "${staging_dir}"' EXIT
+    trap 'cleanup_temp_dir "${staging_dir}"' EXIT
   else
     prepare_iso_root "${config_path}" >/dev/null
   fi
@@ -431,6 +386,12 @@ main() {
   local timestamp
   timestamp=$(date +%Y%m%d%H%M%S)
   package_iso "${staging_dir}" "${output_dir}" "${timestamp}"
+
+  if [[ ${DRY_RUN} == false ]]; then
+    cleanup_temp_dir "${staging_dir}"
+    staging_dir=""
+    trap - EXIT
+  fi
 
   if [[ ${DRY_RUN} == true ]]; then
     log_info "Dry-run complete. No files were modified."
