@@ -10,13 +10,13 @@
       
       
       
-        <link rel="canonical" href="https://devadalberto.github.io/homelab_gitops/observability/">
+        <link rel="canonical" href="https://devadalberto.github.io/homelab_gitops/automation/">
       
       
-        <link rel="prev" href="../automation/">
+        <link rel="prev" href="../architecture/">
       
       
-        <link rel="next" href="../docs-workflow/">
+        <link rel="next" href="../observability/">
       
       
       <link rel="icon" href="../assets/images/favicon.png">
@@ -24,7 +24,7 @@
     
     
       
-        <title>Observability Operations - Homelab GitOps</title>
+        <title>Automation - Homelab GitOps</title>
       
     
     
@@ -76,7 +76,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#observability-operations" class="md-skip">
+        <a href="#automation" class="md-skip">
           Skip to content
         </a>
       
@@ -112,7 +112,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Observability Operations
+              Automation
             
           </span>
         </div>
@@ -297,28 +297,6 @@
       
   
   
-  
-  
-    <li class="md-nav__item">
-      <a href="../automation/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    Automation
-    
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
     
   
   
@@ -336,7 +314,7 @@
   
   
   <span class="md-ellipsis">
-    Observability Operations
+    Automation
     
   </span>
   
@@ -349,7 +327,7 @@
   
   
   <span class="md-ellipsis">
-    Observability Operations
+    Automation
     
   </span>
   
@@ -372,46 +350,19 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#grafana-admin-credential-management" class="md-nav__link">
+  <a href="#database-and-backup-workflow" class="md-nav__link">
     <span class="md-ellipsis">
-      Grafana admin credential management
+      Database and Backup Workflow
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Grafana admin credential management">
+    <nav class="md-nav" aria-label="Database and Backup Workflow">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#prerequisites" class="md-nav__link">
+  <a href="#secrets" class="md-nav__link">
     <span class="md-ellipsis">
-      Prerequisites
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#retrieve-the-password" class="md-nav__link">
-    <span class="md-ellipsis">
-      Retrieve the password
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#rotate-the-password" class="md-nav__link">
-    <span class="md-ellipsis">
-      Rotate the password
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#why-this-matters" class="md-nav__link">
-    <span class="md-ellipsis">
-      Why this matters
+      Secrets
     </span>
   </a>
   
@@ -426,6 +377,28 @@
   
 </nav>
       
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../observability/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Observability Operations
+    
+  </span>
+  
+
+      </a>
     </li>
   
 
@@ -490,7 +463,7 @@
 
 
   
-    <a href="https://github.com/devadalberto/homelab_gitops/edit/main/docs/observability.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+    <a href="https://github.com/devadalberto/homelab_gitops/edit/main/docs/automation.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
       
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
     </a>
@@ -498,49 +471,25 @@
   
 
 
-<h1 id="observability-operations">Observability Operations<a class="headerlink" href="#observability-operations" title="Permanent link">&para;</a></h1>
-<h2 id="grafana-admin-credential-management">Grafana admin credential management<a class="headerlink" href="#grafana-admin-credential-management" title="Permanent link">&para;</a></h2>
-<p>Grafana is deployed through the <code>kube-prometheus-stack</code> chart. The admin
-credentials are no longer embedded in the values file; instead they live in the
-SOPS-encrypted Secret manifest at
-<code>observability/sops-secrets/grafana-admin.yaml</code>.</p>
-<h3 id="prerequisites">Prerequisites<a class="headerlink" href="#prerequisites" title="Permanent link">&para;</a></h3>
-<ol>
-<li>Install <a href="https://github.com/getsops/sops">SOPS</a> on your workstation.</li>
-<li>Import the <strong>Homelab SOPS</strong> GPG key (<code>06D8D7726588CB103AE9717413BF4A9EA7B7C3F8</code>)
-   from the team credential vault into your local keyring. This key is <strong>not</strong>
-   stored in the repository; request access through the normal secure channel if
-   it is not already present.</li>
-</ol>
-<h3 id="retrieve-the-password">Retrieve the password<a class="headerlink" href="#retrieve-the-password" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><span class="c1"># Decrypt the manifest and print the admin credentials</span>
-sops<span class="w"> </span>-d<span class="w"> </span>observability/sops-secrets/grafana-admin.yaml<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span><span class="p">|</span><span class="w"> </span>yq<span class="w"> </span><span class="s1">&#39;.stringData[&quot;admin-user&quot;] + &quot;:&quot; + .stringData[&quot;admin-password&quot;]&#39;</span><span class="w"> </span>-r
-</code></pre></div>
-<h3 id="rotate-the-password">Rotate the password<a class="headerlink" href="#rotate-the-password" title="Permanent link">&para;</a></h3>
-<ol>
-<li>Open the manifest with <code>sops</code>:
-   <div class="highlight"><pre><span></span><code>sops<span class="w"> </span>observability/sops-secrets/grafana-admin.yaml
-</code></pre></div></li>
-<li>Replace the value under <code>stringData.admin-password</code> with a new random
-   password. The helper below generates a 32-character value:
-   <div class="highlight"><pre><span></span><code>python<span class="w"> </span>-<span class="w"> </span><span class="s">&lt;&lt;&#39;PY&#39;</span>
-<span class="s">import secrets, string</span>
-<span class="s">alphabet = string.ascii_letters + string.digits + &#39;!@#$%^&amp;*()-_=+&#39;</span>
-<span class="s">print(&#39;&#39;.join(secrets.choice(alphabet) for _ in range(32)))</span>
-<span class="s">PY</span>
-</code></pre></div></li>
-<li>Save and exit; <code>sops</code> will re-encrypt the document automatically.</li>
-<li>Commit the updated secret and let Flux reconcile, or apply it manually if you
-   need the change immediately:
-   <div class="highlight"><pre><span></span><code>kubectl<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span>observability/sops-secrets/grafana-admin.yaml
-</code></pre></div></li>
-</ol>
-<h3 id="why-this-matters">Why this matters<a class="headerlink" href="#why-this-matters" title="Permanent link">&para;</a></h3>
-<p>The chart values file (<code>observability/kps-values.yaml</code>) now points Grafana at the
-<code>grafana-admin</code> Secret via <code>grafana.admin.existingSecret</code>. This keeps credentials
-out of Git history while still allowing GitOps workflows to manage the rendered
-Secret manifest.</p>
+<h1 id="automation">Automation<a class="headerlink" href="#automation" title="Permanent link">&para;</a></h1>
+<h2 id="database-and-backup-workflow">Database and Backup Workflow<a class="headerlink" href="#database-and-backup-workflow" title="Permanent link">&para;</a></h2>
+<p>Flux now manages the PostgreSQL stack under <code>k8s/data/postgres/</code>. The co-located
+<code>HelmRepository</code> pulls the Bitnami index while the <code>HelmRelease</code> pins chart version
+<code>15.5.32</code>, loads overrides from <code>data/postgres/pg-values.yaml</code>, and installs the
+workload into the <code>data</code> namespace. Backups are also reconciled by the same
+Kustomization via the hostPath <code>PersistentVolume</code>, <code>PersistentVolumeClaim</code>, and
+nightly <code>CronJob</code> that execute <code>pg_dump</code> into the mounted backup share.</p>
+<ul>
+<li>Tune retention or the destination directory by editing
+  <code>data/postgres/backup-cron.yaml</code> and <code>data/postgres/backup-pv.yaml</code> before
+  committing changes.</li>
+</ul>
+<h3 id="secrets">Secrets<a class="headerlink" href="#secrets" title="Permanent link">&para;</a></h3>
+<p>Database superuser credentials live in
+<code>data/postgres/sops-secrets/postgres-superuser.yaml</code>. Update it with <code>sops</code>, commit
+the change, and let Flux reconcile so the Helm chart picks up the new secret
+version. The HelmRelease consumes the secret through the values file and updates
+the StatefulSet on the next reconciliation.</p>
 
 
 
@@ -570,7 +519,7 @@ Secret manifest.</p>
       <nav class="md-footer__inner md-grid" aria-label="Footer" >
         
           
-          <a href="../automation/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Automation">
+          <a href="../architecture/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Architecture">
             <div class="md-footer__button md-icon">
               
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
@@ -580,20 +529,20 @@ Secret manifest.</p>
                 Previous
               </span>
               <div class="md-ellipsis">
-                Automation
+                Architecture
               </div>
             </div>
           </a>
         
         
           
-          <a href="../docs-workflow/" class="md-footer__link md-footer__link--next" aria-label="Next: Documentation Workflow">
+          <a href="../observability/" class="md-footer__link md-footer__link--next" aria-label="Next: Observability Operations">
             <div class="md-footer__title">
               <span class="md-footer__direction">
                 Next
               </span>
               <div class="md-ellipsis">
-                Documentation Workflow
+                Observability Operations
               </div>
             </div>
             <div class="md-footer__button md-icon">
