@@ -75,7 +75,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 load_env_file "${ENV_FILE}"
-require_vars LABZ_MINIKUBE_PROFILE LABZ_POSTGRES_VERSION LABZ_POSTGRES_DB \
+require_vars LABZ_MINIKUBE_PROFILE LABZ_POSTGRES_DB \
   LABZ_POSTGRES_USER LABZ_POSTGRES_PASSWORD LABZ_REDIS_PASSWORD \
   LABZ_PHP_UPLOAD_LIMIT LABZ_MOUNT_BACKUPS LABZ_MOUNT_MEDIA \
   LABZ_MOUNT_NEXTCLOUD LABZ_NEXTCLOUD_HOST LABZ_JELLYFIN_HOST \
@@ -185,7 +185,6 @@ helm upgrade --install postgresql bitnami/postgresql \
   --namespace data \
   --create-namespace \
   --set fullnameOverride=postgresql \
-  --set image.tag="${LABZ_POSTGRES_VERSION}" \
   --set global.postgresql.auth.database="${LABZ_POSTGRES_DB}" \
   --set global.postgresql.auth.username="${LABZ_POSTGRES_USER}" \
   --set global.postgresql.auth.password="${LABZ_POSTGRES_PASSWORD}" \
