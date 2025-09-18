@@ -3,6 +3,14 @@ set -Eeuo pipefail
 
 ASSUME_YES=false
 ENV_FILE="./.env"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+POSTGRES_VALUES_FILE="${REPO_ROOT}/values/postgresql.yaml"
+
+if [[ ! -f "${POSTGRES_VALUES_FILE}" ]]; then
+  echo "PostgreSQL values file not found: ${POSTGRES_VALUES_FILE}" >&2
+  exit 1
+fi
 
 usage() {
   cat <<'USAGE'
@@ -184,13 +192,11 @@ log "Installing PostgreSQL"
 helm upgrade --install postgresql bitnami/postgresql \
   --namespace data \
   --create-namespace \
+  --values "${POSTGRES_VALUES_FILE}" \
   --set fullnameOverride=postgresql \
   --set global.postgresql.auth.database="${LABZ_POSTGRES_DB}" \
   --set global.postgresql.auth.username="${LABZ_POSTGRES_USER}" \
   --set global.postgresql.auth.password="${LABZ_POSTGRES_PASSWORD}" \
-  --set primary.persistence.enabled=true \
-  --set primary.persistence.existingClaim=postgresql-data \
-  --set volumePermissions.enabled=true \
   --wait \
   --timeout 10m0s
 

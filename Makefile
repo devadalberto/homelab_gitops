@@ -43,7 +43,7 @@ k8s:
 
 db:
 	@kubectl apply -f $(DIR)/data/postgres/backup-pv.yaml
-	@helm upgrade --install pg bitnami/postgresql --version $(POSTGRES_HELM_VERSION) -n data -f $(DIR)/data/postgres/pg-values.yaml --create-namespace --wait
+	@helm upgrade --install pg bitnami/postgresql --version $(POSTGRES_HELM_VERSION) -n data --values $(DIR)/values/postgresql.yaml --create-namespace --wait
 	@kubectl apply -f $(DIR)/data/postgres/backup-cron.yaml
 
 awx:
