@@ -6,6 +6,7 @@ resources:
   - ../addons/cert-manager
   - ../addons/awx-operator
   - ../data/postgres
+  - ../apps/awx
   - ../apps/pihole
   - ../apps/nextcloud
   - ../apps/jellyfin
