@@ -108,21 +108,24 @@ retry() {
   fi
 
   local try=1
-  local exit_code
+  local last_status=1
+  local status
   while (( try <= attempts )); do
-    if "$@"; then
+    "$@"
+    status=$?
+    if (( status == 0 )); then
       return 0
     fi
-    exit_code=$?
+    last_status=$status
     if (( try < attempts )); then
-      log_warn "Attempt ${try}/${attempts} failed (exit ${exit_code}). Retrying in ${delay}s..."
+      log_warn "Attempt ${try}/${attempts} failed (exit ${status}). Retrying in ${delay}s..."
       sleep "$delay"
     fi
     ((try++))
   done
 
   log_error "Command failed after ${attempts} attempts: $*"
-  return "$exit_code"
+  return ${last_status}
 }
 
 format_command() {
