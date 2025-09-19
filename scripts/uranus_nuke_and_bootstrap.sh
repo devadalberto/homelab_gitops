@@ -354,7 +354,7 @@ wait_for_registry() {
       log_warn "Registry deployment not ready after attempt ${attempt}/${attempts}. Retrying in ${delay}s..."
       sleep "${delay}"
     fi
-    ((attempt++))
+    ((++attempt))
   done
 
   if [[ ${ready} == true ]]; then

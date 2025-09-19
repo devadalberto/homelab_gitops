@@ -1035,6 +1035,13 @@ update_interface_model() {
   local target=$1
   local bridge=$2
   local snippet="${TMP_DIR}/iface-${target}.xml"
+
+  if [[ ${DOMAIN_STATE} != "shut off" && ${DOMAIN_STATE} != "pmsuspended" ]]; then
+    log_warn "Skipping NIC model change for ${target:-unknown}; ${VM_NAME} is ${DOMAIN_STATE}. Shutdown required for model switch."
+    DRIFT_DETECTED=true
+    return 1
+  fi
+
   python3 - "${DOMAIN_XML_PATH}" "${target}" "${snippet}" <<'PY'
 import sys
 import xml.etree.ElementTree as ET
@@ -1229,7 +1236,7 @@ inspect_interfaces() {
       fi
     fi
 
-    ((idx++))
+    ((++idx))
   done
 
   if [[ -z ${PF_WAN_BRIDGE} && -n ${detected_wan_source} ]]; then
@@ -1265,7 +1272,9 @@ inspect_interfaces() {
     else
       if rewire_lan_interface "${lan_idx}" "${LAN_LINK_KIND}" "${LAN_LINK_NAME}"; then
         LAN_INTERFACE_REWIRED=true
-        NIC_MODEL_CHANGED=true
+        if [[ ${FORCE_E1000} == true || ${PF_FORCE_E1000} == "true" ]]; then
+          NIC_MODEL_CHANGED=true
+        fi
         detected_lan_kind=${LAN_LINK_KIND}
         detected_lan_source=${LAN_LINK_NAME}
         actual_lan_kind=${LAN_LINK_KIND}
@@ -1465,6 +1474,19 @@ check_https() {
   curl -kIs --connect-timeout 5 --max-time 8 "https://${LAN_GW_IP}/" >/dev/null 2>&1
 }
 
+probe_default_lan_gateway() {
+  local fallback_ip="192.168.1.1"
+  if [[ ${LAN_GW_IP} == "${fallback_ip}" ]]; then
+    return
+  fi
+  if ping -c 1 -W 2 "${fallback_ip}" >/dev/null 2>&1; then
+    log_warn "pfSense responded at legacy default ${fallback_ip}; configuration import likely failed."
+    if curl -kIs --connect-timeout 3 --max-time 5 "https://${fallback_ip}/" >/dev/null 2>&1; then
+      log_warn "HTTPS probe to ${fallback_ip} succeeded; USB bootstrap may not have applied."
+    fi
+  fi
+}
+
 verify_connectivity() {
   if [[ ${CHECK_ONLY} == true ]]; then
     log_info "Skipping connectivity checks in --check-only mode"
@@ -1492,6 +1514,9 @@ verify_connectivity() {
     echo "PASS: curl -kI https://${LAN_GW_IP}/"
   else
     echo "FAIL: curl -kI https://${LAN_GW_IP}/"
+  fi
+  if [[ ${PING_SUCCESS} != true || ${CURL_SUCCESS} != true ]]; then
+    probe_default_lan_gateway
   fi
   cleanup_bridge_ip
 }

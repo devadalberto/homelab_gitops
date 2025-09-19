@@ -241,7 +241,7 @@ run_pfsense_ztp() {
         pf_args+=("--dry-run")
         ;;
     esac
-    ((i++))
+    ((++i))
   done
 
   if [[ ${CHECK_ONLY} == true ]]; then
