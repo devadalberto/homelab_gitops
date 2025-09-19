@@ -20,6 +20,15 @@ else
   fi
 fi
 
+PF_LAN_LIB="${REPO_ROOT}/scripts/lib/pf_lan.sh"
+if [[ -f "${PF_LAN_LIB}" ]]; then
+  # shellcheck source=scripts/lib/pf_lan.sh
+  source "${PF_LAN_LIB}"
+else
+  echo "Unable to locate scripts/lib/pf_lan.sh" >&2
+  exit 70
+fi
+
 readonly EX_SUCCESS=0
 readonly EX_PREFLIGHT=1
 readonly EX_VERIFY=2
@@ -180,37 +189,7 @@ get_lan_link_name() {
 }
 
 resolve_network_bridge() {
-  local network_name="$1"
-  if [[ -z ${network_name} ]]; then
-    return 1
-  fi
-  if ! command -v virsh >/dev/null 2>&1; then
-    return 1
-  fi
-  local bridge_name
-  bridge_name=$(
-    virsh net-dumpxml "${network_name}" 2>/dev/null | python3 - <<'PY'
-import sys
-import xml.etree.ElementTree as ET
-
-xml = sys.stdin.read()
-if not xml.strip():
-    sys.exit(1)
-root = ET.fromstring(xml)
-bridge = root.find('./bridge')
-if bridge is None:
-    sys.exit(1)
-name = bridge.get('name')
-if not name:
-    sys.exit(1)
-sys.stdout.write(name)
-PY
-  ) || return 1
-  if [[ -n ${bridge_name} ]]; then
-    printf "%s" "${bridge_name}"
-    return 0
-  fi
-  return 1
+  pf_lan_resolve_network_bridge "$@"
 }
 
 setup_logging() {
@@ -1318,130 +1297,28 @@ inspect_interfaces() {
 ensure_bridge_ipv4() {
   if [[ ${CHECK_ONLY} == true || ${DRY_RUN} == true ]]; then
     log_debug "Skipping host bridge IP assignment in dry-run/check mode"
+    pf_lan_temp_addr_reset
+    BRIDGE_IP_TEMP_ADDED=false
+    BRIDGE_TEMP_CIDR=""
     return
   fi
 
-  local bridge=${PF_LAN_BRIDGE:-}
-  if [[ -z ${bridge} ]]; then
-    log_warn "Unable to determine LAN bridge; skipping temporary host address"
-    return
-  fi
-
-  if ! command -v ip >/dev/null 2>&1; then
-    log_warn "ip command not available; cannot assign temporary LAN address"
-    return
-  fi
-
-  local -a existing_cidrs=()
-  mapfile -t existing_cidrs < <(ip -o -4 addr show dev "${bridge}" | awk '{print $4}')
-
-  local cidr
-  cidr="${LAN_VALIDATION_IP}/${LAN_PREFIX}"
-
-  local reason=""
-  local existing_display=""
-  if [[ ${#existing_cidrs[@]} -gt 0 ]]; then
-    existing_display=$(printf '%s, ' "${existing_cidrs[@]}")
-    existing_display=${existing_display%, }
-
-    local python_tmp=""
-    python_tmp=$(mktemp) || python_tmp=""
-    if [[ -z ${python_tmp} ]]; then
-      log_warn "Unable to create temporary file for IPv4 evaluation; continuing with temporary assignment"
+  if pf_lan_temp_addr_ensure "${PF_LAN_BRIDGE:-}" "${LAN_VALIDATION_IP}" "${LAN_PREFIX}" "${LAN_NETWORK}"; then
+    if [[ ${PF_LAN_TEMP_ADDR_ADDED} == true ]]; then
+      BRIDGE_IP_TEMP_ADDED=true
+      BRIDGE_TEMP_CIDR=${PF_LAN_TEMP_ADDR_CIDR}
     else
-      local python_status=0
-      local python_output=""
-      if python3 - "${LAN_NETWORK}" "${LAN_PREFIX}" "${existing_cidrs[@]}" >"${python_tmp}" <<'PY'; then
-import ipaddress
-import sys
-
-lan_network = sys.argv[1]
-lan_prefix = sys.argv[2]
-
-try:
-    network = ipaddress.ip_network(f"{lan_network}/{lan_prefix}", strict=False)
-except ValueError:
-    sys.exit(2)
-
-cidrs = sys.argv[3:]
-
-matched = []
-off_subnet = []
-invalid = []
-
-for cidr in cidrs:
-    try:
-        iface = ipaddress.ip_interface(cidr)
-    except ValueError:
-        invalid.append(cidr)
-        continue
-    if iface.ip in network:
-        matched.append(cidr)
-    else:
-        off_subnet.append(cidr)
-
-if matched:
-    sys.stdout.write(", ".join(matched))
-    sys.exit(0)
-
-combined = off_subnet + invalid
-if combined:
-    sys.stdout.write(", ".join(combined))
-    sys.exit(10)
-
-sys.exit(1)
-PY
-        python_status=0
-      else
-        python_status=$?
-      fi
-      python_output="$(<"${python_tmp}")"
-      rm -f -- "${python_tmp}" || true
-
-      if [[ ${python_status} -eq 0 ]]; then
-        local matched_output
-        matched_output=${python_output:-${existing_display}}
-        log_debug "Bridge ${bridge} already has LAN IPv4 address(es): ${matched_output}"
-        return
-      elif [[ ${python_status} -eq 10 ]]; then
-        local offsubnet_output
-        offsubnet_output=${python_output:-${existing_display}}
-        reason="Existing IPv4 address(es) ${offsubnet_output} are outside ${LAN_NETWORK}/${LAN_PREFIX}. "
-      elif [[ ${python_status} -eq 1 ]]; then
-        log_debug "Bridge ${bridge} IPv4 assignments did not include usable addresses in ${LAN_NETWORK}/${LAN_PREFIX}; continuing with temporary assignment"
-      else
-        log_warn "Unable to evaluate existing IPv4 assignments on ${bridge} (exit ${python_status}); continuing with temporary assignment"
-      fi
+      BRIDGE_IP_TEMP_ADDED=false
+      BRIDGE_TEMP_CIDR=""
     fi
-  fi
-
-  if [[ -n ${reason} ]]; then
-    log_warn "${reason}Assigning temporary ${cidr} to ${bridge} for connectivity checks"
   else
-    log_info "Assigning temporary ${cidr} to ${bridge} for connectivity checks"
-  fi
-  if ip addr add "${cidr}" dev "${bridge}" >/dev/null 2>&1; then
-    BRIDGE_IP_TEMP_ADDED=true
-    BRIDGE_TEMP_CIDR=${cidr}
-  else
-    log_warn "Unable to assign ${cidr} to ${bridge}; connectivity checks may fail"
+    BRIDGE_IP_TEMP_ADDED=false
+    BRIDGE_TEMP_CIDR=""
   fi
 }
 
 cleanup_bridge_ip() {
-  if [[ ${BRIDGE_IP_TEMP_ADDED} != true ]]; then
-    return
-  fi
-  if ! command -v ip >/dev/null 2>&1; then
-    return
-  fi
-  if [[ -z ${PF_LAN_BRIDGE:-} ]]; then
-    return
-  fi
-  if [[ -z ${BRIDGE_TEMP_CIDR:-} ]]; then
-    return
-  fi
-  ip addr del "${BRIDGE_TEMP_CIDR}" dev "${PF_LAN_BRIDGE}" >/dev/null 2>&1 || log_warn "Failed to remove temporary IP ${BRIDGE_TEMP_CIDR} from ${PF_LAN_BRIDGE}"
+  pf_lan_temp_addr_cleanup || true
   BRIDGE_IP_TEMP_ADDED=false
   BRIDGE_TEMP_CIDR=""
 }
