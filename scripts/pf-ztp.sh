@@ -44,8 +44,11 @@ VERBOSE=false
 ROLLBACK=false
 
 PF_WAN_BRIDGE="${PF_WAN_BRIDGE:-}"
+# Preferred way: PF_LAN_LINK specifies both kind and name (bridge:virbr-lan or network:pfsense-lan)
+PF_LAN_LINK="${PF_LAN_LINK:-}"
 PF_LAN_BRIDGE="${PF_LAN_BRIDGE:-}"
 HOMELAB_EDGE_GATEWAY="${HOMELAB_EDGE_GATEWAY:-192.168.88.12}"
+PF_FORCE_E1000="${PF_FORCE_E1000:-true}"
 
 TMP_DIR=""
 USB_MOUNT_DIR=""
@@ -58,8 +61,10 @@ DOMAIN_STATE=""
 CONFIG_CHANGED=false
 IMAGE_REBUILT=false
 USB_CONTROLLER_ADDED=false
+USB_PRESENT=false
 USB_DISK_ATTACHED=false
 NIC_MODEL_CHANGED=false
+LAN_INTERFACE_REWIRED=false
 NEEDS_REBOOT=false
 DRIFT_DETECTED=false
 PING_SUCCESS=false
@@ -70,6 +75,12 @@ LAN_NETMASK=""
 LAN_VALIDATION_IP=""
 BRIDGE_IP_TEMP_ADDED=false
 BRIDGE_TEMP_CIDR=""
+
+LAN_LINK_KIND=""
+LAN_LINK_NAME=""
+
+REBOOT_MARK_DIR="/run/pf-ztp"
+REBOOT_MARK_FILE=""
 
 # shellcheck disable=SC2317
 usage() {
@@ -133,6 +144,70 @@ cleanup_tmp() {
     rm -rf -- "${TMP_DIR}" >/dev/null 2>&1 || true
     TMP_DIR=""
   fi
+}
+
+get_lan_link_kind() {
+  local link="${PF_LAN_LINK:-}"
+  if [[ -z ${link} && -n ${PF_LAN_BRIDGE} ]]; then
+    printf "%s" "bridge"
+    return 0
+  fi
+  if [[ -z ${link} ]]; then
+    printf "%s" "bridge"
+    return 0
+  fi
+  printf "%s" "${link%%:*}"
+}
+
+get_lan_link_name() {
+  local link="${PF_LAN_LINK:-}"
+  if [[ -z ${link} && -n ${PF_LAN_BRIDGE} ]]; then
+    printf "%s" "${PF_LAN_BRIDGE}"
+    return 0
+  fi
+  if [[ -z ${link} ]]; then
+    printf "%s" "virbr-lan"
+    return 0
+  fi
+  if [[ ${link} == *:* ]]; then
+    printf "%s" "${link#*:}"
+  else
+    printf "%s" "${link}"
+  fi
+}
+
+resolve_network_bridge() {
+  local network_name="$1"
+  if [[ -z ${network_name} ]]; then
+    return 1
+  fi
+  if ! command -v virsh >/dev/null 2>&1; then
+    return 1
+  fi
+  local bridge_name
+  bridge_name=$(
+    virsh net-dumpxml "${network_name}" 2>/dev/null | python3 - <<'PY'
+import sys
+import xml.etree.ElementTree as ET
+
+xml = sys.stdin.read()
+if not xml.strip():
+    sys.exit(1)
+root = ET.fromstring(xml)
+bridge = root.find('./bridge')
+if bridge is None:
+    sys.exit(1)
+name = bridge.get('name')
+if not name:
+    sys.exit(1)
+sys.stdout.write(name)
+PY
+  ) || return 1
+  if [[ -n ${bridge_name} ]]; then
+    printf "%s" "${bridge_name}"
+    return 0
+  fi
+  return 1
 }
 
 setup_logging() {
@@ -502,8 +577,10 @@ interfaces = []
 for iface in root.findall("./devices/interface"):
     entry = {
         "type": iface.get("type"),
+        "kind": iface.get("type"),
         "target": None,
         "bridge": None,
+        "source": None,
         "model": None,
         "mac": None,
         "alias": None,
@@ -513,7 +590,19 @@ for iface in root.findall("./devices/interface"):
         entry["target"] = target.get("dev")
     source = iface.find("source")
     if source is not None:
-        entry["bridge"] = source.get("bridge")
+        bridge_name = source.get("bridge")
+        network_name = source.get("network")
+        dev_name = source.get("dev")
+        if bridge_name is not None:
+            entry["kind"] = "bridge"
+            entry["bridge"] = bridge_name
+            entry["source"] = bridge_name
+        elif network_name is not None:
+            entry["kind"] = "network"
+            entry["source"] = network_name
+        elif dev_name is not None:
+            entry["kind"] = "device"
+            entry["source"] = dev_name
     model = iface.find("model")
     if model is not None:
         entry["model"] = model.get("type")
@@ -891,6 +980,7 @@ ensure_usb_disk_attachment() {
   local attached
   attached=$(json_extract "usb_disk.attached")
   if [[ ${attached} == true ]]; then
+    USB_PRESENT=true
     local readonly_flag
     readonly_flag=$(json_extract "usb_disk.readonly")
     if [[ ${readonly_flag} != true ]]; then
@@ -916,6 +1006,7 @@ ensure_usb_disk_attachment() {
   fi
   if virsh attach-disk "${VM_NAME}" "${USB_IMAGE}" sdz --targetbus usb --mode readonly --config --live >/dev/null 2>&1; then
     log_info "Attached ${USB_IMAGE} to ${VM_NAME} via virsh attach-disk"
+    USB_PRESENT=true
     return
   fi
   log_warn "virsh attach-disk failed; falling back to attach-device"
@@ -934,6 +1025,7 @@ XML
     die ${EX_FATAL} "Failed to attach USB disk image to ${VM_NAME}"
   fi
   log_info "Attached ${USB_IMAGE} to ${VM_NAME} via attach-device"
+  USB_PRESENT=true
 }
 
 update_interface_model() {
@@ -977,72 +1069,237 @@ PY
   return 0
 }
 
+rewire_lan_interface() {
+  local idx="$1"
+  local kind="$2"
+  local name="$3"
+
+  if [[ -z ${kind} || -z ${name} ]]; then
+    log_error "rewire_lan_interface requires kind and name"
+    return 1
+  fi
+
+  local target=""
+  local mac=""
+  local detach_type=""
+
+  if [[ -n ${idx} ]]; then
+    target=$(json_extract "interfaces[${idx}].target")
+    mac=$(json_extract "interfaces[${idx}].mac")
+    detach_type=$(json_extract "interfaces[${idx}].type")
+  fi
+
+  if [[ -z ${target} ]]; then
+    target="vnet1"
+  fi
+
+  if [[ -z ${mac} ]]; then
+    mac=$(json_extract "interfaces[1].mac")
+  fi
+
+  backup_domain_xml
+
+  if [[ ${DRY_RUN} == true ]]; then
+    log_info "[DRY-RUN] Would detach ${target:-LAN?} and attach ${kind}:${name}"
+    return 0
+  fi
+
+  local detached=false
+  local -a candidate_types=()
+  if [[ -n ${detach_type} ]]; then
+    candidate_types+=("${detach_type}")
+  fi
+  candidate_types+=("bridge" "network")
+
+  for dtype in "${candidate_types[@]}"; do
+    if [[ -z ${dtype} ]]; then
+      continue
+    fi
+    if virsh detach-interface "${VM_NAME}" --type "${dtype}" --current --live --config ${mac:+--mac "${mac}"} >/dev/null 2>&1; then
+      detached=true
+      break
+    fi
+  done
+
+  if [[ ${detached} != true ]]; then
+    log_warn "Unable to confirm detaching existing LAN interface; continuing"
+  fi
+
+  local force=false
+  if [[ ${FORCE_E1000} == true || ${PF_FORCE_E1000} == "true" ]]; then
+    force=true
+  fi
+
+  local -a attach_cmd=(virsh attach-interface "${VM_NAME}")
+  if [[ ${kind} == "bridge" ]]; then
+    attach_cmd+=("bridge" "${name}")
+  else
+    attach_cmd+=("network" "${name}")
+  fi
+  if [[ ${force} == true ]]; then
+    attach_cmd+=("--model" "e1000")
+  fi
+  if [[ -n ${mac} ]]; then
+    attach_cmd+=("--mac" "${mac}")
+  fi
+  attach_cmd+=("--current" "--live" "--config")
+
+  if ! "${attach_cmd[@]}" >/dev/null 2>&1; then
+    return 1
+  fi
+  return 0
+}
+
 inspect_interfaces() {
+  LAN_LINK_KIND="$(get_lan_link_kind)"
+  LAN_LINK_NAME="$(get_lan_link_name)"
+
   local idx=0
-  local detected_wan=""
-  local detected_lan=""
-  local first_bridge=""
+  local detected_wan_source=""
+  local detected_wan_kind=""
+  local detected_lan_source=""
+  local detected_lan_kind=""
+  local detected_lan_idx=""
+  local first_source=""
+  local first_kind=""
   local first_target=""
+
   while true; do
     local target
     target=$(json_extract "interfaces[${idx}].target")
-    if [[ -z ${target} ]]; then
-      break
-    fi
-    local bridge
-    bridge=$(json_extract "interfaces[${idx}].bridge")
+    local kind
+    kind=$(json_extract "interfaces[${idx}].kind")
+    local source
+    source=$(json_extract "interfaces[${idx}].source")
     local model
     model=$(json_extract "interfaces[${idx}].model")
-    if [[ -z ${first_bridge} && -n ${bridge} ]]; then
-      first_bridge=${bridge}
+    local alias
+    alias=$(json_extract "interfaces[${idx}].alias")
+
+    if [[ -z ${target} && -z ${kind} && -z ${source} && -z ${alias} ]]; then
+      break
+    fi
+
+    if [[ -z ${kind} ]]; then
+      kind=$(json_extract "interfaces[${idx}].type")
+    fi
+
+    if [[ -z ${first_source} && -n ${source} ]]; then
+      first_source=${source}
+      first_kind=${kind}
       first_target=${target}
     fi
+
     case "${target}" in
       vnet0)
-        if [[ -n ${PF_WAN_BRIDGE} && -n ${bridge} && ${bridge} != "${PF_WAN_BRIDGE}" ]]; then
-          log_warn "Interface ${target} bridged to ${bridge:-unknown}; expected ${PF_WAN_BRIDGE}"
+        if [[ -n ${PF_WAN_BRIDGE} && -n ${source} && ${source} != "${PF_WAN_BRIDGE}" ]]; then
+          log_warn "Interface ${target} linked to ${source:-unknown}; expected ${PF_WAN_BRIDGE}"
         fi
-        if [[ -z ${detected_wan} && -n ${bridge} ]]; then
-          detected_wan=${bridge}
+        if [[ -z ${detected_wan_source} && -n ${source} ]]; then
+          detected_wan_source=${source}
+          detected_wan_kind=${kind}
         fi
         ;;
       vnet1)
-        if [[ -n ${PF_LAN_BRIDGE} && -n ${bridge} && ${bridge} != "${PF_LAN_BRIDGE}" ]]; then
-          log_warn "Interface ${target} bridged to ${bridge:-unknown}; expected ${PF_LAN_BRIDGE}"
-        fi
-        if [[ -z ${detected_lan} && -n ${bridge} ]]; then
-          detected_lan=${bridge}
+        if [[ -z ${detected_lan_source} && -n ${source} ]]; then
+          detected_lan_source=${source}
+          detected_lan_kind=${kind}
+          detected_lan_idx=${idx}
         fi
         ;;
     esac
-    if [[ ${FORCE_E1000} == true && ${model} != "e1000" ]]; then
+
+    local force="${FORCE_E1000}"
+    if [[ ${PF_FORCE_E1000} == "true" ]]; then
+      force=true
+    fi
+
+    if [[ ${force} == true && ${model} != "e1000" ]]; then
       if [[ ${CHECK_ONLY} == true ]]; then
         DRIFT_DETECTED=true
-        log_warn "[CHECK-ONLY] NIC ${target} is ${model:-unknown}; would change to e1000"
+        log_warn "[CHECK-ONLY] NIC ${target:-idx ${idx}} is ${model:-unknown}; would change to e1000"
       else
         backup_domain_xml
-        if update_interface_model "${target}" "${bridge}"; then
+        if update_interface_model "${target}" "${source}"; then
           NIC_MODEL_CHANGED=true
         fi
       fi
     fi
-    ((++idx))
+
+    ((idx++))
   done
 
-  if [[ -z ${PF_WAN_BRIDGE} && -n ${detected_wan} ]]; then
-    PF_WAN_BRIDGE=${detected_wan}
-    log_info "Auto-detected WAN bridge ${PF_WAN_BRIDGE} for ${VM_NAME}"
+  if [[ -z ${PF_WAN_BRIDGE} && -n ${detected_wan_source} ]]; then
+    PF_WAN_BRIDGE=${detected_wan_source}
+    log_info "Auto-detected WAN link ${PF_WAN_BRIDGE} (${detected_wan_kind:-unknown}) for ${VM_NAME}"
   fi
-  if [[ -z ${PF_LAN_BRIDGE} && -n ${detected_lan} ]]; then
-    PF_LAN_BRIDGE=${detected_lan}
+
+  local actual_lan_kind="${detected_lan_kind:-${first_kind}}"
+  local actual_lan_source="${detected_lan_source:-${first_source}}"
+  local lan_idx="${detected_lan_idx:-}"
+
+  if [[ -z ${lan_idx} && -n ${actual_lan_source} ]]; then
+    lan_idx=0
+  fi
+
+  local wanted_desc="${LAN_LINK_KIND}:${LAN_LINK_NAME}"
+  local actual_desc="${actual_lan_kind:-unknown}:${actual_lan_source:-unknown}"
+  local wired_ok=false
+  if [[ -n ${actual_lan_source} && -n ${LAN_LINK_NAME} ]]; then
+    if [[ ${LAN_LINK_KIND} == "bridge" && ${actual_lan_kind} == "bridge" && ${actual_lan_source} == "${LAN_LINK_NAME}" ]]; then
+      wired_ok=true
+    elif [[ ${LAN_LINK_KIND} == "network" && ${actual_lan_kind} == "network" && ${actual_lan_source} == "${LAN_LINK_NAME}" ]]; then
+      wired_ok=true
+    fi
+  fi
+
+  if [[ ${wired_ok} != true ]]; then
+    if [[ ${CHECK_ONLY} == true ]]; then
+      DRIFT_DETECTED=true
+      log_warn "[CHECK-ONLY] LAN interface on ${actual_desc}; would rewire to ${wanted_desc}"
+    elif [[ ${DRY_RUN} == true ]]; then
+      log_warn "[DRY-RUN] LAN interface on ${actual_desc}; would rewire to ${wanted_desc}"
+    else
+      if rewire_lan_interface "${lan_idx}" "${LAN_LINK_KIND}" "${LAN_LINK_NAME}"; then
+        LAN_INTERFACE_REWIRED=true
+        NIC_MODEL_CHANGED=true
+        detected_lan_kind=${LAN_LINK_KIND}
+        detected_lan_source=${LAN_LINK_NAME}
+        actual_lan_kind=${LAN_LINK_KIND}
+        actual_lan_source=${LAN_LINK_NAME}
+        log_info "LAN interface rewired to ${wanted_desc}"
+      else
+        log_error "Failed to rewire LAN interface to ${wanted_desc}"
+      fi
+    fi
+  fi
+
+  if [[ ${LAN_LINK_KIND} == "bridge" ]]; then
+    PF_LAN_BRIDGE=${LAN_LINK_NAME}
+  fi
+
+  if [[ ${LAN_LINK_KIND} == "network" && -z ${PF_LAN_BRIDGE} ]]; then
+    local resolved_bridge=""
+    if resolved_bridge=$(resolve_network_bridge "${LAN_LINK_NAME}"); then
+      if [[ -n ${resolved_bridge} ]]; then
+        PF_LAN_BRIDGE=${resolved_bridge}
+        log_info "Resolved network ${LAN_LINK_NAME} to host bridge ${PF_LAN_BRIDGE}"
+      fi
+    fi
+  fi
+
+  if [[ -z ${PF_LAN_BRIDGE} && ${actual_lan_kind} == "bridge" && -n ${actual_lan_source} ]]; then
+    PF_LAN_BRIDGE=${actual_lan_source}
     log_info "Auto-detected LAN bridge ${PF_LAN_BRIDGE} for ${VM_NAME}"
   fi
-  if [[ -z ${PF_LAN_BRIDGE} && -n ${first_bridge} ]]; then
-    PF_LAN_BRIDGE=${first_bridge}
-    log_warn "Falling back to bridge ${PF_LAN_BRIDGE} (interface ${first_target}) for LAN operations"
+
+  if [[ -z ${PF_LAN_BRIDGE} && -n ${first_source} ]]; then
+    PF_LAN_BRIDGE=${first_source}
+    log_warn "Falling back to bridge ${PF_LAN_BRIDGE} (interface ${first_target:-unknown}) for LAN operations"
   fi
+
   if [[ -z ${PF_WAN_BRIDGE} ]]; then
-    PF_WAN_BRIDGE=${first_bridge:-br0}
+    PF_WAN_BRIDGE=${detected_wan_source:-${first_source:-br0}}
   fi
 }
 
@@ -1346,8 +1603,21 @@ main() {
   ensure_usb_disk_attachment
   inspect_interfaces
 
-  if [[ ${CONFIG_CHANGED} == true || ${IMAGE_REBUILT} == true || ${USB_CONTROLLER_ADDED} == true || ${USB_DISK_ATTACHED} == true || ${NIC_MODEL_CHANGED} == true ]]; then
+  REBOOT_MARK_FILE="${REBOOT_MARK_DIR}/${VM_NAME}.last"
+  mkdir -p "${REBOOT_MARK_DIR}"
+
+  if [[ ${CONFIG_CHANGED} == true || ${IMAGE_REBUILT} == true || ${USB_CONTROLLER_ADDED} == true || ${USB_DISK_ATTACHED} == true || ${NIC_MODEL_CHANGED} == true || ${LAN_INTERFACE_REWIRED} == true ]]; then
     NEEDS_REBOOT=true
+  fi
+
+  if [[ ${USB_PRESENT} == true && ${NEEDS_REBOOT} != true ]]; then
+    if [[ -f ${REBOOT_MARK_FILE} ]]; then
+      if find "${REBOOT_MARK_FILE}" -mmin +10 -print -quit >/dev/null 2>&1; then
+        NEEDS_REBOOT=true
+      fi
+    else
+      NEEDS_REBOOT=true
+    fi
   fi
 
   if [[ ${CHECK_ONLY} == true ]]; then
@@ -1364,6 +1634,11 @@ main() {
   fi
 
   reboot_vm
+
+  if [[ ${NEEDS_REBOOT} == true ]]; then
+    date -u +%FT%TZ >"${REBOOT_MARK_FILE}" || true
+  fi
+
   verify_connectivity
   print_summary
   if [[ ${PING_SUCCESS} == true && ${CURL_SUCCESS} == true ]]; then
