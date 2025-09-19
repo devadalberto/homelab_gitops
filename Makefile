@@ -16,13 +16,16 @@ endif
 
 ASSUME_YES ?= true
 DELETE_EXISTING ?= true
+HOLD_PORT_FORWARD ?= false
 
 TRUE_VALUES := 1 true yes on
 ASSUME_YES_NORMALIZED := $(shell printf '%s' "$(ASSUME_YES)" | tr '[:upper:]' '[:lower:]')
 DELETE_EXISTING_NORMALIZED := $(shell printf '%s' "$(DELETE_EXISTING)" | tr '[:upper:]' '[:lower:]')
+HOLD_PORT_FORWARD_NORMALIZED := $(shell printf '%s' "$(HOLD_PORT_FORWARD)" | tr '[:upper:]' '[:lower:]')
 
 ASSUME_ARG := $(if $(filter $(TRUE_VALUES),$(ASSUME_YES_NORMALIZED)),--assume-yes,)
 DELETE_ARG := $(if $(filter $(TRUE_VALUES),$(DELETE_EXISTING_NORMALIZED)),--delete-previous-environment,)
+HOLD_PORT_FORWARD_ARG := $(if $(filter $(TRUE_VALUES),$(HOLD_PORT_FORWARD_NORMALIZED)),--hold-port-forward,)
 
 ENV_ARG := --env-file $(ENV_FILE)
 COMMON_ARGS := $(ENV_ARG) $(ASSUME_ARG)
@@ -80,7 +83,7 @@ preflight:
 	./scripts/preflight_and_bootstrap.sh $(COMMON_ARGS) $(DELETE_ARG) --preflight-only
 
 bootstrap: preflight
-	./scripts/uranus_nuke_and_bootstrap.sh $(COMMON_ARGS) $(DELETE_ARG)
+	./scripts/uranus_nuke_and_bootstrap.sh $(COMMON_ARGS) $(DELETE_ARG) $(HOLD_PORT_FORWARD_ARG)
 
 core-addons: bootstrap
 	./scripts/uranus_homelab_one.sh $(COMMON_ARGS)
