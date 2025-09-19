@@ -39,7 +39,6 @@ TEMPLATE_OVERRIDE=""
 
 WORK_ROOT_DEFAULT="/opt/homelab"
 ISO_LABEL="pfSense_config"
-ISO_CMD=""
 
 usage() {
   cat <<'USAGE'
@@ -172,15 +171,19 @@ load_environment() {
 
 check_dependencies() {
   local missing=()
+  local -a iso_found=()
+  local candidate
 
-  if need xorriso &>/dev/null; then
-    ISO_CMD="$(command -v xorriso)"
-  elif need genisoimage &>/dev/null; then
-    ISO_CMD="$(command -v genisoimage)"
-  elif need mkisofs &>/dev/null; then
-    ISO_CMD="$(command -v mkisofs)"
+  for candidate in genisoimage mkisofs xorrisofs xorriso; do
+    if command -v "${candidate}" >/dev/null 2>&1; then
+      iso_found+=("${candidate}")
+    fi
+  done
+
+  if (( ${#iso_found[@]} == 0 )); then
+    missing+=("genisoimage|mkisofs|xorrisofs|xorriso")
   else
-    missing+=("xorriso|genisoimage|mkisofs")
+    log_debug "Available ISO creation tools: ${iso_found[*]}"
   fi
 
   if ! need gzip &>/dev/null; then
@@ -196,8 +199,6 @@ check_dependencies() {
     log_info "Install them via: sudo apt-get install xorriso genisoimage mkisofs gzip virt-install"
     die 3
   fi
-
-  log_debug "Using ISO creation command: ${ISO_CMD}"
 }
 
 ensure_required_env() {
@@ -433,12 +434,78 @@ prepare_iso_root() {
   printf '%s\n' "${staging_dir}"
 }
 
+mkiso() {
+  local src_dir=$1
+  local output_path=$2
+  local -a candidates=(
+    "genisoimage"
+    "mkisofs"
+    "xorrisofs"
+    "xorriso -as mkisofs"
+  )
+  local candidate
+  local -a cmd=()
+  local attempted=0
+  local status=1
+
+  for candidate in "${candidates[@]}"; do
+    IFS=' ' read -r -a cmd <<<"${candidate}"
+    if ! command -v "${cmd[0]}" >/dev/null 2>&1; then
+      log_debug "ISO helper ${candidate} not available"
+      continue
+    fi
+
+    attempted=1
+    if run_cmd "${cmd[@]}" -quiet -V "${ISO_LABEL}" -o "${output_path}" -J -r "${src_dir}"; then
+      log_debug "ISO creation succeeded with ${candidate}"
+      return 0
+    fi
+
+    status=$?
+    log_warn "ISO creation via ${candidate} failed with exit ${status}"
+  done
+
+  if (( attempted == 0 )); then
+    log_error "None of the ISO creation tools (genisoimage, mkisofs, xorrisofs, xorriso) are available"
+    return ${EX_UNAVAILABLE}
+  fi
+
+  log_error "All available ISO creation tools failed to build the ISO"
+  return ${status}
+}
+
+refresh_iso_links() {
+  local iso_dir=$1
+  local iso_dir_abs=$2
+  local iso_name=$3
+  local iso_path_abs=$4
+
+  local latest_link="${iso_dir}/pfSense-config-latest.iso"
+  local legacy_link="${iso_dir}/pfSense-config.iso"
+  run_cmd ln -sfn "${iso_name}" "${latest_link}"
+  run_cmd ln -sfn "${iso_name}" "${legacy_link}"
+
+  local canonical_dir="${WORK_ROOT_DEFAULT}/pfsense/config"
+  local canonical_target="${iso_path_abs}"
+
+  if [[ ${iso_dir_abs} == "${canonical_dir}" ]]; then
+    canonical_target="${iso_name}"
+  else
+    run_cmd mkdir -p "${canonical_dir}"
+  fi
+
+  run_cmd ln -sfn "${canonical_target}" "${canonical_dir}/pfSense-config-latest.iso"
+  run_cmd ln -sfn "${canonical_target}" "${canonical_dir}/pfSense-config.iso"
+}
+
 package_iso() {
   local staging_dir=$1
   local iso_dir=$2
   local timestamp=$3
   local iso_name="pfSense-config-${timestamp}.iso"
   local iso_path="${iso_dir}/${iso_name}"
+  local iso_dir_abs=""
+  local iso_path_abs=""
   local tmp_iso
 
   if [[ ${DRY_RUN} == true ]]; then
@@ -446,14 +513,27 @@ package_iso() {
     return
   fi
 
+  if ! iso_dir_abs=$(cd -- "${iso_dir}" && pwd); then
+    die ${EX_SOFTWARE} "Unable to resolve absolute path for ${iso_dir}"
+  fi
+  iso_path_abs="${iso_dir_abs}/${iso_name}"
+
   tmp_iso=$(mktemp "${iso_path}.XXXXXX")
-  run_cmd "${ISO_CMD}" -quiet -V "${ISO_LABEL}" -o "${tmp_iso}" -J -r "${staging_dir}"
+  local mkiso_status=0
+  if ! mkiso "${staging_dir}" "${tmp_iso}"; then
+    mkiso_status=$?
+    rm -f -- "${tmp_iso}"
+    die ${mkiso_status} "Failed to create ISO image"
+  fi
+
+  if [[ ! -s ${tmp_iso} ]]; then
+    rm -f -- "${tmp_iso}"
+    die ${EX_SOFTWARE} "Generated ISO ${tmp_iso} is empty"
+  fi
+
   run_cmd mv "${tmp_iso}" "${iso_path}"
 
-  local latest_link="${iso_dir}/pfSense-config-latest.iso"
-  local legacy_link="${iso_dir}/pfSense-config.iso"
-  run_cmd ln -sfn "${iso_name}" "${latest_link}"
-  run_cmd ln -sfn "${iso_name}" "${legacy_link}"
+  refresh_iso_links "${iso_dir}" "${iso_dir_abs}" "${iso_name}" "${iso_path_abs}"
 
   log_info "Packaged pfSense config ISO at ${iso_path}"
 }
