@@ -1,3 +1,9 @@
+## 2025-09-20T00:00:00.000000Z
+- Extended the GitOps CI workflow with a cached lint job that runs ShellCheck, yamllint, and kubeconform before manifest
+  validation.
+- Documented how to invoke the lint suite locally via `make fmt`/`pre-commit run --all-files` so contributors can mirror the CI
+  checks.
+
 ## 2025-09-19T00:00:00.000000Z
 - Documented a host-only WireGuard workflow in the README, including package installation, key management, sample `wg0.conf`,
   router/VPS considerations, client configuration, and verification guidance for the `192.168.88.0/24` overlay.

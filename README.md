@@ -310,7 +310,10 @@ Common targets include:
 - `make down` – stops the Minikube profile without deleting workloads.
 - `make destroy` – **destructive**. Deletes the Minikube profile referenced by `MINIKUBE_PROFILE` and removes all workloads
   inside the VM. Persistent hostPath data remains on the host filesystem; remove it manually if you no longer need the files.
-- `make fmt` / `make lint` – runs `pre-commit run --all-files` so local formatting and linting matches CI.
+- `make fmt` / `make lint` – runs `pre-commit run --all-files`, wrapping ShellCheck for every `*.sh` helper, `yamllint` and
+  `kubeconform` against the Kubernetes manifests, `shfmt`, Markdown linting, and additional safety checks so local runs match the
+  CI pipeline. Install the helpers locally with `python3 -m pip install --user pre-commit` and run
+  `pre-commit run --all-files shellcheck yamllint kubeconform` if you only need the shell/YAML validators between full lint sweeps.
 
 ## Post-Bootstrap Validation
 
