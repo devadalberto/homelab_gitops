@@ -201,6 +201,7 @@ ensure_required_env() {
   local required=(
     LAB_DOMAIN_BASE
     LAB_CLUSTER_SUB
+    LAN_PREFIX_LEN
     LAN_GW_IP
     LAN_DHCP_FROM
     LAN_DHCP_TO
@@ -250,6 +251,102 @@ PY
   eval "${python_output}"
 }
 
+derive_lan_network_settings() {
+  local lan_cidr=${LAN_CIDR:-10.10.0.0/24}
+  local python_output
+
+  if ! python_output=$(python3 - "${lan_cidr}" <<'PY'
+import ipaddress
+import os
+import sys
+
+lan_cidr = sys.argv[1]
+try:
+    network = ipaddress.ip_network(lan_cidr, strict=False)
+except ValueError as exc:
+    print(exc, file=sys.stderr)
+    sys.exit(1)
+
+if network.version != 4:
+    print("LAN_CIDR must be an IPv4 network", file=sys.stderr)
+    sys.exit(1)
+
+hosts = list(network.hosts())
+if not hosts:
+    print(f"LAN_CIDR {network.with_prefixlen} does not provide usable host addresses", file=sys.stderr)
+    sys.exit(1)
+
+def parse_host(var_name):
+    raw = os.environ.get(var_name, "").strip()
+    if not raw:
+        return None
+    try:
+        ip = ipaddress.ip_address(raw)
+    except ValueError as exc:
+        print(f"{var_name} is invalid: {exc}", file=sys.stderr)
+        sys.exit(1)
+    if ip.version != 4:
+        print(f"{var_name} must be an IPv4 address", file=sys.stderr)
+        sys.exit(1)
+    if ip not in network:
+        print(f"{var_name}={raw} is not contained within {network.with_prefixlen}", file=sys.stderr)
+        sys.exit(1)
+    if ip == network.network_address or ip == network.broadcast_address:
+        print(f"{var_name}={raw} cannot equal the network or broadcast address", file=sys.stderr)
+        sys.exit(1)
+    return ip
+
+gateway = parse_host("LAN_GW_IP") or hosts[0]
+
+first_host = hosts[0]
+last_host = hosts[-1]
+
+def clamp(candidate):
+    if candidate < first_host:
+        return first_host
+    if candidate > last_host:
+        return last_host
+    return candidate
+
+def derive_range_start():
+    return clamp(network.network_address + 100)
+
+def derive_range_end():
+    return clamp(network.network_address + 200)
+
+dhcp_from = parse_host("LAN_DHCP_FROM")
+dhcp_to = parse_host("LAN_DHCP_TO")
+
+if dhcp_from is None:
+    dhcp_from = derive_range_start()
+if dhcp_to is None:
+    dhcp_to = derive_range_end()
+
+if dhcp_from > dhcp_to:
+    print(f"LAN_DHCP_FROM ({dhcp_from}) cannot exceed LAN_DHCP_TO ({dhcp_to})", file=sys.stderr)
+    sys.exit(1)
+
+def emit(name, value):
+    value_str = str(value)
+    escaped = value_str.replace("'", "'\"'\"'")
+    print(f"export {name}='{escaped}'")
+
+emit("LAN_CIDR", network.with_prefixlen)
+emit("LAN_NETWORK", str(network.network_address))
+emit("LAN_PREFIX_LEN", str(network.prefixlen))
+emit("LAN_GW_IP", str(gateway))
+emit("LAN_DHCP_FROM", str(dhcp_from))
+emit("LAN_DHCP_TO", str(dhcp_to))
+PY
+); then
+    die ${EX_CONFIG} "Failed to derive LAN network settings from ${lan_cidr}"
+  fi
+
+  eval "${python_output}"
+
+  log_debug "Derived LAN network=${LAN_NETWORK}/${LAN_PREFIX_LEN} gateway=${LAN_GW_IP} DHCP=${LAN_DHCP_FROM}-${LAN_DHCP_TO}"
+}
+
 render_config_template() {
   local output_path=$1
   local template_path=$2
@@ -278,6 +375,7 @@ env = os.environ
 for key in [
     "LAB_DOMAIN_BASE",
     "LAB_CLUSTER_SUB",
+    "LAN_PREFIX_LEN",
     "LAN_GW_IP",
     "LAN_DHCP_FROM",
     "LAN_DHCP_TO",
@@ -295,6 +393,8 @@ with open(out_path, "w", encoding="utf-8") as fp:
 PY
 
   run_cmd mv "${tmp_file}" "${output_path}"
+  run_cmd chown root:root "${output_path}"
+  run_cmd chmod 0644 "${output_path}"
 }
 
 prepare_iso_root() {
@@ -345,6 +445,7 @@ main() {
   load_environment
 
   : "${WORK_ROOT:=${WORK_ROOT_DEFAULT}}"
+  derive_lan_network_settings
   local output_dir
   if [[ -n ${OUTPUT_DIR_OVERRIDE} ]]; then
     output_dir="${OUTPUT_DIR_OVERRIDE}"

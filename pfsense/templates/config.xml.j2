@@ -13,7 +13,7 @@
     <lan>
       <if>vtnet1</if>
       <ipaddr>{{ LAN_GW_IP }}</ipaddr>
-      <subnet>24</subnet>
+      <subnet>{{ LAN_PREFIX_LEN }}</subnet>
       <ipaddrv6>track6</ipaddrv6>
       <descr>LAN</descr>
     </lan>
