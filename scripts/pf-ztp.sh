@@ -20,10 +20,10 @@ else
   fi
 fi
 
-readonly EX_OK=0
-readonly EX_ERROR=1
-readonly EX_DRIFT=2
-readonly EX_VERIFY=3
+readonly EX_SUCCESS=0
+readonly EX_PREFLIGHT=1
+readonly EX_VERIFY=2
+readonly EX_FATAL=3
 
 LOG_FILE="/var/log/pfsense-ztp.log"
 PF_ROOT="/opt/homelab/pfsense"
@@ -37,6 +37,7 @@ ENV_FILE=""
 VM_NAME=""
 VM_NAME_ARG=""
 FORCE_E1000=false
+FORCE_REBUILD=false
 DRY_RUN=false
 CHECK_ONLY=false
 VERBOSE=false
@@ -44,6 +45,7 @@ ROLLBACK=false
 
 PF_WAN_BRIDGE="${PF_WAN_BRIDGE:-}"
 PF_LAN_BRIDGE="${PF_LAN_BRIDGE:-}"
+HOMELAB_EDGE_GATEWAY="${HOMELAB_EDGE_GATEWAY:-192.168.88.12}"
 
 TMP_DIR=""
 USB_MOUNT_DIR=""
@@ -61,7 +63,13 @@ NEEDS_REBOOT=false
 DRIFT_DETECTED=false
 PING_SUCCESS=false
 CURL_SUCCESS=false
+LAN_PROBE_IP=""
+LAN_NETMASK=""
+LAN_VALIDATION_IP=""
+BRIDGE_IP_TEMP_ADDED=false
+BRIDGE_TEMP_CIDR=""
 
+# shellcheck disable=SC2317
 usage() {
   cat <<'USAGE'
 Usage: pf-ztp.sh [OPTIONS]
@@ -72,6 +80,7 @@ Options:
   --env-file PATH    Load environment overrides from PATH.
   --vm-name NAME     Operate on the libvirt domain NAME.
   --force-e1000      Ensure the VM NIC model is e1000 (updates domain config).
+  --force            Rebuild the ECL USB image even if config.xml is unchanged.
   --dry-run          Log intended actions without mutating the host or VM.
   --check-only       Detect drift without making changes; implies --dry-run.
   --verbose          Increase log verbosity (debug output).
@@ -79,11 +88,26 @@ Options:
   -h, --help         Show this help message.
 
 Exit codes:
-  0  Success.
-  1  Failure while preparing or applying changes.
-  2  Drift detected during --check-only.
-  3  Verification checks (ping/curl) failed.
+  0  Success (pfSense LAN reachable).
+  1  Preflight failure (missing dependencies, paths, or VM issues).
+  2  ECL applied but pfSense LAN not reachable (debug via console).
+  3  Fatal error while mutating the VM or performing rollback.
 USAGE
+}
+
+# shellcheck disable=SC2317
+on_error() {
+  local exit_code=$?
+  local line=0
+  if [[ ${#BASH_LINENO[@]} -gt 0 ]]; then
+    line=${BASH_LINENO[0]}
+  fi
+  log_error "Command failed with exit ${exit_code} at line ${line}: ${BASH_COMMAND}"
+  exit "${exit_code}"
+}
+
+install_error_trap() {
+  trap on_error ERR
 }
 
 setup_tmp_dir() {
@@ -94,6 +118,7 @@ setup_tmp_dir() {
   trap_add cleanup_tmp EXIT INT TERM
 }
 
+# shellcheck disable=SC2317
 cleanup_tmp() {
   if [[ -n ${USB_MOUNT_DIR} ]]; then
     if mountpoint -q "${USB_MOUNT_DIR}" >/dev/null 2>&1; then
@@ -134,7 +159,7 @@ parse_args() {
       --env-file)
         if [[ $# -lt 2 ]]; then
           usage
-          die ${EX_ERROR} "--env-file requires a path"
+          die ${EX_PREFLIGHT} "--env-file requires a path"
         fi
         ENV_FILE="$2"
         shift 2
@@ -142,13 +167,17 @@ parse_args() {
       --vm-name)
         if [[ $# -lt 2 ]]; then
           usage
-          die ${EX_ERROR} "--vm-name requires a value"
+          die ${EX_PREFLIGHT} "--vm-name requires a value"
         fi
         VM_NAME_ARG="$2"
         shift 2
         ;;
       --force-e1000)
         FORCE_E1000=true
+        shift
+        ;;
+      --force)
+        FORCE_REBUILD=true
         shift
         ;;
       --dry-run)
@@ -170,7 +199,7 @@ parse_args() {
         ;;
       -h|--help)
         usage
-        exit ${EX_OK}
+        exit ${EX_SUCCESS}
         ;;
       --)
         shift
@@ -178,20 +207,20 @@ parse_args() {
         ;;
       -* )
         usage
-        die ${EX_ERROR} "Unknown option: $1"
+        die ${EX_PREFLIGHT} "Unknown option: $1"
         ;;
       * )
         usage
-        die ${EX_ERROR} "Unexpected positional argument: $1"
+        die ${EX_PREFLIGHT} "Unexpected positional argument: $1"
         ;;
     esac
   done
 
   if [[ ${ROLLBACK} == true && ${CHECK_ONLY} == true ]]; then
-    die ${EX_ERROR} "--rollback cannot be combined with --check-only"
+    die ${EX_PREFLIGHT} "--rollback cannot be combined with --check-only"
   fi
   if [[ ${ROLLBACK} == true && ${DRY_RUN} == true ]]; then
-    die ${EX_ERROR} "--rollback cannot be combined with --dry-run"
+    die ${EX_PREFLIGHT} "--rollback cannot be combined with --dry-run"
   fi
 }
 
@@ -225,52 +254,141 @@ load_env_file() {
 }
 
 ensure_required_env() {
-  if [[ -z ${LAN_GW_IP:-} ]]; then
-    die ${EX_ERROR} "LAN_GW_IP is required"
+  LAN_CIDR=${LAN_CIDR:-10.10.0.0/24}
+  LAN_GW_IP=${LAN_GW_IP:-10.10.0.1}
+
+  if [[ -z ${DHCP_FROM:-} && -n ${LAN_DHCP_FROM:-} ]]; then
+    DHCP_FROM=${LAN_DHCP_FROM}
   fi
-  if [[ -z ${LAN_CIDR:-} ]]; then
-    die ${EX_ERROR} "LAN_CIDR is required"
+  if [[ -z ${DHCP_TO:-} && -n ${LAN_DHCP_TO:-} ]]; then
+    DHCP_TO=${LAN_DHCP_TO}
   fi
 
-  if [[ -z ${LAN_DHCP_FROM:-} ]]; then
-    LAN_DHCP_FROM="10.10.0.100"
-  fi
-  if [[ -z ${LAN_DHCP_TO:-} ]]; then
-    LAN_DHCP_TO="10.10.0.200"
-  fi
+  DHCP_FROM=${DHCP_FROM:-10.10.0.100}
+  DHCP_TO=${DHCP_TO:-10.10.0.200}
 
-  if ! [[ ${LAN_DHCP_FROM} =~ ^[0-9.]+$ ]]; then
-    die ${EX_ERROR} "LAN_DHCP_FROM must be an IPv4 address"
-  fi
-  if ! [[ ${LAN_DHCP_TO} =~ ^[0-9.]+$ ]]; then
-    die ${EX_ERROR} "LAN_DHCP_TO must be an IPv4 address"
-  fi
+  compute_lan_settings
 }
 
-compute_lan_prefix() {
-  local result
-  result=$(python3 - "$LAN_CIDR" <<'PY'
+compute_lan_settings() {
+  local python_output
+  python_output=$(python3 - <<'PY'
 import ipaddress
+import os
 import sys
-cidr = sys.argv[1]
+
+lan_cidr = os.environ.get("LAN_CIDR", "10.10.0.0/24")
+gw_ip = os.environ.get("LAN_GW_IP", "10.10.0.1").strip()
+dhcp_from = os.environ.get("DHCP_FROM", "").strip()
+dhcp_to = os.environ.get("DHCP_TO", "").strip()
+
 try:
-    net = ipaddress.ip_network(cidr, strict=False)
+    network = ipaddress.ip_network(lan_cidr, strict=False)
 except ValueError as exc:
     print(f"Invalid LAN_CIDR: {exc}", file=sys.stderr)
     sys.exit(1)
-print(f"{net.prefixlen} {net.network_address}")
+
+if network.version != 4:
+    print("LAN_CIDR must be IPv4", file=sys.stderr)
+    sys.exit(1)
+
+def validate_host(label, value, allow_empty=False):
+    if not value:
+        if allow_empty:
+            return None
+        print(f"{label} is required", file=sys.stderr)
+        sys.exit(1)
+    try:
+        candidate = ipaddress.ip_address(value)
+    except ValueError as exc:
+        print(f"{label} invalid: {exc}", file=sys.stderr)
+        sys.exit(1)
+    if candidate.version != 4:
+        print(f"{label} must be IPv4", file=sys.stderr)
+        sys.exit(1)
+    if candidate not in network:
+        print(f"{label}={value} is outside {network.with_prefixlen}", file=sys.stderr)
+        sys.exit(1)
+    if candidate == network.network_address or candidate == network.broadcast_address:
+        print(f"{label}={value} cannot be the network/broadcast address", file=sys.stderr)
+        sys.exit(1)
+    return candidate
+
+gateway = validate_host("LAN_GW_IP", gw_ip)
+
+dhcp_start = validate_host("DHCP_FROM", dhcp_from, allow_empty=True)
+dhcp_end = validate_host("DHCP_TO", dhcp_to, allow_empty=True)
+
+hosts = list(network.hosts())
+if not hosts:
+    print(f"LAN_CIDR {network.with_prefixlen} has no usable hosts", file=sys.stderr)
+    sys.exit(1)
+
+def default_range_start():
+    candidate = network.network_address + 99
+    if candidate <= network.network_address:
+        candidate = hosts[0]
+    if candidate >= network.broadcast_address:
+        candidate = hosts[-1]
+    return candidate
+
+def default_range_end():
+    candidate = network.network_address + 199
+    if candidate <= network.network_address:
+        candidate = hosts[0]
+    if candidate >= network.broadcast_address:
+        candidate = hosts[-1]
+    return candidate
+
+if dhcp_start is None:
+    dhcp_start = default_range_start()
+if dhcp_end is None:
+    dhcp_end = default_range_end()
+
+if dhcp_start > dhcp_end:
+    print(f"DHCP_FROM ({dhcp_start}) exceeds DHCP_TO ({dhcp_end})", file=sys.stderr)
+    sys.exit(1)
+
+def pick_probe():
+    preferred = [
+        host for host in hosts
+        if host != gateway and host != dhcp_start and host != dhcp_end
+    ]
+    if preferred:
+        return preferred[0]
+    for host in hosts:
+        if host != gateway:
+            return host
+    return hosts[0]
+
+probe = pick_probe()
+
+print(f"LAN_PREFIX={network.prefixlen}")
+print(f"LAN_NETWORK={network.network_address}")
+print(f"LAN_NETMASK={network.netmask}")
+print(f"LAN_GW_IP={gateway}")
+print(f"DHCP_FROM={dhcp_start}")
+print(f"DHCP_TO={dhcp_end}")
+print(f"LAN_PROBE_IP={probe}")
 PY
-  ) || die ${EX_ERROR} "Failed to parse LAN_CIDR ${LAN_CIDR}"
-  LAN_PREFIX="${result%% *}"
-  LAN_NETWORK="${result#* }"
+  ) || die ${EX_PREFLIGHT} "Failed to derive LAN network settings"
+
+  eval "${python_output}"
+  LAN_VALIDATION_IP=${LAN_VALIDATION_IP:-${LAN_PROBE_IP}}
+
+  export LAN_PREFIX LAN_NETWORK LAN_NETMASK LAN_GW_IP DHCP_FROM DHCP_TO LAN_PROBE_IP LAN_VALIDATION_IP
+  log_debug "Derived LAN network=${LAN_NETWORK}/${LAN_PREFIX} gateway=${LAN_GW_IP} DHCP=${DHCP_FROM}-${DHCP_TO} probe=${LAN_VALIDATION_IP}"
 }
 
 ensure_vm_name() {
   if [[ -n ${VM_NAME_ARG} ]]; then
     VM_NAME="${VM_NAME_ARG}"
   fi
+  if [[ -z ${VM_NAME:-} && -n ${PF_VM_NAME:-} ]]; then
+    VM_NAME="${PF_VM_NAME}"
+  fi
   if [[ -z ${VM_NAME:-} ]]; then
-    die ${EX_ERROR} "--vm-name is required when VM_NAME is not set in the environment"
+    die ${EX_PREFLIGHT} "--vm-name is required when VM_NAME is not set in the environment"
   fi
 }
 
@@ -340,7 +458,7 @@ fetch_domain_info() {
   local domain_tmp
   domain_tmp="${TMP_DIR}/${VM_NAME}-domain.xml"
   if ! virsh dumpxml "${VM_NAME}" >"${domain_tmp}"; then
-    die ${EX_ERROR} "Failed to dump domain XML for ${VM_NAME}"
+    die ${EX_PREFLIGHT} "Failed to dump domain XML for ${VM_NAME}"
   fi
   DOMAIN_XML_PATH="${domain_tmp}"
   DOMAIN_INFO_JSON=$(python3 - "${domain_tmp}" "${USB_IMAGE}" <<'PY'
@@ -437,7 +555,7 @@ restore_domain_backup() {
   local backup_dir="${CONFIG_ROOT}/backups"
   local pointer="${backup_dir}/${VM_NAME}-domain.xml.bak"
   if [[ ! -f ${pointer} ]]; then
-    die ${EX_ERROR} "No domain XML backup found at ${pointer}"
+    die ${EX_FATAL} "No domain XML backup found at ${pointer}"
   fi
   local disk_attached
   disk_attached=$(json_extract "usb_disk.attached")
@@ -449,7 +567,7 @@ restore_domain_backup() {
   fi
   log_info "Restoring domain XML for ${VM_NAME} from ${pointer}"
   if ! virsh define "${pointer}" >/dev/null; then
-    die ${EX_ERROR} "Failed to restore domain definition from ${pointer}"
+    die ${EX_FATAL} "Failed to restore domain definition from ${pointer}"
   fi
   log_info "Rollback complete"
 }
@@ -464,7 +582,7 @@ update_config_xml() {
     if [[ ${DRY_RUN} == true ]]; then
       return 1
     fi
-    die ${EX_ERROR} "Cannot continue without ${CONFIG_XML}"
+    die ${EX_PREFLIGHT} "Cannot continue without ${CONFIG_XML}"
   fi
 
   local mode
@@ -475,82 +593,170 @@ update_config_xml() {
   fi
 
   local result
-  result=$(python3 - "${CONFIG_XML}" "${LAN_GW_IP}" "${LAN_PREFIX}" "${LAN_DHCP_FROM}" "${LAN_DHCP_TO}" "${mode}" <<'PY'
+  result=$(python3 - "${CONFIG_XML}" "${LAN_GW_IP}" "${LAN_PREFIX}" "${DHCP_FROM}" "${DHCP_TO}" "${mode}" <<'PY'
 import os
 import sys
 import xml.etree.ElementTree as ET
+
 config_path, gw_ip, subnet_bits, dhcp_from, dhcp_to, mode = sys.argv[1:7]
 commit = mode == "commit"
+
 try:
     tree = ET.parse(config_path)
 except FileNotFoundError:
-    print("MISSING")
+    print("status=missing")
     sys.exit(0)
+
 root = tree.getroot()
-changed = False
 lan = root.find("./interfaces/lan")
 if lan is None:
-    print("ERROR: Missing <interfaces><lan> in config.xml", file=sys.stderr)
+    print("error=missing_lan")
     sys.exit(1)
+
+changed = False
+actions = {
+    "ipaddr": "skipped",
+    "subnet": "skipped",
+    "dhcp_from": "skipped",
+    "dhcp_to": "skipped",
+}
+
 ipaddr = lan.find("ipaddr")
 if ipaddr is None:
     ipaddr = ET.SubElement(lan, "ipaddr")
-if (ipaddr.text or "") != gw_ip:
+current_ip = (ipaddr.text or "").strip()
+if not current_ip:
     ipaddr.text = gw_ip
     changed = True
+    actions["ipaddr"] = "set"
+elif current_ip == gw_ip:
+    actions["ipaddr"] = "match"
+else:
+    actions["ipaddr"] = f"existing:{current_ip}"
+
 subnet = lan.find("subnet")
 if subnet is None:
     subnet = ET.SubElement(lan, "subnet")
-if (subnet.text or "") != subnet_bits:
+current_subnet = (subnet.text or "").strip()
+if current_subnet != subnet_bits:
     subnet.text = subnet_bits
     changed = True
-dhcpd = root.find("./dhcpd/lan")
-if dhcpd is None:
-    dhcpd = root.find("./dhcpd")
-    if dhcpd is None:
-        dhcpd = ET.SubElement(root, "dhcpd")
-    dhcpd = dhcpd.find("lan") or ET.SubElement(dhcpd, "lan")
-range_elem = dhcpd.find("range")
+    actions["subnet"] = "updated"
+else:
+    actions["subnet"] = "match"
+
+dhcp_root = root.find("./dhcpd")
+if dhcp_root is None:
+    dhcp_root = ET.SubElement(root, "dhcpd")
+lan_dhcp = dhcp_root.find("lan")
+if lan_dhcp is None:
+    lan_dhcp = ET.SubElement(dhcp_root, "lan")
+range_elem = lan_dhcp.find("range")
 if range_elem is None:
-    range_elem = ET.SubElement(dhcpd, "range")
+    range_elem = ET.SubElement(lan_dhcp, "range")
+
 from_elem = range_elem.find("from")
 if from_elem is None:
     from_elem = ET.SubElement(range_elem, "from")
-if (from_elem.text or "") != dhcp_from:
+current_from = (from_elem.text or "").strip()
+if not current_from:
     from_elem.text = dhcp_from
     changed = True
+    actions["dhcp_from"] = "set"
+elif current_from == dhcp_from:
+    actions["dhcp_from"] = "match"
+else:
+    actions["dhcp_from"] = f"existing:{current_from}"
+
 to_elem = range_elem.find("to")
 if to_elem is None:
     to_elem = ET.SubElement(range_elem, "to")
-if (to_elem.text or "") != dhcp_to:
+current_to = (to_elem.text or "").strip()
+if not current_to:
     to_elem.text = dhcp_to
     changed = True
+    actions["dhcp_to"] = "set"
+elif current_to == dhcp_to:
+    actions["dhcp_to"] = "match"
+else:
+    actions["dhcp_to"] = f"existing:{current_to}"
+
 if changed and commit:
     tmp_path = f"{config_path}.tmp"
     tree.write(tmp_path, encoding="utf-8", xml_declaration=True)
     os.replace(tmp_path, config_path)
-print("CHANGED" if changed else "UNCHANGED")
-PY
-  ) || die ${EX_ERROR} "Failed to inspect ${CONFIG_XML}"
 
-  if [[ ${result} == "CHANGED" ]]; then
+print(f"changed={'true' if changed else 'false'}")
+for key, value in actions.items():
+    print(f"{key}={value}")
+PY
+  ) || die ${EX_PREFLIGHT} "Failed to inspect ${CONFIG_XML}"
+
+  local changed_flag="false"
+  local ip_action=""
+  local dhcp_from_action=""
+  local dhcp_to_action=""
+  local status_value=""
+  local error_value=""
+
+  while IFS='=' read -r key value; do
+    case "${key}" in
+      changed)
+        changed_flag=${value}
+        ;;
+      status)
+        status_value=${value}
+        ;;
+      error)
+        error_value=${value}
+        ;;
+      ipaddr)
+        ip_action=${value}
+        ;;
+      dhcp_from)
+        dhcp_from_action=${value}
+        ;;
+      dhcp_to)
+        dhcp_to_action=${value}
+        ;;
+    esac
+  done <<<"${result}"
+
+  if [[ ${status_value} == "missing" ]]; then
+    die ${EX_PREFLIGHT} "config.xml disappeared during processing"
+  fi
+  if [[ ${error_value} == "missing_lan" ]]; then
+    die ${EX_PREFLIGHT} "config.xml missing <interfaces><lan> definition"
+  fi
+
+  if [[ ${changed_flag} == "true" ]]; then
     CONFIG_CHANGED=true
     if [[ ${CHECK_ONLY} == true ]]; then
       DRIFT_DETECTED=true
     fi
-    log_info "Updated ${CONFIG_XML} with LAN gateway ${LAN_GW_IP}, /${LAN_PREFIX}, DHCP ${LAN_DHCP_FROM}-${LAN_DHCP_TO}"
+    log_info "Aligned ${CONFIG_XML} LAN gateway ${LAN_GW_IP}, /${LAN_PREFIX}, DHCP ${DHCP_FROM}-${DHCP_TO}"
   else
     log_debug "${CONFIG_XML} already matches requested LAN settings"
+  fi
+
+  if [[ ${ip_action} == existing:* ]]; then
+    log_warn "LAN IP already populated (${ip_action#existing:}); leaving as-is"
+  fi
+  if [[ ${dhcp_from_action} == existing:* ]]; then
+    log_warn "DHCP range start already populated (${dhcp_from_action#existing:}); leaving as-is"
+  fi
+  if [[ ${dhcp_to_action} == existing:* ]]; then
+    log_warn "DHCP range end already populated (${dhcp_to_action#existing:}); leaving as-is"
   fi
 }
 
 select_mkfs_command() {
   if command -v mkfs.vfat >/dev/null 2>&1; then
-    echo "$(command -v mkfs.vfat)"
+    command -v mkfs.vfat
     return 0
   fi
   if command -v mkfs.fat >/dev/null 2>&1; then
-    echo "$(command -v mkfs.fat)"
+    command -v mkfs.fat
     return 0
   fi
   return 1
@@ -559,7 +765,7 @@ select_mkfs_command() {
 build_usb_image() {
   local mkfs_cmd
   if ! mkfs_cmd=$(select_mkfs_command); then
-    die ${EX_ERROR} "mkfs.vfat or mkfs.fat is required to build the USB image"
+    die ${EX_PREFLIGHT} "mkfs.vfat or mkfs.fat is required to build the USB image"
   fi
 
   if [[ ${DRY_RUN} == true ]]; then
@@ -568,7 +774,11 @@ build_usb_image() {
   fi
 
   mkdir -p "${CONFIG_ROOT}"
-  truncate -s "${USB_SIZE_MIB}M" "${USB_IMAGE}.tmp"
+  if command -v truncate >/dev/null 2>&1; then
+    truncate -s "${USB_SIZE_MIB}M" "${USB_IMAGE}.tmp"
+  else
+    dd if=/dev/zero of="${USB_IMAGE}.tmp" bs=1M count=${USB_SIZE_MIB} status=none
+  fi
   ${mkfs_cmd} -F 32 -n "${USB_LABEL}" "${USB_IMAGE}.tmp" >/dev/null
   USB_MOUNT_DIR="$(mktemp -d)"
   mount -o loop "${USB_IMAGE}.tmp" "${USB_MOUNT_DIR}"
@@ -592,6 +802,9 @@ ensure_usb_image() {
     needs_rebuild=true
   elif [[ ${CONFIG_XML} -nt ${USB_IMAGE} ]]; then
     log_info "${USB_IMAGE} older than ${CONFIG_XML}; scheduling rebuild"
+    needs_rebuild=true
+  elif [[ ${FORCE_REBUILD} == true ]]; then
+    log_info "--force requested; scheduling USB image rebuild"
     needs_rebuild=true
   fi
 
@@ -631,7 +844,7 @@ XML
     return
   fi
   if ! virsh attach-device "${VM_NAME}" "${controller_xml}" --live --config >/dev/null; then
-    die ${EX_ERROR} "Failed to attach USB controller to ${VM_NAME}"
+    die ${EX_FATAL} "Failed to attach USB controller to ${VM_NAME}"
   fi
   log_info "Attached USB controller to ${VM_NAME}"
 }
@@ -640,9 +853,9 @@ ensure_usb_disk_attachment() {
   local attached
   attached=$(json_extract "usb_disk.attached")
   if [[ ${attached} == true ]]; then
-    local readonly
-    readonly=$(json_extract "usb_disk.readonly")
-    if [[ ${readonly} != true ]]; then
+    local readonly_flag
+    readonly_flag=$(json_extract "usb_disk.readonly")
+    if [[ ${readonly_flag} != true ]]; then
       log_warn "USB disk is attached but not read-only"
       if [[ ${CHECK_ONLY} == true ]]; then
         DRIFT_DETECTED=true
@@ -680,7 +893,7 @@ ensure_usb_disk_attachment() {
 </disk>
 XML
   if ! virsh attach-device "${VM_NAME}" "${disk_xml}" --live --config >/dev/null; then
-    die ${EX_ERROR} "Failed to attach USB disk image to ${VM_NAME}"
+    die ${EX_FATAL} "Failed to attach USB disk image to ${VM_NAME}"
   fi
   log_info "Attached ${USB_IMAGE} to ${VM_NAME} via attach-device"
 }
@@ -720,7 +933,7 @@ PY
     return 0
   fi
   if ! virsh update-device "${VM_NAME}" "${snippet}" --live --config >/dev/null; then
-    die ${EX_ERROR} "Failed to update NIC ${target} to e1000"
+    die ${EX_FATAL} "Failed to update NIC ${target} to e1000"
   fi
   log_info "Updated NIC ${target} (${bridge}) to e1000"
   return 0
@@ -728,6 +941,10 @@ PY
 
 inspect_interfaces() {
   local idx=0
+  local detected_wan=""
+  local detected_lan=""
+  local first_bridge=""
+  local first_target=""
   while true; do
     local target
     target=$(json_extract "interfaces[${idx}].target")
@@ -738,21 +955,25 @@ inspect_interfaces() {
     bridge=$(json_extract "interfaces[${idx}].bridge")
     local model
     model=$(json_extract "interfaces[${idx}].model")
-    if [[ -z ${PF_WAN_BRIDGE} ]]; then
-      PF_WAN_BRIDGE="br0"
-    fi
-    if [[ -z ${PF_LAN_BRIDGE} ]]; then
-      PF_LAN_BRIDGE="virbr-lan"
+    if [[ -z ${first_bridge} && -n ${bridge} ]]; then
+      first_bridge=${bridge}
+      first_target=${target}
     fi
     case "${target}" in
       vnet0)
-        if [[ ${bridge} != "${PF_WAN_BRIDGE}" ]]; then
+        if [[ -n ${PF_WAN_BRIDGE} && -n ${bridge} && ${bridge} != "${PF_WAN_BRIDGE}" ]]; then
           log_warn "Interface ${target} bridged to ${bridge:-unknown}; expected ${PF_WAN_BRIDGE}"
+        fi
+        if [[ -z ${detected_wan} && -n ${bridge} ]]; then
+          detected_wan=${bridge}
         fi
         ;;
       vnet1)
-        if [[ ${bridge} != "${PF_LAN_BRIDGE}" ]]; then
+        if [[ -n ${PF_LAN_BRIDGE} && -n ${bridge} && ${bridge} != "${PF_LAN_BRIDGE}" ]]; then
           log_warn "Interface ${target} bridged to ${bridge:-unknown}; expected ${PF_LAN_BRIDGE}"
+        fi
+        if [[ -z ${detected_lan} && -n ${bridge} ]]; then
+          detected_lan=${bridge}
         fi
         ;;
     esac
@@ -769,6 +990,73 @@ inspect_interfaces() {
     fi
     ((idx++))
   done
+
+  if [[ -z ${PF_WAN_BRIDGE} && -n ${detected_wan} ]]; then
+    PF_WAN_BRIDGE=${detected_wan}
+    log_info "Auto-detected WAN bridge ${PF_WAN_BRIDGE} for ${VM_NAME}"
+  fi
+  if [[ -z ${PF_LAN_BRIDGE} && -n ${detected_lan} ]]; then
+    PF_LAN_BRIDGE=${detected_lan}
+    log_info "Auto-detected LAN bridge ${PF_LAN_BRIDGE} for ${VM_NAME}"
+  fi
+  if [[ -z ${PF_LAN_BRIDGE} && -n ${first_bridge} ]]; then
+    PF_LAN_BRIDGE=${first_bridge}
+    log_warn "Falling back to bridge ${PF_LAN_BRIDGE} (interface ${first_target}) for LAN operations"
+  fi
+  if [[ -z ${PF_WAN_BRIDGE} ]]; then
+    PF_WAN_BRIDGE=${first_bridge:-br0}
+  fi
+}
+
+ensure_bridge_ipv4() {
+  if [[ ${CHECK_ONLY} == true || ${DRY_RUN} == true ]]; then
+    log_debug "Skipping host bridge IP assignment in dry-run/check mode"
+    return
+  fi
+
+  local bridge=${PF_LAN_BRIDGE:-}
+  if [[ -z ${bridge} ]]; then
+    log_warn "Unable to determine LAN bridge; skipping temporary host address"
+    return
+  fi
+
+  if ! command -v ip >/dev/null 2>&1; then
+    log_warn "ip command not available; cannot assign temporary LAN address"
+    return
+  fi
+
+  if ip -4 addr show dev "${bridge}" | grep -qE 'inet '; then
+    log_debug "Bridge ${bridge} already has IPv4 configuration"
+    return
+  fi
+
+  local cidr
+  cidr="${LAN_VALIDATION_IP}/${LAN_PREFIX}"
+  log_info "Assigning temporary ${cidr} to ${bridge} for connectivity checks"
+  if ip addr add "${cidr}" dev "${bridge}" >/dev/null 2>&1; then
+    BRIDGE_IP_TEMP_ADDED=true
+    BRIDGE_TEMP_CIDR=${cidr}
+  else
+    log_warn "Unable to assign ${cidr} to ${bridge}; connectivity checks may fail"
+  fi
+}
+
+cleanup_bridge_ip() {
+  if [[ ${BRIDGE_IP_TEMP_ADDED} != true ]]; then
+    return
+  fi
+  if ! command -v ip >/dev/null 2>&1; then
+    return
+  fi
+  if [[ -z ${PF_LAN_BRIDGE:-} ]]; then
+    return
+  fi
+  if [[ -z ${BRIDGE_TEMP_CIDR:-} ]]; then
+    return
+  fi
+  ip addr del "${BRIDGE_TEMP_CIDR}" dev "${PF_LAN_BRIDGE}" >/dev/null 2>&1 || log_warn "Failed to remove temporary IP ${BRIDGE_TEMP_CIDR} from ${PF_LAN_BRIDGE}"
+  BRIDGE_IP_TEMP_ADDED=false
+  BRIDGE_TEMP_CIDR=""
 }
 
 reboot_vm() {
@@ -785,16 +1073,18 @@ reboot_vm() {
     log_warn "virsh reboot failed; attempting shutdown/start"
     virsh shutdown "${VM_NAME}" >/dev/null || log_warn "Failed to shutdown ${VM_NAME}"
     sleep 3
-    virsh start "${VM_NAME}" >/dev/null || die ${EX_ERROR} "Unable to start ${VM_NAME}"
+    virsh start "${VM_NAME}" >/dev/null || die ${EX_FATAL} "Unable to start ${VM_NAME}"
   fi
 }
 
+# shellcheck disable=SC2317
 check_ping() {
   ping -c 1 -W 2 "${LAN_GW_IP}" >/dev/null 2>&1
 }
 
+# shellcheck disable=SC2317
 check_https() {
-  curl -kIs --connect-timeout 5 --max-time 10 "https://${LAN_GW_IP}/" >/dev/null 2>&1
+  curl -kIs --connect-timeout 5 --max-time 8 "https://${LAN_GW_IP}/" >/dev/null 2>&1
 }
 
 verify_connectivity() {
@@ -810,6 +1100,8 @@ verify_connectivity() {
     echo "PASS: [DRY-RUN] curl -kI https://${LAN_GW_IP}/ (skipped)"
     return
   fi
+  ensure_bridge_ipv4
+  trap_add cleanup_bridge_ip EXIT INT TERM
   log_info "Waiting for pfSense services on ${LAN_GW_IP}"
   if retry 10 6 check_ping; then
     PING_SUCCESS=true
@@ -823,17 +1115,62 @@ verify_connectivity() {
   else
     echo "FAIL: curl -kI https://${LAN_GW_IP}/"
   fi
+  cleanup_bridge_ip
 }
 
 print_static_route_guidance() {
   if [[ ${PING_SUCCESS} == true && ${CURL_SUCCESS} == true ]]; then
     cat <<GUIDANCE
 TP-Link static route suggestion:
-  Destination: ${LAN_NETWORK}/${LAN_PREFIX}
-  Gateway: ${LAN_GW_IP}
-  Interface: LAN
+  Destination: ${LAN_NETWORK}
+  Subnet mask: ${LAN_NETMASK}
+  Gateway: ${HOMELAB_EDGE_GATEWAY}
+
+If the router cannot add a static route, configure host routes instead:
+  Windows (Admin): route add ${LAN_NETWORK} mask ${LAN_NETMASK} ${HOMELAB_EDGE_GATEWAY} -p
+  Linux/macOS:     sudo ip route add ${LAN_NETWORK}/${LAN_PREFIX} via ${HOMELAB_EDGE_GATEWAY}
 GUIDANCE
   fi
+}
+
+print_summary() {
+  if [[ ${CHECK_ONLY} == true ]]; then
+    local drift="false"
+    if [[ ${DRIFT_DETECTED} == true ]]; then
+      drift="true"
+    fi
+    echo "SUMMARY: pfSense ZTP check-only (drift=${drift})"
+    echo "LAN_READY=unknown mode=check-only drift=${drift} ip=${LAN_GW_IP} prefix=${LAN_PREFIX} bridge=${PF_LAN_BRIDGE:-unknown}"
+    return
+  fi
+
+  if [[ ${DRY_RUN} == true ]]; then
+    echo "SUMMARY: pfSense ZTP dry-run (connectivity checks skipped)"
+    echo "LAN_READY=unknown mode=dry-run ip=${LAN_GW_IP} prefix=${LAN_PREFIX} bridge=${PF_LAN_BRIDGE:-unknown}"
+    return
+  fi
+
+  local reason=""
+  if [[ ${PING_SUCCESS} == true && ${CURL_SUCCESS} == true ]]; then
+    echo "SUMMARY: pfSense LAN reachable at ${LAN_GW_IP}"
+    echo "LAN_READY=true ip=${LAN_GW_IP} prefix=${LAN_PREFIX} bridge=${PF_LAN_BRIDGE:-unknown}"
+    return
+  fi
+
+  if [[ ${PING_SUCCESS} != true ]]; then
+    reason="ping"
+  fi
+  if [[ ${CURL_SUCCESS} != true ]]; then
+    if [[ -n ${reason} ]]; then
+      reason+="/"
+    fi
+    reason+="https"
+  fi
+  if [[ -z ${reason} ]]; then
+    reason="unknown"
+  fi
+  echo "SUMMARY: pfSense LAN unreachable (failed: ${reason})"
+  echo "LAN_READY=false ip=${LAN_GW_IP} prefix=${LAN_PREFIX} bridge=${PF_LAN_BRIDGE:-unknown} failed=${reason}"
 }
 
 main() {
@@ -843,23 +1180,28 @@ main() {
     log_set_level debug || true
   fi
 
+  if [[ ${EUID} -ne 0 ]]; then
+    die ${EX_PREFLIGHT} "Root privileges are required; rerun with sudo"
+  fi
+
   if [[ ${ROLLBACK} == true ]]; then
     setup_logging
+    install_error_trap
     load_env_file
     ensure_vm_name
     setup_tmp_dir
     fetch_domain_info
     restore_domain_backup
-    exit ${EX_OK}
+    exit ${EX_SUCCESS}
   fi
 
   setup_logging
+  install_error_trap
   load_env_file
   if [[ -n ${VM_NAME_ARG} ]]; then
     VM_NAME="${VM_NAME_ARG}"
   fi
   ensure_required_env
-  compute_lan_prefix
   ensure_vm_name
 
   setup_tmp_dir
@@ -868,7 +1210,7 @@ main() {
   ensure_usb_image
 
   if ! command -v virsh >/dev/null 2>&1; then
-    die ${EX_ERROR} "virsh command is required"
+    die ${EX_PREFLIGHT} "virsh command is required"
   fi
 
   fetch_domain_info
@@ -881,17 +1223,24 @@ main() {
   fi
 
   if [[ ${CHECK_ONLY} == true ]]; then
+    print_summary
     if [[ ${DRIFT_DETECTED} == true ]]; then
-      exit ${EX_DRIFT}
+      exit ${EX_PREFLIGHT}
     fi
-    exit ${EX_OK}
+    exit ${EX_SUCCESS}
+  fi
+
+  if [[ ${DRY_RUN} == true ]]; then
+    print_summary
+    exit ${EX_SUCCESS}
   fi
 
   reboot_vm
   verify_connectivity
+  print_summary
   if [[ ${PING_SUCCESS} == true && ${CURL_SUCCESS} == true ]]; then
     print_static_route_guidance
-    exit ${EX_OK}
+    exit ${EX_SUCCESS}
   fi
   exit ${EX_VERIFY}
 }

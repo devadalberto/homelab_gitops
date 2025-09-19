@@ -13,7 +13,7 @@
     <lan>
       <if>vtnet1</if>
       <ipaddr>{{ LAN_GW_IP }}</ipaddr>
-      <subnet>{{ LAN_PREFIX_LEN }}</subnet>
+      <subnet>{{ CIDR_BITS }}</subnet>
       <ipaddrv6>track6</ipaddrv6>
       <descr>LAN</descr>
     </lan>
@@ -27,7 +27,7 @@
   <dhcpd>
     <lan>
       <enable>1</enable>
-      <range><from>{{ LAN_DHCP_FROM }}</from><to>{{ LAN_DHCP_TO }}</to></range>
+      <range><from>{{ DHCP_FROM }}</from><to>{{ DHCP_TO }}</to></range>
       <defaultleasetime>7200</defaultleasetime>
       <maxleasetime>86400</maxleasetime>
     </lan>

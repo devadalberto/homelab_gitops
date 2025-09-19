@@ -37,6 +37,14 @@ ifeq ($(MINIKUBE_PROFILE),)
 MINIKUBE_PROFILE := labz
 endif
 
+PF_VM_NAME ?= $(strip $(shell sed -n 's/^PF_VM_NAME=//p' "$(ENV_FILE)" | tail -n 1))
+ifeq ($(PF_VM_NAME),)
+PF_VM_NAME := $(strip $(shell sed -n 's/^VM_NAME=//p' "$(ENV_FILE)" | tail -n 1))
+endif
+ifeq ($(PF_VM_NAME),)
+PF_VM_NAME := pfsense-uranus
+endif
+
 FLUX_NAMESPACE ?= flux-system
 FLUX_KUSTOMIZATION ?= flux-system
 
@@ -68,6 +76,7 @@ up: preflight core-addons apps post-check
 	@echo "Homelab bootstrap complete."
 
 preflight:
+	sudo ./scripts/pf-ztp.sh --env-file $(ENV_FILE) --vm-name "$(PF_VM_NAME)" --verbose || { echo "pfSense ZTP stage failed; aborting bootstrap." >&2; exit 1; }
 	./scripts/preflight_and_bootstrap.sh $(COMMON_ARGS) $(DELETE_ARG) --preflight-only
 
 bootstrap: preflight
