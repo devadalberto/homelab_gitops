@@ -55,69 +55,83 @@ MERMAID_TARGETS := $(MERMAID_SOURCES:.mmd=.svg)
 MKDOCS ?= mkdocs
 MKDOCS_BUILD_FLAGS ?= --strict
 
-.PHONY: up preflight bootstrap core-addons apps post-check down status logs reconcile destroy fmt lint docs docs-serve docs-diagrams
+POSTGRES_HELM_VERSION ?= $(strip $(shell sed -n 's/^LABZ_POSTGRES_HELM_VERSION=//p' "$(ENV_FILE)" | tail -n 1))
+ifeq ($(POSTGRES_HELM_VERSION),)
+POSTGRES_HELM_VERSION := 16.2.6
+endif
+
+.PHONY: up preflight bootstrap core-addons apps db post-check down status logs reconcile destroy fmt lint docs docs-serve docs-diagrams
 
 $(info Using environment file $(ENV_FILE))
 
 up: preflight core-addons apps post-check
-@echo "Homelab bootstrap complete."
+	@echo "Homelab bootstrap complete."
 
 preflight:
-./scripts/preflight_and_bootstrap.sh $(COMMON_ARGS) $(DELETE_ARG) --preflight-only
+	./scripts/preflight_and_bootstrap.sh $(COMMON_ARGS) $(DELETE_ARG) --preflight-only
 
 bootstrap: preflight
-./scripts/uranus_nuke_and_bootstrap.sh $(COMMON_ARGS) $(DELETE_ARG)
+	./scripts/uranus_nuke_and_bootstrap.sh $(COMMON_ARGS) $(DELETE_ARG)
 
 core-addons: bootstrap
-./scripts/uranus_homelab_one.sh $(COMMON_ARGS)
+	./scripts/uranus_homelab_one.sh $(COMMON_ARGS)
 
 apps: core-addons
-./scripts/uranus_homelab_apps.sh $(COMMON_ARGS)
+	./scripts/uranus_homelab_apps.sh $(COMMON_ARGS)
+
+db:
+	$(KUBECTL) apply -f $(REPO_ROOT)/data/postgres/backup-pv.yaml
+	helm upgrade --install pg bitnami/postgresql \
+	    --version $(POSTGRES_HELM_VERSION) \
+	    --namespace data \
+	    --values $(REPO_ROOT)/values/postgresql.yaml \
+	    --create-namespace --wait
+	$(KUBECTL) apply -f $(REPO_ROOT)/data/postgres/backup-cron.yaml
 
 post-check:
-$(KUBECTL) get nodes -o wide
-$(KUBECTL) get pods --all-namespaces
-$(KUBECTL) -n metallb-system get ippools,l2advertisements
-$(KUBECTL) -n traefik get svc traefik -o wide
-$(KUBECTL) -n cert-manager get certificaterequests,certificates
+	$(KUBECTL) get nodes -o wide
+	$(KUBECTL) get pods --all-namespaces
+	$(KUBECTL) -n metallb-system get ippools,l2advertisements
+	$(KUBECTL) -n traefik get svc traefik -o wide
+	$(KUBECTL) -n cert-manager get certificaterequests,certificates
 
 # Stop the Minikube profile without deleting workloads.
 down:
-$(MINIKUBE) stop -p $(MINIKUBE_PROFILE)
+	$(MINIKUBE) stop -p $(MINIKUBE_PROFILE)
 
 status:
-$(KUBECTL) get nodes -o wide
-$(KUBECTL) get pods --all-namespaces
-@if command -v $(FLUX) >/dev/null 2>&1; then \
-$(FLUX) get kustomizations --namespace $(FLUX_NAMESPACE); \
-else \
-echo "flux CLI not found; skipping Flux status" >&2; \
-fi
+	$(KUBECTL) get nodes -o wide
+	$(KUBECTL) get pods --all-namespaces
+	@if command -v $(FLUX) >/dev/null 2>&1; then \
+	$(FLUX) get kustomizations --namespace $(FLUX_NAMESPACE); \
+	else \
+	echo "flux CLI not found; skipping Flux status" >&2; \
+	fi
 
 logs:
-$(KUBECTL) -n $(LOGS_NAMESPACE) logs -l $(LOGS_SELECTOR) --tail=$(LOGS_TAIL) $(LOGS_FOLLOW_FLAG) $(if $(LOGS_SINCE),--since=$(LOGS_SINCE),) $(if $(LOGS_CONTAINER),-c $(LOGS_CONTAINER),)
+	$(KUBECTL) -n $(LOGS_NAMESPACE) logs -l $(LOGS_SELECTOR) --tail=$(LOGS_TAIL) $(LOGS_FOLLOW_FLAG) $(if $(LOGS_SINCE),--since=$(LOGS_SINCE),) $(if $(LOGS_CONTAINER),-c $(LOGS_CONTAINER),)
 
 reconcile:
-$(FLUX) reconcile kustomization $(FLUX_KUSTOMIZATION) --namespace $(FLUX_NAMESPACE) --with-source
+	$(FLUX) reconcile kustomization $(FLUX_KUSTOMIZATION) --namespace $(FLUX_NAMESPACE) --with-source
 
 # WARNING: Permanently deletes the Minikube profile and its workloads.
 destroy:
-@echo "Deleting Minikube profile '$(MINIKUBE_PROFILE)'."
-$(MINIKUBE) delete -p $(MINIKUBE_PROFILE)
+	@echo "Deleting Minikube profile '$(MINIKUBE_PROFILE)'."
+	$(MINIKUBE) delete -p $(MINIKUBE_PROFILE)
 
 fmt:
-$(PRECOMMIT) run --all-files
+	$(PRECOMMIT) run --all-files
 
 lint: fmt
 
 docs-diagrams: $(MERMAID_TARGETS)
 
 docs/%.svg: docs/%.mmd
-@mkdir -p $(dir $@)
-$(MERMAID_CLI) -i $< -o $@
+	@mkdir -p $(dir $@)
+	$(MERMAID_CLI) -i $< -o $@
 
 docs: docs-diagrams
-$(MKDOCS) build $(MKDOCS_BUILD_FLAGS)
+	$(MKDOCS) build $(MKDOCS_BUILD_FLAGS)
 
 docs-serve: docs-diagrams
-$(MKDOCS) serve -a 0.0.0.0:8000
+	$(MKDOCS) serve -a 0.0.0.0:8000
