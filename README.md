@@ -268,6 +268,8 @@ the [WireGuard Remote Access (Host-Only)](#wireguard-remote-access-host-only) wo
    ```
    The Makefile loads `.env`, runs the host preflight checks, recreates the Minikube profile, installs the core addons, provisions the hostPath PV/PVCs, deploys the application helpers in `scripts/`, and performs the post-rollout validation commands. Override the defaults with variables such as `ENV_FILE=/path/to/.env`, `ASSUME_YES=false`, or `DELETE_EXISTING=false` when you need different behavior. If you prefer to bypass the Makefile, invoke the consolidated helper directly: `./scripts/uranus_homelab.sh --delete-previous-environment --assume-yes --env-file ./.env`.
 
+   Need to keep the local registry tunnel alive after bootstrapping? The `uranus_nuke_and_bootstrap.sh` helper now exits immediately unless you explicitly opt in. Run `HOLD_PORT_FORWARD=true make bootstrap` (or `./scripts/uranus_nuke_and_bootstrap.sh ... --hold-port-forward`) to keep the registry port-forward active until you press <kbd>Ctrl</kbd>+<kbd>C</kbd>.
+
    The pfSense VM boots with the serial installer by default; attach to the console with `virsh console "${VM_NAME}"` once the domain is defined. Pass `--no-headless` to `pfsense/pf-bootstrap.sh` if you need to re-enable a graphical viewer.
 
 4. **Bootstrap Flux against your Git remote**

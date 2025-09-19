@@ -34,6 +34,7 @@ DRY_RUN=false
 CONTEXT_ONLY=false
 ENV_FILE_OVERRIDE=""
 ENV_FILE_PATH=""
+HOLD_PORT_FORWARD=false
 
 REGISTRY_LOCAL_PORT=5000
 REGISTRY_SERVICE_PORT=80
@@ -51,6 +52,7 @@ Options:
   --delete-previous-environment Remove any existing Minikube profile before starting.
   --dry-run                     Log mutating actions without executing them.
   --context-preflight           Validate environment and exit without changes.
+  --hold-port-forward           Keep the registry port-forward active until interrupted.
   --verbose                     Increase logging verbosity to debug.
   -h, --help                    Show this help message.
 
@@ -129,6 +131,10 @@ parse_args() {
         ;;
       --context-preflight)
         CONTEXT_ONLY=true
+        shift
+        ;;
+      --hold-port-forward)
+        HOLD_PORT_FORWARD=true
         shift
         ;;
       --verbose)
@@ -370,20 +376,34 @@ start_registry_port_forward() {
       "${REGISTRY_LOCAL_PORT}:${REGISTRY_SERVICE_PORT}"
   )
   local -a success_messages=(
-    "Bootstrap complete. Local registry is reachable at ${local_endpoint} while this script is running."
+    "Local registry port-forward established at ${local_endpoint}."
     "To push images:   docker tag IMAGE ${local_endpoint}/IMAGE && docker push ${local_endpoint}/IMAGE"
     "To pull in cluster: use image reference ${local_endpoint}/IMAGE"
-    "Press Ctrl+C when you are finished to stop the registry port-forward."
   )
 
-  if ! start_port_forward \
-    --name "registry" \
-    --dry-run "${DRY_RUN}" \
-    --success-message "${success_messages[0]}" \
-    --success-message "${success_messages[1]}" \
-    --success-message "${success_messages[2]}" \
-    --success-message "${success_messages[3]}" \
-    -- "${cmd[@]}"; then
+  if [[ ${HOLD_PORT_FORWARD} == true ]]; then
+    success_messages+=(
+      "Press Ctrl+C when you are finished to stop the registry port-forward."
+    )
+  else
+    success_messages+=(
+      "Registry tunnel will close automatically when bootstrapping completes."
+      "Re-run with --hold-port-forward to keep the registry tunnel open for interactive use."
+    )
+  fi
+
+  local -a pf_args=(
+    --name "registry"
+    --dry-run "${DRY_RUN}"
+  )
+  local message
+  for message in "${success_messages[@]}"; do
+    pf_args+=(--success-message "${message}")
+  done
+  pf_args+=(--)
+  pf_args+=("${cmd[@]}")
+
+  if ! start_port_forward "${pf_args[@]}"; then
     die ${EX_TEMPFAIL} "Registry port-forward failed to start"
   fi
 }
@@ -423,7 +443,12 @@ main() {
     return
   fi
 
-  wait_for_port_forwards
+  if [[ ${HOLD_PORT_FORWARD} == true ]]; then
+    log_info "Holding registry port-forward open. Press Ctrl+C to exit."
+    wait_for_port_forwards
+  else
+    log_info "Bootstrap complete. Registry port-forward terminated."
+  fi
 }
 
 main "$@"
