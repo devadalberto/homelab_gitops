@@ -53,6 +53,7 @@ DOMAIN_XML_PATH=""
 DOMAIN_INFO_JSON=""
 DOMAIN_BACKUP_FILE=""
 DOMAIN_BACKUP_CREATED=false
+DOMAIN_STATE=""
 
 CONFIG_CHANGED=false
 IMAGE_REBUILT=false
@@ -63,6 +64,7 @@ NEEDS_REBOOT=false
 DRIFT_DETECTED=false
 PING_SUCCESS=false
 CURL_SUCCESS=false
+VM_AUTO_STARTED=false
 LAN_PROBE_IP=""
 LAN_NETMASK=""
 LAN_VALIDATION_IP=""
@@ -527,6 +529,42 @@ print(json.dumps(info))
 PY
   )
   export DOMAIN_INFO_JSON
+}
+
+capture_domain_state() {
+  local state
+  if ! state=$(virsh domstate "${VM_NAME}" 2>/dev/null); then
+    die ${EX_PREFLIGHT} "Failed to determine domain state for ${VM_NAME}"
+  fi
+  DOMAIN_STATE="${state}"
+  log_debug "Domain ${VM_NAME} state: ${DOMAIN_STATE}"
+}
+
+ensure_domain_started_if_needed() {
+  if [[ ${DOMAIN_STATE} != "shut off" && ${DOMAIN_STATE} != "pmsuspended" ]]; then
+    return
+  fi
+
+  local state_message
+  state_message="${VM_NAME} is ${DOMAIN_STATE}"
+
+  if [[ ${CHECK_ONLY} == true ]]; then
+    log_info "[CHECK-ONLY] ${state_message}; automatic start skipped"
+    return
+  fi
+
+  if [[ ${DRY_RUN} == true ]]; then
+    log_info "[DRY-RUN] ${state_message}; automatic start skipped"
+    return
+  fi
+
+  log_info "${state_message}; starting domain"
+  if ! virsh start "${VM_NAME}" >/dev/null; then
+    die ${EX_FATAL} "Unable to start ${VM_NAME}"
+  fi
+  VM_AUTO_STARTED=true
+  capture_domain_state
+  log_info "Started ${VM_NAME}"
 }
 
 backup_domain_xml() {
@@ -1214,26 +1252,33 @@ GUIDANCE
 }
 
 print_summary() {
+  local summary_note=""
+  local detail_note=""
+  if [[ ${VM_AUTO_STARTED} == true ]]; then
+    summary_note=" (VM auto-started)"
+    detail_note=" vm_auto_started=true"
+  fi
+
   if [[ ${CHECK_ONLY} == true ]]; then
     local drift="false"
     if [[ ${DRIFT_DETECTED} == true ]]; then
       drift="true"
     fi
-    echo "SUMMARY: pfSense ZTP check-only (drift=${drift})"
-    echo "LAN_READY=unknown mode=check-only drift=${drift} ip=${LAN_GW_IP} prefix=${LAN_PREFIX} bridge=${PF_LAN_BRIDGE:-unknown}"
+    echo "SUMMARY: pfSense ZTP check-only (drift=${drift})${summary_note}"
+    echo "LAN_READY=unknown mode=check-only drift=${drift} ip=${LAN_GW_IP} prefix=${LAN_PREFIX} bridge=${PF_LAN_BRIDGE:-unknown}${detail_note}"
     return
   fi
 
   if [[ ${DRY_RUN} == true ]]; then
-    echo "SUMMARY: pfSense ZTP dry-run (connectivity checks skipped)"
-    echo "LAN_READY=unknown mode=dry-run ip=${LAN_GW_IP} prefix=${LAN_PREFIX} bridge=${PF_LAN_BRIDGE:-unknown}"
+    echo "SUMMARY: pfSense ZTP dry-run (connectivity checks skipped)${summary_note}"
+    echo "LAN_READY=unknown mode=dry-run ip=${LAN_GW_IP} prefix=${LAN_PREFIX} bridge=${PF_LAN_BRIDGE:-unknown}${detail_note}"
     return
   fi
 
   local reason=""
   if [[ ${PING_SUCCESS} == true && ${CURL_SUCCESS} == true ]]; then
-    echo "SUMMARY: pfSense LAN reachable at ${LAN_GW_IP}"
-    echo "LAN_READY=true ip=${LAN_GW_IP} prefix=${LAN_PREFIX} bridge=${PF_LAN_BRIDGE:-unknown}"
+    echo "SUMMARY: pfSense LAN reachable at ${LAN_GW_IP}${summary_note}"
+    echo "LAN_READY=true ip=${LAN_GW_IP} prefix=${LAN_PREFIX} bridge=${PF_LAN_BRIDGE:-unknown}${detail_note}"
     return
   fi
 
@@ -1249,8 +1294,8 @@ print_summary() {
   if [[ -z ${reason} ]]; then
     reason="unknown"
   fi
-  echo "SUMMARY: pfSense LAN unreachable (failed: ${reason})"
-  echo "LAN_READY=false ip=${LAN_GW_IP} prefix=${LAN_PREFIX} bridge=${PF_LAN_BRIDGE:-unknown} failed=${reason}"
+  echo "SUMMARY: pfSense LAN unreachable (failed: ${reason})${summary_note}"
+  echo "LAN_READY=false ip=${LAN_GW_IP} prefix=${LAN_PREFIX} bridge=${PF_LAN_BRIDGE:-unknown} failed=${reason}${detail_note}"
 }
 
 main() {
@@ -1271,6 +1316,7 @@ main() {
     ensure_vm_name
     setup_tmp_dir
     fetch_domain_info
+    capture_domain_state
     restore_domain_backup
     exit ${EX_SUCCESS}
   fi
@@ -1294,6 +1340,8 @@ main() {
   fi
 
   fetch_domain_info
+  capture_domain_state
+  ensure_domain_started_if_needed
   ensure_usb_controller
   ensure_usb_disk_attachment
   inspect_interfaces
