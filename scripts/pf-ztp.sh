@@ -42,6 +42,7 @@ DRY_RUN=false
 CHECK_ONLY=false
 VERBOSE=false
 ROLLBACK=false
+LENIENT=false
 
 PF_WAN_BRIDGE="${PF_WAN_BRIDGE:-}"
 # Preferred way: PF_LAN_LINK specifies both kind and name (bridge:virbr-lan or network:pfsense-lan)
@@ -85,6 +86,7 @@ LAN_LINK_NAME=""
 
 REBOOT_MARK_DIR="/run/pf-ztp"
 REBOOT_MARK_FILE=""
+LENIENT_MARK_FILE=""
 
 # shellcheck disable=SC2317
 usage() {
@@ -101,6 +103,7 @@ Options:
   --dry-run          Log intended actions without mutating the host or VM.
   --check-only       Detect drift without making changes; implies --dry-run.
   --verbose          Increase log verbosity (debug output).
+  --lenient          Treat the first connectivity failure as a warning (exit 0).
   --rollback         Restore the most recent domain XML backup and exit.
   -h, --help         Show this help message.
 
@@ -272,6 +275,10 @@ parse_args() {
         ;;
       --verbose)
         VERBOSE=true
+        shift
+        ;;
+      --lenient)
+        LENIENT=true
         shift
         ;;
       --rollback)
@@ -1695,6 +1702,7 @@ main() {
   inspect_interfaces
 
   REBOOT_MARK_FILE="${REBOOT_MARK_DIR}/${VM_NAME}.last"
+  LENIENT_MARK_FILE="${REBOOT_MARK_DIR}/${VM_NAME}.lenient"
   mkdir -p "${REBOOT_MARK_DIR}"
 
   if [[ ${CONFIG_CHANGED} == true || ${IMAGE_REBUILT} == true || ${USB_CONTROLLER_ADDED} == true || ${USB_DISK_ATTACHED} == true || ${NIC_MODEL_CHANGED} == true || ${LAN_INTERFACE_REWIRED} == true ]]; then
@@ -1733,9 +1741,26 @@ main() {
   verify_connectivity
   print_summary
   if [[ ${PING_SUCCESS} == true && ${CURL_SUCCESS} == true ]]; then
+    if [[ -n ${LENIENT_MARK_FILE:-} && -f ${LENIENT_MARK_FILE} ]]; then
+      rm -f -- "${LENIENT_MARK_FILE}" >/dev/null 2>&1 || true
+    fi
     print_static_route_guidance
     exit ${EX_SUCCESS}
   fi
+
+  if [[ ${LENIENT} == true ]]; then
+    if [[ -n ${LENIENT_MARK_FILE:-} && ! -f ${LENIENT_MARK_FILE} ]]; then
+      log_warn "Lenient mode: pfSense LAN unreachable; tolerating the first connectivity failure. Marker: ${LENIENT_MARK_FILE}. Rerun to enforce strict checks."
+      if printf '%s\n' "$(date -u +%FT%TZ) lenient-first-failure" >"${LENIENT_MARK_FILE}"; then
+        exit ${EX_SUCCESS}
+      fi
+      log_warn "Unable to record lenient state at ${LENIENT_MARK_FILE}; enforcing failure to avoid repeated leniency."
+    fi
+    if [[ -n ${LENIENT_MARK_FILE:-} && -f ${LENIENT_MARK_FILE} ]]; then
+      log_warn "Lenient grace already consumed (marker: ${LENIENT_MARK_FILE}); connectivity failure will be treated as fatal."
+    fi
+  fi
+
   exit ${EX_VERIFY}
 }
 
