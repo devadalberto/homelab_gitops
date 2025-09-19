@@ -988,7 +988,7 @@ inspect_interfaces() {
         fi
       fi
     fi
-    ((idx++))
+    ((++idx))
   done
 
   if [[ -z ${PF_WAN_BRIDGE} && -n ${detected_wan} ]]; then
