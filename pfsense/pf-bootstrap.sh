@@ -38,7 +38,6 @@ WORK_ROOT_DEFAULT="/opt/homelab"
 IMAGES_DIR_DEFAULT="/var/lib/libvirt/images"
 LAN_NET_NAME_DEFAULT="pfsense-lan"
 LAN_BRIDGE_DEFAULT="virbr-lan"
-CONFIG_TARGET=${PF_CONFIG_TARGET:-sdb}
 ISO_CMD=""
 
 PF_WORK=""
@@ -534,7 +533,6 @@ define_vm() {
     "${graphics_args[@]}"
     "${install_args[@]}"
     --disk "path=${VM_DISK_PATH},bus=virtio,format=qcow2"
-    --disk "path=${CONFIG_ISO_PATH},device=cdrom,readonly=yes,target=${CONFIG_TARGET}"
     "${wan_args[@]}"
     --network "network=${LAN_NET_NAME},model=virtio"
     "${console_args[@]}"
@@ -547,39 +545,88 @@ define_vm() {
   run_cmd virt-install "${virt_args[@]}"
 }
 
-ensure_config_iso_attached() {
+ensure_cdrom_iso_attachment() {
+  local vm_name=$1
+  local iso_path=$2
+  local label=${3:-ISO}
+
+  if [[ -z ${iso_path} ]]; then
+    die ${EX_CONFIG} "Missing path for ${label}."
+  fi
+
   if [[ ${DRY_RUN} == true ]]; then
-    log_info "[DRY-RUN] Would ensure pfSense config ISO attached to ${VM_NAME}"
+    log_info "[DRY-RUN] Would ensure ${label} attached to ${vm_name} via CD-ROM (${iso_path})."
+    return
+  fi
+
+  if ! virsh dominfo "${vm_name}" &>/dev/null; then
+    log_debug "VM ${vm_name} not defined; skipping ${label} attachment"
+    return
+  fi
+
+  local domblk_output
+  domblk_output=$(virsh domblklist "${vm_name}" --details 2>/dev/null || true)
+
+  local iso_target=""
+  local -A used_targets=()
+  while IFS=$'\t' read -r target source; do
+    [[ -z ${target} ]] && continue
+    target=${target//$'\r'/}
+    source=${source//$'\r'/}
+    case "${target}" in
+      hd*)
+        used_targets["${target}"]=1
+        if [[ ${source} == "${iso_path}" ]]; then
+          iso_target=${target}
+        fi
+        ;;
+    esac
+  done < <(printf '%s\n' "${domblk_output}" | awk 'NR>2 && $2 == "cdrom" {print $3 "\t" $4}')
+
+  if [[ -n ${iso_target} ]]; then
+    log_info "${label} already attached to ${vm_name} (${iso_target})."
+    return
+  fi
+
+  local target=""
+  local letter
+  for letter in {a..z}; do
+    local candidate="hd${letter}"
+    if [[ -z ${used_targets[${candidate}]:-} ]]; then
+      target=${candidate}
+      break
+    fi
+  done
+
+  if [[ -z ${target} ]]; then
+    die ${EX_SOFTWARE} "Unable to locate a free CD-ROM target for ${label} on ${vm_name}."
+  fi
+
+  log_info "Attaching ${label} to ${vm_name} at ${target} (${iso_path})."
+  local attach_cmd=(virsh attach-disk "${vm_name}" "${iso_path}" "${target}" --type cdrom --mode readonly --config --live)
+  log_debug "Executing: $(format_command "${attach_cmd[@]}")"
+
+  if "${attach_cmd[@]}"; then
     return
   fi
 
   local dom_state
-  dom_state=$(virsh domstate "${VM_NAME}" 2>/dev/null | tr -d '\r' || true)
-  if [[ -z ${dom_state} ]]; then
-    log_debug "VM ${VM_NAME} not defined; skipping ISO attachment"
-    return
+  dom_state=$(virsh domstate "${vm_name}" 2>/dev/null | tr -d '\r' || true)
+  if [[ ${dom_state} == "shut off" || ${dom_state} == "pmsuspended" ]]; then
+    log_debug "Live attachment unavailable for ${vm_name} (${dom_state}); retrying offline."
+    local attach_config_cmd=(virsh attach-disk "${vm_name}" "${iso_path}" "${target}" --type cdrom --mode readonly --config)
+    log_debug "Executing: $(format_command "${attach_config_cmd[@]}")"
+    if "${attach_config_cmd[@]}"; then
+      return
+    fi
   fi
 
-  if [[ ${dom_state} != "shut off" && ${dom_state} != "pmsuspended" ]]; then
-    die ${EX_NOTREADY} "VM ${VM_NAME} is '${dom_state}'. Shut it down before reattaching configuration media."
-  fi
+  die ${EX_SOFTWARE} "Failed to attach ${label} (${iso_path}) to ${vm_name} at ${target}."
+}
 
-  local current_source
-  current_source=$(virsh domblklist "${VM_NAME}" 2>/dev/null | awk -v target="${CONFIG_TARGET}" 'NR>2 && $1==target {print $2}')
-
-  if [[ -z ${current_source} ]]; then
-    run_cmd virsh attach-disk "${VM_NAME}" "${CONFIG_ISO_PATH}" "${CONFIG_TARGET}" --type cdrom --mode readonly --config
-    log_info "Attached pfSense config ISO to ${VM_NAME} (${CONFIG_TARGET})."
-    return
-  fi
-
-  if [[ ${current_source} == "${CONFIG_ISO_PATH}" ]]; then
-    log_info "pfSense config ISO already attached to ${VM_NAME}."
-    return
-  fi
-
-  run_cmd virsh change-media "${VM_NAME}" "${CONFIG_TARGET}" "${CONFIG_ISO_PATH}" --insert --force --config
-  log_info "Updated pfSense config ISO for ${VM_NAME}."
+ensure_boot_media_attached() {
+  ensure_cdrom_iso_attachment "${VM_NAME}" "${INSTALL_MEDIA_PATH}" "pfSense installer media"
+  ensure_cdrom_iso_attachment "${VM_NAME}" "${CONFIG_ISO_PATH}" "pfSense config ISO"
 }
 
 main() {
@@ -603,7 +650,7 @@ main() {
   ensure_libvirt_network
   ensure_vm_disk
   define_vm
-  ensure_config_iso_attached
+  ensure_boot_media_attached
 
   log_info "pfSense VM ready. Use 'virt-viewer --connect qemu:///system ${VM_NAME}' to install."
 }
