@@ -22,11 +22,14 @@ fi
 
 readonly EX_OK=0
 readonly EX_USAGE=64
+# shellcheck disable=SC2034
 readonly EX_UNAVAILABLE=69
 readonly EX_SOFTWARE=70
 readonly EX_CONFIG=78
+# shellcheck disable=SC2034
 readonly EX_NOTREADY=4
 
+# shellcheck disable=SC2034
 ORIGINAL_ARGS=("$@")
 
 DRY_RUN=false
@@ -202,9 +205,12 @@ ensure_required_env() {
     LAB_DOMAIN_BASE
     LAB_CLUSTER_SUB
     LAN_PREFIX_LEN
+    CIDR_BITS
     LAN_GW_IP
     LAN_DHCP_FROM
     LAN_DHCP_TO
+    DHCP_FROM
+    DHCP_TO
     METALLB_POOL_START
     TRAEFIK_LOCAL_IP
   )
@@ -252,15 +258,18 @@ PY
 }
 
 derive_lan_network_settings() {
-  local lan_cidr=${LAN_CIDR:-10.10.0.0/24}
   local python_output
 
-  if ! python_output=$(python3 - "${lan_cidr}" <<'PY'
+  if ! python_output=$(python3 <<'PY'
 import ipaddress
 import os
 import sys
 
-lan_cidr = sys.argv[1]
+lan_cidr = os.environ.get("LAN_CIDR", "10.10.0.0/24")
+gw_ip_raw = os.environ.get("LAN_GW_IP", "10.10.0.1").strip()
+dhcp_from_raw = os.environ.get("DHCP_FROM") or os.environ.get("LAN_DHCP_FROM", "")
+dhcp_to_raw = os.environ.get("DHCP_TO") or os.environ.get("LAN_DHCP_TO", "")
+
 try:
     network = ipaddress.ip_network(lan_cidr, strict=False)
 except ValueError as exc:
@@ -268,7 +277,7 @@ except ValueError as exc:
     sys.exit(1)
 
 if network.version != 4:
-    print("LAN_CIDR must be an IPv4 network", file=sys.stderr)
+    print("LAN_CIDR must be IPv4", file=sys.stderr)
     sys.exit(1)
 
 hosts = list(network.hosts())
@@ -276,54 +285,56 @@ if not hosts:
     print(f"LAN_CIDR {network.with_prefixlen} does not provide usable host addresses", file=sys.stderr)
     sys.exit(1)
 
-def parse_host(var_name):
-    raw = os.environ.get(var_name, "").strip()
-    if not raw:
-        return None
+def parse_host(label, value, allow_empty=False):
+    if not value:
+        if allow_empty:
+            return None
+        print(f"{label} is required", file=sys.stderr)
+        sys.exit(1)
     try:
-        ip = ipaddress.ip_address(raw)
+        candidate = ipaddress.ip_address(value)
     except ValueError as exc:
-        print(f"{var_name} is invalid: {exc}", file=sys.stderr)
+        print(f"{label} invalid: {exc}", file=sys.stderr)
         sys.exit(1)
-    if ip.version != 4:
-        print(f"{var_name} must be an IPv4 address", file=sys.stderr)
+    if candidate.version != 4:
+        print(f"{label} must be IPv4", file=sys.stderr)
         sys.exit(1)
-    if ip not in network:
-        print(f"{var_name}={raw} is not contained within {network.with_prefixlen}", file=sys.stderr)
+    if candidate not in network:
+        print(f"{label}={value} is not contained within {network.with_prefixlen}", file=sys.stderr)
         sys.exit(1)
-    if ip == network.network_address or ip == network.broadcast_address:
-        print(f"{var_name}={raw} cannot equal the network or broadcast address", file=sys.stderr)
+    if candidate == network.network_address or candidate == network.broadcast_address:
+        print(f"{label}={value} cannot equal the network or broadcast address", file=sys.stderr)
         sys.exit(1)
-    return ip
-
-gateway = parse_host("LAN_GW_IP") or hosts[0]
-
-first_host = hosts[0]
-last_host = hosts[-1]
-
-def clamp(candidate):
-    if candidate < first_host:
-        return first_host
-    if candidate > last_host:
-        return last_host
     return candidate
 
-def derive_range_start():
-    return clamp(network.network_address + 100)
+gateway = parse_host("LAN_GW_IP", gw_ip_raw)
 
-def derive_range_end():
-    return clamp(network.network_address + 200)
+def default_range_start():
+    candidate = network.network_address + 99
+    if candidate <= network.network_address:
+        candidate = hosts[0]
+    if candidate >= network.broadcast_address:
+        candidate = hosts[-1]
+    return candidate
 
-dhcp_from = parse_host("LAN_DHCP_FROM")
-dhcp_to = parse_host("LAN_DHCP_TO")
+def default_range_end():
+    candidate = network.network_address + 199
+    if candidate <= network.network_address:
+        candidate = hosts[0]
+    if candidate >= network.broadcast_address:
+        candidate = hosts[-1]
+    return candidate
+
+dhcp_from = parse_host("DHCP_FROM", dhcp_from_raw, allow_empty=True)
+dhcp_to = parse_host("DHCP_TO", dhcp_to_raw, allow_empty=True)
 
 if dhcp_from is None:
-    dhcp_from = derive_range_start()
+    dhcp_from = default_range_start()
 if dhcp_to is None:
-    dhcp_to = derive_range_end()
+    dhcp_to = default_range_end()
 
 if dhcp_from > dhcp_to:
-    print(f"LAN_DHCP_FROM ({dhcp_from}) cannot exceed LAN_DHCP_TO ({dhcp_to})", file=sys.stderr)
+    print(f"DHCP_FROM ({dhcp_from}) cannot exceed DHCP_TO ({dhcp_to})", file=sys.stderr)
     sys.exit(1)
 
 def emit(name, value):
@@ -332,19 +343,23 @@ def emit(name, value):
     print(f"export {name}='{escaped}'")
 
 emit("LAN_CIDR", network.with_prefixlen)
-emit("LAN_NETWORK", str(network.network_address))
-emit("LAN_PREFIX_LEN", str(network.prefixlen))
-emit("LAN_GW_IP", str(gateway))
-emit("LAN_DHCP_FROM", str(dhcp_from))
-emit("LAN_DHCP_TO", str(dhcp_to))
+emit("LAN_NETWORK", network.network_address)
+emit("LAN_PREFIX_LEN", network.prefixlen)
+emit("CIDR_BITS", network.prefixlen)
+emit("LAN_GW_IP", gateway)
+emit("LAN_DHCP_FROM", dhcp_from)
+emit("LAN_DHCP_TO", dhcp_to)
+emit("DHCP_FROM", dhcp_from)
+emit("DHCP_TO", dhcp_to)
+emit("LAN_NETMASK", network.netmask)
 PY
-); then
-    die ${EX_CONFIG} "Failed to derive LAN network settings from ${lan_cidr}"
+  ); then
+    die ${EX_CONFIG} "Failed to derive LAN network settings from ${LAN_CIDR:-10.10.0.0/24}"
   fi
 
   eval "${python_output}"
 
-  log_debug "Derived LAN network=${LAN_NETWORK}/${LAN_PREFIX_LEN} gateway=${LAN_GW_IP} DHCP=${LAN_DHCP_FROM}-${LAN_DHCP_TO}"
+  log_debug "Derived LAN network=${LAN_NETWORK}/${LAN_PREFIX_LEN} gateway=${LAN_GW_IP} DHCP=${DHCP_FROM}-${DHCP_TO}"
 }
 
 render_config_template() {
@@ -376,9 +391,12 @@ for key in [
     "LAB_DOMAIN_BASE",
     "LAB_CLUSTER_SUB",
     "LAN_PREFIX_LEN",
+    "CIDR_BITS",
     "LAN_GW_IP",
     "LAN_DHCP_FROM",
     "LAN_DHCP_TO",
+    "DHCP_FROM",
+    "DHCP_TO",
     "METALLB_POOL_START",
     "TRAEFIK_LOCAL_IP",
     "VIP_GRAFANA",
