@@ -79,20 +79,24 @@ up: preflight core-addons apps post-check
 	@echo "Homelab bootstrap complete."
 
 preflight:
-        sudo ./pfsense/pf-config-gen.sh --env-file "$(ENV_FILE)"
-        installer_path="$$(awk -F= '
-          /^[[:space:]]*PF_SERIAL_INSTALLER_PATH[[:space:]]*=/ {
-            val=$$2
-            gsub(/^[[:space:]]+|[[:space:]]+$$/, "", val)
-            if (val != "") { print val; exit }
-          }
-          /^[[:space:]]*PF_ISO_PATH[[:space:]]*=/ {
-            val=$$2
-            gsub(/^[[:space:]]+|[[:space:]]+$$/, "", val)
-            if (val != "") { print val; exit }
-          }
-        ' "$(ENV_FILE)")"; \
-        sudo ./pfsense/pf-bootstrap.sh --env-file "$(ENV_FILE)" --headless --installation-path "$$installer_path"
+	sudo ./pfsense/pf-config-gen.sh --env-file "$(ENV_FILE)"
+	installer_path="$$(awk -F= '
+	  /^[[:space:]]*PF_SERIAL_INSTALLER_PATH[[:space:]]*=/ {
+	    val=$$2
+	    gsub(/^[[:space:]]+|[[:space:]]+$$/, "", val)
+	    if (val != "") { print val; exit }
+	  }
+	  /^[[:space:]]*PF_ISO_PATH[[:space:]]*=/ {
+	    val=$$2
+	    gsub(/^[[:space:]]+|[[:space:]]+$$/, "", val)
+	    if (val != "") { print val; exit }
+	  }
+	' "$(ENV_FILE)")"; \
+	if [ -n "$$installer_path" ]; then \
+		sudo ./pfsense/pf-bootstrap.sh --env-file "$(ENV_FILE)" --headless --installation-path "$$installer_path"; \
+	else \
+		sudo ./pfsense/pf-bootstrap.sh --env-file "$(ENV_FILE)" --headless; \
+	fi
         pf_ztp_status=0; \
         sudo ./scripts/pf-ztp.sh --env-file "$(ENV_FILE)" --vm-name "$(PF_VM_NAME)" --verbose --lenient || pf_ztp_status=$$?; \
         if [ $$pf_ztp_status -ne 0 ]; then \
