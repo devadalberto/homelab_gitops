@@ -5,6 +5,7 @@ Thumbs.db
 #
 scripts/generate_readme.sh
 homelab_vg_setup.sh
+.env.bak
 
 # Python build artifacts (if you ever add scripting)
 __pycache__/

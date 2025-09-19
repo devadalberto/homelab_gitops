@@ -119,7 +119,7 @@ retry() {
       log_warn "Attempt ${try}/${attempts} failed (exit ${status}). Retrying in ${delay}s..."
       sleep "$delay"
     fi
-    ((try++))
+    ((++try))
   done
 
   log_error "Command failed after ${attempts} attempts: $*"
