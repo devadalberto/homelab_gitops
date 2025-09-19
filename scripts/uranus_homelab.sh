@@ -31,6 +31,7 @@ DELETE_PREVIOUS=false
 ENV_FILE_OVERRIDE=""
 ENV_FILE_PATH=""
 DRY_RUN=false
+CHECK_ONLY=false
 CONTEXT_ONLY=false
 
 usage() {
@@ -45,6 +46,7 @@ Options:
   --assume-yes                  Automatically confirm prompts in child scripts.
   --delete-previous-environment Remove any existing Minikube profile before bootstrap.
   --dry-run                     Invoke child scripts in dry-run mode.
+  --check-only                  Detect pfSense drift without applying changes.
   --context-preflight           Only run context discovery via preflight script.
   --verbose                     Increase logging verbosity to debug.
   -h, --help                    Show this help message.
@@ -122,6 +124,10 @@ parse_args() {
         ;;
       --dry-run)
         DRY_RUN=true
+        shift
+        ;;
+      --check-only)
+        CHECK_ONLY=true
         shift
         ;;
       --context-preflight)
@@ -211,6 +217,48 @@ run_bootstrap() {
   run_script "Running nuke and bootstrap" "scripts/uranus_nuke_and_bootstrap.sh" "${args[@]}"
 }
 
+run_pfsense_ztp() {
+  local common_args=()
+  build_common_args common_args
+
+  local env_file
+  env_file="${ENV_FILE_PATH:-./.env}"
+
+  local pf_args=(
+    "--env-file" "${env_file}"
+    "--vm-name" "${PF_VM_NAME:-pfsense-uranus}"
+    "--verbose"
+  )
+
+  local i=0
+  while (( i < ${#common_args[@]} )); do
+    case "${common_args[i]}" in
+      --env-file)
+        ((i+=2))
+        continue
+        ;;
+      --dry-run)
+        pf_args+=("--dry-run")
+        ;;
+    esac
+    ((i++))
+  done
+
+  if [[ ${CHECK_ONLY} == true ]]; then
+    pf_args+=("--check-only")
+  fi
+
+  local cmd=(sudo ./scripts/pf-ztp.sh "${pf_args[@]}")
+
+  log_info "Running pfSense zero-touch provisioning"
+  log_debug "Invoking: $(format_command "${cmd[@]}")"
+
+  if ! (cd "${REPO_ROOT}" && "${cmd[@]}"); then
+    local status=$?
+    die "${status}" "scripts/pf-ztp.sh failed with exit ${status}"
+  fi
+}
+
 run_core_addons() {
   local args=()
   build_common_args args
@@ -233,6 +281,7 @@ main() {
     return
   fi
 
+  run_pfsense_ztp
   run_bootstrap
   run_core_addons
   run_applications
