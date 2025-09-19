@@ -48,7 +48,10 @@ PF_WAN_BRIDGE="${PF_WAN_BRIDGE:-}"
 PF_LAN_LINK="${PF_LAN_LINK:-}"
 PF_LAN_BRIDGE="${PF_LAN_BRIDGE:-}"
 HOMELAB_EDGE_GATEWAY="${HOMELAB_EDGE_GATEWAY:-192.168.88.12}"
-PF_FORCE_E1000="${PF_FORCE_E1000:-true}"
+# NIC model control:
+#   true  -> force change to e1000 (default was true)
+#   false -> leave interfaces as virtio
+PF_FORCE_E1000="${PF_FORCE_E1000:-false}"
 
 TMP_DIR=""
 USB_MOUNT_DIR=""
