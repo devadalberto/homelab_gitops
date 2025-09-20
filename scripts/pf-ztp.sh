@@ -1338,7 +1338,7 @@ ensure_bridge_ipv4() {
     return
   fi
 
-  if pf_lan_temp_addr_ensure "${PF_LAN_BRIDGE:-}" "${LAN_VALIDATION_IP}" "${LAN_PREFIX}" "${LAN_NETWORK}"; then
+  if pf_lan_temp_addr_ensure "${PF_LAN_BRIDGE:-}" "${LAN_VALIDATION_IP:-}" "${LAN_PREFIX:-}" "${LAN_NETWORK}"; then
     if [[ ${PF_LAN_TEMP_ADDR_ADDED} == true ]]; then
       BRIDGE_IP_TEMP_ADDED=true
       BRIDGE_TEMP_CIDR=${PF_LAN_TEMP_ADDR_CIDR}
@@ -1346,9 +1346,29 @@ ensure_bridge_ipv4() {
       BRIDGE_IP_TEMP_ADDED=false
       BRIDGE_TEMP_CIDR=""
     fi
-  else
-    log_info "Assigning temporary ${cidr} to ${bridge} for connectivity checks"
+    return
   fi
+
+  local bridge="${PF_LAN_BRIDGE:-}"
+  local fallback_ip="${LAN_VALIDATION_IP:-}"
+  local fallback_prefix="${LAN_PREFIX:-}"
+  local cidr=""
+
+  if [[ -n ${fallback_ip} && -n ${fallback_prefix} ]]; then
+    cidr="${fallback_ip}/${fallback_prefix}"
+  fi
+
+  if [[ -z ${bridge} ]]; then
+    log_warn "Unable to determine LAN bridge; skipping manual temporary address assignment"
+    return
+  fi
+
+  if [[ -z ${cidr} ]]; then
+    log_warn "Missing LAN validation IPv4 address or prefix; skipping manual temporary assignment on ${bridge}"
+    return
+  fi
+
+  log_info "Assigning temporary ${cidr} to ${bridge} for connectivity checks"
   if ip addr add "${cidr}" dev "${bridge}" >/dev/null 2>&1; then
     register_bridge_temp_cidr "${cidr}"
   else
