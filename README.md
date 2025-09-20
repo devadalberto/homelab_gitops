@@ -77,8 +77,9 @@ so pfSense, Minikube, and Flux start from a known-good foundation.
      manually.
 
 5. **Download pfSense installation media.**
-   - Fetch the pfSense CE serial image (`netgate-installer-amd64-serial.iso.gz`) from Netgate and note its absolute path. The
-     serial build avoids a VNC dependency and matches the defaults baked into `pfsense/pf-bootstrap.sh`.
+   - Fetch the pfSense CE serial image (`netgate-installer-amd64-serial.img.gz`) from Netgate and note its absolute path. The
+     serial build avoids a VNC dependency, aligns with the default headless console configuration, and matches the defaults baked
+     into `pfsense/pf-bootstrap.sh`.
    - If you must use the VGA build, populate `PF_ISO_PATH` in `.env` and supply `--no-headless` when invoking `pf-bootstrap.sh`.
 
 6. **Create and populate `.env`.**
@@ -191,8 +192,9 @@ platform from a bare host to a reconciled Flux cluster without bouncing between 
    virsh start "${VM_NAME}"
    virsh console "${VM_NAME}"
    ```
-   - `PF_SERIAL_INSTALLER_PATH` should point at the downloaded `netgate-installer-amd64-serial.iso.gz`; set `PF_ISO_PATH` if you
-     must use the VGA ISO and pass `--no-headless` or export `PF_HEADLESS=false` to re-enable VNC access.
+   - `PF_SERIAL_INSTALLER_PATH` should point at the downloaded `netgate-installer-amd64-serial.img.gz`; set `PF_ISO_PATH` if you
+     must use the VGA image (`netgate-installer-amd64.img.gz`) and pass `--no-headless` or export `PF_HEADLESS=false` to
+     re-enable VNC access.
    - The bootstrapper relies on `.env` for VM sizing (`VCPUS`, `RAM_MB`, `DISK_SIZE_GB`), naming (`VM_NAME`), storage (`WORK_ROOT`),
      and network placement (`WAN_MODE`, `WAN_NIC`). It will decompress the installer if needed and guarantee the generated
      `pfSense-config.iso` remains attached on the secondary CD-ROM.
