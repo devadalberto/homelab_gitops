@@ -37,7 +37,7 @@ HEADLESS=${PF_HEADLESS:-true}
 WORK_ROOT_DEFAULT="/opt/homelab"
 IMAGES_DIR_DEFAULT="/var/lib/libvirt/images"
 LAN_NET_NAME_DEFAULT="pfsense-lan"
-LAN_BRIDGE_DEFAULT="virbr-lan"
+LAN_BRIDGE_DEFAULT="pfsense-lan"
 ISO_CMD=""
 
 PF_WORK=""
@@ -410,13 +410,56 @@ ensure_directories() {
 }
 
 ensure_libvirt_network() {
+  local net_xml="${PF_WORK}/${LAN_NET_NAME}.xml"
+
   if virsh net-info "${LAN_NET_NAME}" &>/dev/null; then
-    log_info "Libvirt network '${LAN_NET_NAME}' exists."
-    return
+    local existing_bridge=""
+    local existing_mode=""
+    existing_bridge=$(virsh net-dumpxml "${LAN_NET_NAME}" 2>/dev/null |
+      sed -n "s/.*<bridge[^>]*name='\([^']*\)'.*/\1/p" | head -n1)
+    existing_mode=$(virsh net-dumpxml "${LAN_NET_NAME}" 2>/dev/null |
+      sed -n "s/.*<forward[^>]*mode='\([^']*\)'.*/\1/p" | head -n1)
+
+    local -a mismatch=()
+    if [[ -z ${existing_bridge} ]]; then
+      mismatch+=("bridge not specified")
+    elif [[ ${existing_bridge} != "${LAN_BRIDGE}" ]]; then
+      mismatch+=("bridge ${existing_bridge} != ${LAN_BRIDGE}")
+    fi
+
+    if [[ -z ${existing_mode} ]]; then
+      mismatch+=("forward mode missing")
+    elif [[ ${existing_mode} != "bridge" ]]; then
+      mismatch+=("forward mode ${existing_mode}")
+    fi
+
+    if (( ${#mismatch[@]} == 0 )); then
+      local bridge_display="${existing_bridge:-${LAN_BRIDGE}}"
+      log_info "Libvirt network '${LAN_NET_NAME}' already targets bridge '${bridge_display}'."
+      return
+    fi
+
+    local mismatch_note
+    mismatch_note=$(printf '%s; ' "${mismatch[@]}")
+    mismatch_note=${mismatch_note%; }
+    log_warn "Recreating libvirt network '${LAN_NET_NAME}' (${mismatch_note})."
+
+    if [[ ${DRY_RUN} == true ]]; then
+      log_info "[DRY-RUN] virsh net-destroy ${LAN_NET_NAME} (if active)"
+      log_info "[DRY-RUN] virsh net-undefine ${LAN_NET_NAME}"
+    else
+      local active_state
+      active_state=$(virsh net-info "${LAN_NET_NAME}" 2>/dev/null | awk -F': +' '/Active/ {print $2}')
+      if [[ ${active_state} == "yes" ]]; then
+        run_cmd virsh net-destroy "${LAN_NET_NAME}"
+      fi
+      run_cmd virsh net-undefine "${LAN_NET_NAME}"
+    fi
+  else
+    log_info "Libvirt network '${LAN_NET_NAME}' is not defined; creating it."
   fi
 
-  local net_xml="${PF_WORK}/${LAN_NET_NAME}.xml"
-  log_info "Defining libvirt network ${LAN_NET_NAME}"
+  log_info "Defining libvirt network ${LAN_NET_NAME} on bridge ${LAN_BRIDGE}"
 
   if [[ ${DRY_RUN} == true ]]; then
     log_info "[DRY-RUN] Would write network definition to ${net_xml}"
@@ -429,12 +472,15 @@ ensure_libvirt_network() {
   cat >"${net_xml}" <<EOF
 <network>
   <name>${LAN_NET_NAME}</name>
-  <bridge name='${LAN_BRIDGE}' stp='on' delay='0'/>
   <forward mode='bridge'/>
+  <bridge name='${LAN_BRIDGE}'/>
 </network>
 EOF
   run_cmd virsh net-define "${net_xml}"
   run_cmd virsh net-autostart "${LAN_NET_NAME}"
+  if command -v ip >/dev/null 2>&1 && ! ip link show dev "${LAN_BRIDGE}" >/dev/null 2>&1; then
+    log_warn "Host bridge '${LAN_BRIDGE}' not found; ensure it exists before starting ${LAN_NET_NAME}."
+  fi
   run_cmd virsh net-start "${LAN_NET_NAME}"
 }
 

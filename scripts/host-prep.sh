@@ -29,6 +29,9 @@ readonly EX_CONFIG=78
 DRY_RUN=false
 CONTEXT_ONLY=false
 ENV_FILE_OVERRIDE=""
+RESOLVED_PF_LAN_LINK_KIND=""
+RESOLVED_PF_LAN_LINK_NAME=""
+PF_LAN_BRIDGE_EFFECTIVE=""
 
 usage() {
   cat <<'USAGE'
@@ -201,6 +204,105 @@ join_packages() {
   printf '%s' "${joined}"
 }
 
+resolve_pf_lan_settings() {
+  local default_bridge="pfsense-lan"
+  RESOLVED_PF_LAN_LINK_KIND="bridge"
+  RESOLVED_PF_LAN_LINK_NAME=""
+  PF_LAN_BRIDGE_EFFECTIVE=""
+
+  local raw_link="${PF_LAN_LINK:-}"
+  if [[ -z ${raw_link} ]]; then
+    if [[ -n ${PF_LAN_BRIDGE:-} ]]; then
+      RESOLVED_PF_LAN_LINK_NAME="${PF_LAN_BRIDGE}"
+    else
+      RESOLVED_PF_LAN_LINK_NAME="${default_bridge}"
+    fi
+  else
+    if [[ ${raw_link} == *:* ]]; then
+      RESOLVED_PF_LAN_LINK_KIND="${raw_link%%:*}"
+      RESOLVED_PF_LAN_LINK_NAME="${raw_link#*:}"
+    else
+      RESOLVED_PF_LAN_LINK_KIND="bridge"
+      RESOLVED_PF_LAN_LINK_NAME="${raw_link}"
+    fi
+  fi
+
+  if [[ -z ${RESOLVED_PF_LAN_LINK_NAME} ]]; then
+    RESOLVED_PF_LAN_LINK_NAME="${default_bridge}"
+  fi
+
+  if [[ ${RESOLVED_PF_LAN_LINK_KIND} == "bridge" ]]; then
+    if [[ -n ${PF_LAN_BRIDGE:-} ]]; then
+      PF_LAN_BRIDGE_EFFECTIVE="${PF_LAN_BRIDGE}"
+    else
+      PF_LAN_BRIDGE_EFFECTIVE="${RESOLVED_PF_LAN_LINK_NAME}"
+    fi
+  else
+    PF_LAN_BRIDGE_EFFECTIVE="${PF_LAN_BRIDGE:-}"
+  fi
+}
+
+check_pf_lan_alignment() {
+  local fatal=${1:-true}
+  local mismatch=0
+
+  if [[ ${RESOLVED_PF_LAN_LINK_KIND} == "bridge" ]]; then
+    if [[ -z ${RESOLVED_PF_LAN_LINK_NAME} ]]; then
+      log_error "PF_LAN_LINK must specify a bridge name (for example bridge:${PF_LAN_BRIDGE_EFFECTIVE:-pfsense-lan})."
+      mismatch=1
+    elif [[ -n ${PF_LAN_BRIDGE:-} && ${PF_LAN_BRIDGE} != "${RESOLVED_PF_LAN_LINK_NAME}" ]]; then
+      log_error "PF_LAN_BRIDGE (${PF_LAN_BRIDGE}) must match the bridge referenced by PF_LAN_LINK (${RESOLVED_PF_LAN_LINK_NAME}). Update .env to keep the values in sync."
+      mismatch=1
+    fi
+  fi
+
+  if (( mismatch != 0 )); then
+    if [[ ${fatal} == true ]]; then
+      die ${EX_CONFIG} "PF_LAN_BRIDGE and PF_LAN_LINK must reference the same bridge (expected ${RESOLVED_PF_LAN_LINK_NAME})."
+    fi
+    return 1
+  fi
+  return 0
+}
+
+check_pf_installer() {
+  local fatal=${1:-true}
+  local path="${PF_SERIAL_INSTALLER_PATH:-}"
+  local errors=0
+
+  if [[ -z ${path} ]]; then
+    log_error "PF_SERIAL_INSTALLER_PATH is unset."
+    errors=1
+  elif [[ ! -f ${path} ]]; then
+    log_error "pfSense serial installer not found at ${path}."
+    errors=1
+  else
+    case "${path}" in
+      *.iso|*.iso.gz|*.img|*.img.gz) ;;
+      *)
+        log_error "pfSense installer must be a .img/.img.gz or .iso/.iso.gz archive (got ${path})."
+        errors=1
+        ;;
+    esac
+    local lower_path="${path,,}"
+    if [[ ${lower_path} != *serial* ]]; then
+      log_error "Installer at ${path} does not appear to be the serial build required for headless installs. Download the serial image or set PF_HEADLESS=false and provide PF_ISO_PATH for the VGA build."
+      errors=1
+    fi
+  fi
+
+  if (( errors != 0 )); then
+    log_info "Download the pfSense CE serial installer from https://www.pfsense.org/download/ and update PF_SERIAL_INSTALLER_PATH in .env."
+    if [[ ${fatal} == true ]]; then
+      die ${EX_CONFIG} "pfSense serial installer not ready"
+    fi
+    return 1
+  fi
+
+  log_info "pfSense serial installer detected at ${path}"
+  return 0
+}
+
 context_preflight() {
   log_info "Running host context preflight"
   need apt-get systemctl || die ${EX_UNAVAILABLE} "Required host utilities are missing"
@@ -246,6 +348,31 @@ context_preflight() {
     log_info "sops is available"
   else
     log_warn "sops not detected"
+  fi
+
+  log_info "pfSense LAN link target: ${RESOLVED_PF_LAN_LINK_KIND}:${RESOLVED_PF_LAN_LINK_NAME}"
+  if [[ ${RESOLVED_PF_LAN_LINK_KIND} == "bridge" ]]; then
+    if [[ -n ${PF_LAN_BRIDGE_EFFECTIVE:-} ]]; then
+      if command -v ip >/dev/null 2>&1 && ip link show dev "${PF_LAN_BRIDGE_EFFECTIVE}" >/dev/null 2>&1; then
+        log_info "Bridge ${PF_LAN_BRIDGE_EFFECTIVE} detected"
+      else
+        log_warn "Bridge ${PF_LAN_BRIDGE_EFFECTIVE} not found; host-prep will create it automatically if needed."
+      fi
+    else
+      log_warn "PF_LAN_BRIDGE is empty; update .env so the pfSense LAN wiring is unambiguous."
+    fi
+  else
+    log_info "PF_LAN_LINK uses '${RESOLVED_PF_LAN_LINK_KIND}' and will not trigger automatic bridge creation."
+  fi
+
+  if [[ -n ${PF_SERIAL_INSTALLER_PATH:-} ]]; then
+    if [[ -f ${PF_SERIAL_INSTALLER_PATH} ]]; then
+      log_info "pfSense serial installer path: ${PF_SERIAL_INSTALLER_PATH}"
+    else
+      log_warn "pfSense serial installer not found at ${PF_SERIAL_INSTALLER_PATH}"
+    fi
+  else
+    log_warn "PF_SERIAL_INSTALLER_PATH is unset; set it to the downloaded netgate-installer-amd64-serial archive."
   fi
 }
 
@@ -419,15 +546,56 @@ configure_helm_repos() {
   ensure_helm_repo prometheus-community https://prometheus-community.github.io/helm-charts
 }
 
+ensure_lan_bridge_interface() {
+  if [[ ${RESOLVED_PF_LAN_LINK_KIND} != "bridge" ]]; then
+    log_debug "PF_LAN_LINK uses '${RESOLVED_PF_LAN_LINK_KIND}'; skipping automatic bridge creation"
+    return
+  fi
+
+  local bridge="${PF_LAN_BRIDGE_EFFECTIVE:-}"
+  if [[ -z ${bridge} ]]; then
+    log_warn "PF_LAN_BRIDGE is empty; skipping automatic LAN bridge creation."
+    return
+  fi
+
+  if command -v ip >/dev/null 2>&1 && ip link show dev "${bridge}" >/dev/null 2>&1; then
+    log_info "pfSense LAN bridge ${bridge} already exists"
+    return
+  fi
+
+  log_info "Creating Linux bridge ${bridge} for the pfSense LAN network"
+  need ip || die ${EX_UNAVAILABLE} "ip command is required to manage ${bridge}"
+
+  if [[ ${DRY_RUN} == true ]]; then
+    log_info "[DRY-RUN] ip link add name ${bridge} type bridge"
+    log_info "[DRY-RUN] ip link set ${bridge} up"
+    return
+  fi
+
+  run_cmd ip link add name "${bridge}" type bridge
+  run_cmd ip link set "${bridge}" up
+}
+
 main() {
   parse_args "$@"
   load_environment
   gather_defaults
 
+  resolve_pf_lan_settings
+
   if [[ ${CONTEXT_ONLY} == true ]]; then
+    local pf_errors=0
+    check_pf_lan_alignment false || pf_errors=1
+    check_pf_installer false || pf_errors=1
     context_preflight
+    if (( pf_errors != 0 )); then
+      exit ${EX_CONFIG}
+    fi
     return
   fi
+
+  check_pf_lan_alignment true
+  check_pf_installer true
 
   install_packages
   configure_libvirt
@@ -437,6 +605,7 @@ main() {
   install_minikube
   install_sops
   configure_helm_repos
+  ensure_lan_bridge_interface
   log_info "Host preparation completed"
 }
 

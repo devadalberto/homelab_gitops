@@ -29,5 +29,5 @@
 8. Collect additional diagnostics with `sudo ./scripts/diag-pfsense.sh` if available.
 
 ## Notes
-- Keep `.env` aligned with virtio defaults (`PF_FORCE_E1000=false`) and the intended LAN link (`PF_LAN_LINK=bridge:virbr-lan`).
+- Keep `.env` aligned with virtio defaults (`PF_FORCE_E1000=false`) and the intended LAN link (`PF_LAN_LINK=bridge:pfsense-lan`).
 - Generate the pfSense configuration (`pf-config-gen.sh`) before running ZTP so `/opt/homelab/pfsense/config/config.xml` exists.
