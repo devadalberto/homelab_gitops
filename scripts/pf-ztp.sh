@@ -1374,8 +1374,6 @@ cleanup_bridge_ip() {
   for cidr in "${BRIDGE_TEMP_CIDRS[@]}"; do
     ip addr del "${cidr}" dev "${PF_LAN_BRIDGE}" >/dev/null 2>&1 || log_warn "Failed to remove temporary IP ${cidr} from ${PF_LAN_BRIDGE}"
   done
-}
-
   BRIDGE_IP_TEMP_ADDED=false
   BRIDGE_TEMP_CIDRS=()
 }
