@@ -643,7 +643,10 @@ main() {
   ensure_config_assets
 
   local installer
-  installer=$(discover_installer_path) || die ${EX_CONFIG} "Unable to locate pfSense installer. Provide --installation-path or set PF_SERIAL_INSTALLER_PATH/PF_ISO_PATH/PF_INSTALLER_DIR."
+  if ! installer=$(discover_installer_path); then
+    log_warn "No pfSense installer detected. Set PF_SERIAL_INSTALLER_PATH to the downloaded archive or rename it to match the expected netgate-installer-amd64-serial image."
+    die ${EX_CONFIG} "Unable to locate pfSense installer. Provide --installation-path or set PF_SERIAL_INSTALLER_PATH/PF_ISO_PATH/PF_INSTALLER_DIR."
+  fi
   log_info "Using pfSense installer at ${installer}"
   stage_installer_media "${installer}"
 

@@ -80,6 +80,9 @@ so pfSense, Minikube, and Flux start from a known-good foundation.
    - Fetch the pfSense CE serial image (`netgate-installer-amd64-serial.img.gz`) from Netgate and note its absolute path. The
      serial build avoids a VNC dependency, aligns with the default headless console configuration, and matches the defaults baked
      into `pfsense/pf-bootstrap.sh`.
+   - If the downloaded archive does not already match `netgate-installer-amd64-serial.img.gz`, either rename it or set
+     `PF_SERIAL_INSTALLER_PATH` in `.env` to the exact filename you downloaded. The automation accepts the `.img.gz` archive as is
+     (decompression to `.img` is optional—update the path if you extract it).
    - If you must use the VGA build, populate `PF_ISO_PATH` in `.env` and supply `--no-headless` when invoking `pf-bootstrap.sh`.
 
 6. **Create and populate `.env`.**
@@ -170,7 +173,9 @@ platform from a bare host to a reconciled Flux cluster without bouncing between 
    ```
    - Populate `.env` with your domain, LAN addressing, MetalLB pool, and pfSense installer details. Critical variables consumed
      by downstream scripts include `PF_SERIAL_INSTALLER_PATH` (or `PF_ISO_PATH` for the VGA build), `PF_HEADLESS`, `WORK_ROOT`,
-     `VM_NAME`, `DISK_SIZE_GB`, `RAM_MB`, `VCPUS`, `WAN_MODE`, and `WAN_NIC`.
+     `VM_NAME`, `DISK_SIZE_GB`, `RAM_MB`, `VCPUS`, `WAN_MODE`, and `WAN_NIC`. If your downloaded installer uses a different
+     filename, either rename it to `netgate-installer-amd64-serial.img.gz` or set `PF_SERIAL_INSTALLER_PATH` directly. You may
+     leave the `.img.gz` archive compressed (or extract it to `.img` and update the path accordingly).
    - `scripts/host-prep.sh` installs libvirt/KVM, Docker, Minikube, kubectl, helm, sops, and related tooling while enabling the
      `libvirtd` and `docker` services. Run it with sudo on Debian/Ubuntu hosts or replicate the package list manually on other
      distributions.
@@ -192,9 +197,9 @@ platform from a bare host to a reconciled Flux cluster without bouncing between 
    virsh start "${VM_NAME}"
    virsh console "${VM_NAME}"
    ```
-   - `PF_SERIAL_INSTALLER_PATH` should point at the downloaded `netgate-installer-amd64-serial.img.gz`; set `PF_ISO_PATH` if you
-     must use the VGA image (`netgate-installer-amd64.img.gz`) and pass `--no-headless` or export `PF_HEADLESS=false` to
-     re-enable VNC access.
+   - `PF_SERIAL_INSTALLER_PATH` should reference the pfSense serial installer you downloaded. Rename the archive to
+     `netgate-installer-amd64-serial.img.gz` or update `.env` with the actual filename (compressed `.img.gz` and `.iso.gz`
+     archives work without manual extraction, though you can extract to `.img` if preferred).
    - The bootstrapper relies on `.env` for VM sizing (`VCPUS`, `RAM_MB`, `DISK_SIZE_GB`), naming (`VM_NAME`), storage (`WORK_ROOT`),
      and network placement (`WAN_MODE`, `WAN_NIC`). It will decompress the installer if needed and guarantee the generated
      `pfSense-config.iso` remains attached on the secondary CD-ROM.
@@ -604,4 +609,5 @@ Keeping pfSense and MetalLB synchronized avoids overlapping leases and ensures D
 └── README.md                   # This document
 ```
 
-Additional documentation lives in `docs/`, including release notes (`docs/CHANGELOG.md`).
+Additional documentation lives in `docs/`, including release notes (`docs/CHANGELOG.md`). Run `make docs` to generate the MkDocs
+site and Mermaid diagrams in one pass (the `docs` target renders both via MkDocs and the Mermaid CLI helpers).
