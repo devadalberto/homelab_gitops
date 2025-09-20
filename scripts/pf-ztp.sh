@@ -1079,6 +1079,11 @@ rewire_lan_interface() {
   local target=""
   local mac=""
   local detach_type=""
+  local domain_active=false
+
+  if [[ -n ${DOMAIN_STATE} && ${DOMAIN_STATE} != "shut off" && ${DOMAIN_STATE} != "pmsuspended" ]]; then
+    domain_active=true
+  fi
 
   if [[ -n ${idx} ]]; then
     target=$(json_extract "interfaces[${idx}].target")
@@ -1101,6 +1106,17 @@ rewire_lan_interface() {
     return 0
   fi
 
+  local -a detach_flags=()
+  local -a attach_flags=()
+
+  if [[ ${domain_active} == true ]]; then
+    detach_flags+=("--live")
+    attach_flags+=("--live")
+  fi
+
+  detach_flags+=("--config")
+  attach_flags+=("--config")
+
   local detached=false
   local -a candidate_types=()
   if [[ -n ${detach_type} ]]; then
@@ -1112,7 +1128,12 @@ rewire_lan_interface() {
     if [[ -z ${dtype} ]]; then
       continue
     fi
-    if virsh detach-interface "${VM_NAME}" --type "${dtype}" --current --live --config ${mac:+--mac "${mac}"} >/dev/null 2>&1; then
+    local -a detach_cmd=(virsh detach-interface "${VM_NAME}" --type "${dtype}")
+    detach_cmd+=("${detach_flags[@]}")
+    if [[ -n ${mac} ]]; then
+      detach_cmd+=("--mac" "${mac}")
+    fi
+    if "${detach_cmd[@]}" >/dev/null 2>&1; then
       detached=true
       break
     fi
@@ -1139,7 +1160,7 @@ rewire_lan_interface() {
   if [[ -n ${mac} ]]; then
     attach_cmd+=("--mac" "${mac}")
   fi
-  attach_cmd+=("--current" "--live" "--config")
+  attach_cmd+=("${attach_flags[@]}")
 
   if ! "${attach_cmd[@]}" >/dev/null 2>&1; then
     return 1
