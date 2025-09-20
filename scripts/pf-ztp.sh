@@ -1355,17 +1355,19 @@ ensure_bridge_ipv4() {
     log_debug "Skipping host bridge IP assignment in dry-run/check mode"
     pf_lan_temp_addr_reset
     BRIDGE_IP_TEMP_ADDED=false
-    BRIDGE_TEMP_CIDR=""
     return
   fi
 
   if pf_lan_temp_addr_ensure "${PF_LAN_BRIDGE:-}" "${LAN_VALIDATION_IP:-}" "${LAN_PREFIX:-}" "${LAN_NETWORK}"; then
     if [[ ${PF_LAN_TEMP_ADDR_ADDED} == true ]]; then
+      if [[ -n ${PF_LAN_TEMP_ADDR_CIDR:-} ]]; then
+        register_bridge_temp_cidr "${PF_LAN_TEMP_ADDR_CIDR}"
+      else
+        log_warn "Temporary LAN CIDR not set after assignment; skipping registration"
+      fi
       BRIDGE_IP_TEMP_ADDED=true
-      BRIDGE_TEMP_CIDR=${PF_LAN_TEMP_ADDR_CIDR}
     else
       BRIDGE_IP_TEMP_ADDED=false
-      BRIDGE_TEMP_CIDR=""
     fi
     return
   fi
