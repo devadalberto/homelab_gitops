@@ -12,8 +12,9 @@
       <protocol>https</protocol>
     </webgui>
     <ssh>
-      <enable>enabled</enable>
+      <enabled>enabled</enabled>
       <port>22</port>
+      <permitrootlogin>enabled</permitrootlogin>
     </ssh>
   </system>
   <interfaces>
