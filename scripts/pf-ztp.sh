@@ -54,7 +54,7 @@ ROLLBACK=false
 LENIENT=false
 
 PF_WAN_BRIDGE="${PF_WAN_BRIDGE:-}"
-# Preferred way: PF_LAN_LINK specifies both kind and name (bridge:virbr-lan or network:pfsense-lan)
+# Preferred way: PF_LAN_LINK specifies both kind and name (bridge:pfsense-lan or network:pfsense-lan)
 PF_LAN_LINK="${PF_LAN_LINK:-}"
 PF_LAN_BRIDGE="${PF_LAN_BRIDGE:-}"
 HOMELAB_EDGE_GATEWAY="${HOMELAB_EDGE_GATEWAY:-192.168.88.12}"
@@ -182,7 +182,7 @@ get_lan_link_name() {
     return 0
   fi
   if [[ -z ${link} ]]; then
-    printf "%s" "virbr-lan"
+    printf "%s" "pfsense-lan"
     return 0
   fi
   if [[ ${link} == *:* ]]; then

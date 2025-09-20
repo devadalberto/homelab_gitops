@@ -15,7 +15,7 @@ fi
 
 VM="${1:-pfsense-uranus}"
 
-DEFAULT_LAN_BRIDGE="virbr-lan"
+DEFAULT_LAN_BRIDGE="pfsense-lan"
 LAN_ALIAS_IP="192.168.1.2"
 LAN_PREFIX="24"
 LAN_NETWORK="192.168.1.0"
