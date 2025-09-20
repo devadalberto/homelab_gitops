@@ -16,7 +16,7 @@ The `make up` target first runs `scripts/preflight_and_bootstrap.sh` in prefligh
 
 If you chose `br0`, the host will reboot once, then resume automatically:
 - pfSense VM defined with the `pfSense_config` ISO attached so first boot auto-imports `/opt/homelab/pfsense/config/config.xml`.
-- `make all` brings up Minikube + MetalLB + Traefik + cert-manager + Postgres + backups + AWX + Observability + Django + Flux.
+- `make up` orchestrates Minikube, MetalLB, Traefik, cert-manager, Postgres, backups, AWX, Observability, Django, and Flux end-to-end.
 
 A deeper walk-through of every subsystem, bootstrap dependency, and GitOps controller can be found in the [Architecture](architecture.md) guide. That page also includes Mermaid sequence/state diagrams that are rendered as part of the documentation build.
 
