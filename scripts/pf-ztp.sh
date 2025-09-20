@@ -51,6 +51,7 @@ DRY_RUN=false
 CHECK_ONLY=false
 VERBOSE=false
 ROLLBACK=false
+LENIENT=false
 
 PF_WAN_BRIDGE="${PF_WAN_BRIDGE:-}"
 # Preferred way: PF_LAN_LINK specifies both kind and name (bridge:virbr-lan or network:pfsense-lan)
@@ -86,13 +87,15 @@ LAN_PROBE_IP=""
 LAN_NETMASK=""
 LAN_VALIDATION_IP=""
 BRIDGE_IP_TEMP_ADDED=false
-BRIDGE_TEMP_CIDR=""
+BRIDGE_CLEANUP_TRAP_INSTALLED=false
+declare -a BRIDGE_TEMP_CIDRS=()
 
 LAN_LINK_KIND=""
 LAN_LINK_NAME=""
 
 REBOOT_MARK_DIR="/run/pf-ztp"
 REBOOT_MARK_FILE=""
+LENIENT_MARK_FILE=""
 
 # shellcheck disable=SC2317
 usage() {
@@ -109,6 +112,7 @@ Options:
   --dry-run          Log intended actions without mutating the host or VM.
   --check-only       Detect drift without making changes; implies --dry-run.
   --verbose          Increase log verbosity (debug output).
+  --lenient          Treat the first connectivity failure as a warning (exit 0).
   --rollback         Restore the most recent domain XML backup and exit.
   -h, --help         Show this help message.
 
@@ -250,6 +254,10 @@ parse_args() {
         ;;
       --verbose)
         VERBOSE=true
+        shift
+        ;;
+      --lenient)
+        LENIENT=true
         shift
         ;;
       --rollback)
@@ -1294,6 +1302,33 @@ inspect_interfaces() {
   fi
 }
 
+register_bridge_temp_cidr() {
+  local cidr=${1:-}
+  if [[ -z ${cidr} ]]; then
+    return 1
+  fi
+
+  BRIDGE_IP_TEMP_ADDED=true
+
+  local existing
+  for existing in "${BRIDGE_TEMP_CIDRS[@]}"; do
+    if [[ ${existing} == "${cidr}" ]]; then
+      return 0
+    fi
+  done
+
+  BRIDGE_TEMP_CIDRS+=("${cidr}")
+  return 0
+}
+
+ensure_bridge_cleanup_trap() {
+  if [[ ${BRIDGE_CLEANUP_TRAP_INSTALLED} == true ]]; then
+    return
+  fi
+  trap_add cleanup_bridge_ip EXIT INT TERM
+  BRIDGE_CLEANUP_TRAP_INSTALLED=true
+}
+
 ensure_bridge_ipv4() {
   if [[ ${CHECK_ONLY} == true || ${DRY_RUN} == true ]]; then
     log_debug "Skipping host bridge IP assignment in dry-run/check mode"
@@ -1312,15 +1347,37 @@ ensure_bridge_ipv4() {
       BRIDGE_TEMP_CIDR=""
     fi
   else
-    BRIDGE_IP_TEMP_ADDED=false
-    BRIDGE_TEMP_CIDR=""
+    log_info "Assigning temporary ${cidr} to ${bridge} for connectivity checks"
+  fi
+  if ip addr add "${cidr}" dev "${bridge}" >/dev/null 2>&1; then
+    register_bridge_temp_cidr "${cidr}"
+  else
+    log_warn "Unable to assign ${cidr} to ${bridge}; connectivity checks may fail"
   fi
 }
 
 cleanup_bridge_ip() {
-  pf_lan_temp_addr_cleanup || true
+  if [[ ${BRIDGE_IP_TEMP_ADDED} != true ]]; then
+    return
+  fi
+  if ! command -v ip >/dev/null 2>&1; then
+    return
+  fi
+  if [[ -z ${PF_LAN_BRIDGE:-} ]]; then
+    return
+  fi
+  if [[ ${#BRIDGE_TEMP_CIDRS[@]} -eq 0 ]]; then
+    BRIDGE_IP_TEMP_ADDED=false
+    return
+  fi
+  local cidr
+  for cidr in "${BRIDGE_TEMP_CIDRS[@]}"; do
+    ip addr del "${cidr}" dev "${PF_LAN_BRIDGE}" >/dev/null 2>&1 || log_warn "Failed to remove temporary IP ${cidr} from ${PF_LAN_BRIDGE}"
+  done
+}
+
   BRIDGE_IP_TEMP_ADDED=false
-  BRIDGE_TEMP_CIDR=""
+  BRIDGE_TEMP_CIDRS=()
 }
 
 reboot_vm() {
@@ -1356,11 +1413,43 @@ probe_default_lan_gateway() {
   if [[ ${LAN_GW_IP} == "${fallback_ip}" ]]; then
     return
   fi
+  local alias_cidr="192.168.1.2/24"
+  local bridge="${PF_LAN_BRIDGE:-}"
+  local alias_ready=false
+
+  if [[ -n ${bridge} && ${CHECK_ONLY} != true && ${DRY_RUN} != true ]]; then
+    if command -v ip >/dev/null 2>&1; then
+      local current_cidrs=""
+      current_cidrs=$(ip -o -4 addr show dev "${bridge}" 2>/dev/null | awk '{print $4}' || true)
+      if [[ -n ${current_cidrs} ]] && grep -qxF "${alias_cidr}" <<<"${current_cidrs}"; then
+        log_debug "Bridge ${bridge} already has ${alias_cidr}; reusing for legacy gateway probe"
+        if register_bridge_temp_cidr "${alias_cidr}"; then
+          alias_ready=true
+        fi
+      elif ip addr add "${alias_cidr}" dev "${bridge}" >/dev/null 2>&1; then
+        log_debug "Assigned temporary ${alias_cidr} to ${bridge} for legacy gateway probe"
+        if register_bridge_temp_cidr "${alias_cidr}"; then
+          alias_ready=true
+        fi
+      else
+        log_warn "Unable to assign ${alias_cidr} to ${bridge}; legacy gateway probe may be unreliable"
+      fi
+    else
+      log_warn "ip command not available; cannot assign ${alias_cidr} to ${bridge} for legacy gateway probe"
+    fi
+  elif [[ -z ${bridge} ]]; then
+    log_warn "Unable to determine LAN bridge; skipping temporary ${alias_cidr} assignment for legacy gateway probe"
+  fi
+
+  if [[ ${alias_ready} == true ]]; then
+    ensure_bridge_cleanup_trap
+  fi
+
   if ping -c 1 -W 2 "${fallback_ip}" >/dev/null 2>&1; then
     log_warn "pfSense responded at legacy default ${fallback_ip}; configuration import likely failed."
-    if curl -kIs --connect-timeout 3 --max-time 5 "https://${fallback_ip}/" >/dev/null 2>&1; then
-      log_warn "HTTPS probe to ${fallback_ip} succeeded; USB bootstrap may not have applied."
-    fi
+  fi
+  if curl -kIs --connect-timeout 3 --max-time 5 "https://${fallback_ip}/" >/dev/null 2>&1; then
+    log_warn "HTTPS probe to ${fallback_ip} succeeded; USB bootstrap may not have applied."
   fi
 }
 
@@ -1378,15 +1467,15 @@ verify_connectivity() {
     return
   fi
   ensure_bridge_ipv4
-  trap_add cleanup_bridge_ip EXIT INT TERM
-  log_info "Waiting for pfSense services on ${LAN_GW_IP}"
-  if retry 10 6 check_ping; then
+  ensure_bridge_cleanup_trap
+  log_info "Waiting for pfSense services on ${LAN_GW_IP} (up to ~200s)"
+  if retry 40 5 check_ping; then
     PING_SUCCESS=true
     echo "PASS: ping ${LAN_GW_IP}"
   else
     echo "FAIL: ping ${LAN_GW_IP}"
   fi
-  if retry 10 6 check_https; then
+  if retry 40 5 check_https; then
     CURL_SUCCESS=true
     echo "PASS: curl -kI https://${LAN_GW_IP}/"
   else
@@ -1509,6 +1598,7 @@ main() {
   inspect_interfaces
 
   REBOOT_MARK_FILE="${REBOOT_MARK_DIR}/${VM_NAME}.last"
+  LENIENT_MARK_FILE="${REBOOT_MARK_DIR}/${VM_NAME}.lenient"
   mkdir -p "${REBOOT_MARK_DIR}"
 
   if [[ ${CONFIG_CHANGED} == true || ${IMAGE_REBUILT} == true || ${USB_CONTROLLER_ADDED} == true || ${USB_DISK_ATTACHED} == true || ${NIC_MODEL_CHANGED} == true || ${LAN_INTERFACE_REWIRED} == true ]]; then
@@ -1547,9 +1637,26 @@ main() {
   verify_connectivity
   print_summary
   if [[ ${PING_SUCCESS} == true && ${CURL_SUCCESS} == true ]]; then
+    if [[ -n ${LENIENT_MARK_FILE:-} && -f ${LENIENT_MARK_FILE} ]]; then
+      rm -f -- "${LENIENT_MARK_FILE}" >/dev/null 2>&1 || true
+    fi
     print_static_route_guidance
     exit ${EX_SUCCESS}
   fi
+
+  if [[ ${LENIENT} == true ]]; then
+    if [[ -n ${LENIENT_MARK_FILE:-} && ! -f ${LENIENT_MARK_FILE} ]]; then
+      log_warn "Lenient mode: pfSense LAN unreachable; tolerating the first connectivity failure. Marker: ${LENIENT_MARK_FILE}. Rerun to enforce strict checks."
+      if printf '%s\n' "$(date -u +%FT%TZ) lenient-first-failure" >"${LENIENT_MARK_FILE}"; then
+        exit ${EX_SUCCESS}
+      fi
+      log_warn "Unable to record lenient state at ${LENIENT_MARK_FILE}; enforcing failure to avoid repeated leniency."
+    fi
+    if [[ -n ${LENIENT_MARK_FILE:-} && -f ${LENIENT_MARK_FILE} ]]; then
+      log_warn "Lenient grace already consumed (marker: ${LENIENT_MARK_FILE}); connectivity failure will be treated as fatal."
+    fi
+  fi
+
   exit ${EX_VERIFY}
 }
 

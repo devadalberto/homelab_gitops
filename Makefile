@@ -79,7 +79,23 @@ up: preflight core-addons apps post-check
 	@echo "Homelab bootstrap complete."
 
 preflight:
-	sudo ./scripts/pf-ztp.sh --env-file $(ENV_FILE) --vm-name "$(PF_VM_NAME)" --verbose || { echo "pfSense ZTP stage failed; aborting bootstrap." >&2; exit 1; }
+	sudo ./pfsense/pf-config-gen.sh --env-file "$(ENV_FILE)"
+	installer_path="$$(awk -F= '/^[[:space:]]*PF_SERIAL_INSTALLER_PATH[[:space:]]*=/ { val=$$2; gsub(/^[[:space:]]+|[[:space:]]+$$/, "", val); if (val != "") { print val; exit } } /^[[:space:]]*PF_ISO_PATH[[:space:]]*=/ { val=$$2; gsub(/^[[:space:]]+|[[:space:]]+$$/, "", val); if (val != "") { print val; exit } }' "$(ENV_FILE)")"; \
+	if [ -n "$$installer_path" ]; then \
+		sudo ./pfsense/pf-bootstrap.sh --env-file "$(ENV_FILE)" --headless --installation-path "$$installer_path"; \
+	else \
+		sudo ./pfsense/pf-bootstrap.sh --env-file "$(ENV_FILE)" --headless; \
+	fi
+	pf_ztp_status=0; \
+	sudo ./scripts/pf-ztp.sh --env-file "$(ENV_FILE)" --vm-name "$(PF_VM_NAME)" --verbose --lenient || pf_ztp_status=$$?; \
+	if [ $$pf_ztp_status -ne 0 ]; then \
+	  if [ $$pf_ztp_status -eq 2 ]; then \
+	    echo "pfSense ZTP connectivity checks failed; aborting bootstrap." >&2; \
+	  else \
+	    echo "pfSense ZTP stage failed (exit $$pf_ztp_status); aborting bootstrap." >&2; \
+	  fi; \
+	  exit $$pf_ztp_status; \
+	fi
 	./scripts/preflight_and_bootstrap.sh $(COMMON_ARGS) $(DELETE_ARG) --preflight-only
 
 bootstrap: preflight
