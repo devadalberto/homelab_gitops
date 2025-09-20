@@ -3,7 +3,7 @@
   <version>23.09</version>
   <system>
     <hostname>uranus-pfsense</hostname>
-    <domain>{{ LAB_DOMAIN_BASE }}</domain>
+    <domain>labz.home.arpa</domain>
     <dnsserver>1.1.1.1</dnsserver>
     <dnsserver>9.9.9.9</dnsserver>
     <dnsallowoverride>yes</dnsallowoverride>
@@ -19,8 +19,8 @@
   <interfaces>
     <lan>
       <if>vtnet1</if>
-      <ipaddr>{{ LAN_GW_IP }}</ipaddr>
-      <subnet>{{ CIDR_BITS }}</subnet>
+      <ipaddr>10.10.0.1</ipaddr>
+      <subnet>24</subnet>
       <ipaddrv6>track6</ipaddrv6>
       <descr>LAN</descr>
     </lan>
@@ -34,7 +34,7 @@
   <dhcpd>
     <lan>
       <enable>1</enable>
-      <range><from>{{ DHCP_FROM }}</from><to>{{ DHCP_TO }}</to></range>
+      <range><from>10.10.0.100</from><to>10.10.0.200</to></range>
       <defaultleasetime>7200</defaultleasetime>
       <maxleasetime>86400</maxleasetime>
     </lan>
@@ -48,17 +48,17 @@
     <hideversion>1</hideversion>
     <host_domain_type>both</host_domain_type>
     <hosts>
-      <host><host>app</host><domain>{{ LAB_CLUSTER_SUB }}</domain><ip>{{ METALLB_POOL_START }}</ip><descr>Django app</descr></host>
-      <host><host>grafana</host><domain>{{ LAB_CLUSTER_SUB }}</domain><ip>{{ VIP_GRAFANA }}</ip><descr>Grafana</descr></host>
-      <host><host>prom</host><domain>{{ LAB_CLUSTER_SUB }}</domain><ip>{{ VIP_PROM }}</ip><descr>Prometheus</descr></host>
-      <host><host>alert</host><domain>{{ LAB_CLUSTER_SUB }}</domain><ip>{{ VIP_ALERT }}</ip><descr>Alertmanager</descr></host>
-      <host><host>awx</host><domain>{{ LAB_CLUSTER_SUB }}</domain><ip>{{ VIP_AWX }}</ip><descr>AWX</descr></host>
-      <host><host>traefik</host><domain>local</domain><ip>{{ TRAEFIK_LOCAL_IP }}</ip><descr>Traefik via home LAN</descr></host>
+      <host><host>app</host><domain>lab-minikube.labz.home.arpa</domain><ip>10.10.0.240</ip><descr>Django app</descr></host>
+      <host><host>grafana</host><domain>lab-minikube.labz.home.arpa</domain><ip>10.10.0.241</ip><descr>Grafana</descr></host>
+      <host><host>prom</host><domain>lab-minikube.labz.home.arpa</domain><ip>10.10.0.242</ip><descr>Prometheus</descr></host>
+      <host><host>alert</host><domain>lab-minikube.labz.home.arpa</domain><ip>10.10.0.243</ip><descr>Alertmanager</descr></host>
+      <host><host>awx</host><domain>lab-minikube.labz.home.arpa</domain><ip>10.10.0.244</ip><descr>AWX</descr></host>
+      <host><host>traefik</host><domain>local</domain><ip>10.10.0.240</ip><descr>Traefik via home LAN</descr></host>
     </hosts>
   </unbound>
 
   <aliases>
-    <alias><name>TRAEFIK_LB</name><type>host</type><address>{{ METALLB_POOL_START }}</address><descr>MetalLB VIP for Traefik</descr></alias>
+    <alias><name>TRAEFIK_LB</name><type>host</type><address>10.10.0.240</address><descr>MetalLB VIP for Traefik</descr></alias>
     <alias><name>BASTION_HOST</name><type>host</type><address>10.10.0.10</address><descr>Jumpbox host (adjust)</descr></alias>
     <alias><name>MINECRAFT_SRV</name><type>host</type><address>10.10.0.60</address><descr>Minecraft server (adjust)</descr></alias>
     <alias><name>REMOTE_ADMIN_PORTS</name><type>port</type><address>22,443</address><descr>Admin ports</descr></alias>
@@ -72,7 +72,7 @@
     <rule>
       <interface>wan</interface><protocol>tcp</protocol>
       <descr>[DISABLED EXAMPLE] WAN:443 → Traefik Ingress (TRAEFIK_LB)</descr>
-      <target>{{ METALLB_POOL_START }}</target><local-port>443</local-port>
+      <target>10.10.0.240</target><local-port>443</local-port>
       <destination><address>wanip</address><port>443</port></destination>
       <associated-rule-id>pass</associated-rule-id><disabled/>
     </rule>
@@ -81,7 +81,7 @@
     <rule>
       <interface>wan</interface><protocol>tcp</protocol>
       <descr>[DISABLED EXAMPLE] WAN:80 → Traefik (HTTP)</descr>
-      <target>{{ METALLB_POOL_START }}</target><local-port>80</local-port>
+      <target>10.10.0.240</target><local-port>80</local-port>
       <destination><address>wanip</address><port>80</port></destination>
       <associated-rule-id>pass</associated-rule-id><disabled/>
     </rule>
