@@ -18,15 +18,22 @@
   </system>
   <interfaces>
     <lan>
-      <if>vtnet1</if>
+      <if>vtnet0</if>
       <ipaddr>10.10.0.1</ipaddr>
       <subnet>24</subnet>
       <ipaddrv6>track6</ipaddrv6>
+      <adv_dhcp_pt_timeout/>
+      <blockbogons>1</blockbogons>
       <descr>LAN</descr>
     </lan>
     <wan>
-      <if>vtnet0</if>
+      <if>vtnet1</if>
       <ipaddr>dhcp</ipaddr>
+      <subnet/>
+      <gateway/>
+      <ipaddrv6>dhcp6</ipaddrv6>
+      <blockpriv>1</blockpriv>
+      <blockbogons>1</blockbogons>
       <descr>WAN</descr>
     </wan>
   </interfaces>
