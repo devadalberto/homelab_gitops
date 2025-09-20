@@ -274,6 +274,53 @@ wait_for_pvc_bound_safe() {
   pvc_wait_bound "${pvc}" "${namespace}" 300s
 }
 
+clear_lingering_pv_claim_refs() {
+  local selector="pv-role"
+  log_info "Scanning persistent volumes with selector '${selector}' for lingering claimRefs"
+
+  local pv_info=""
+  if ! pv_info=$(kubectl get pv -l "${selector}" -o jsonpath='{range .items[*]}{.metadata.name}{"|"}{.status.phase}{"|"}{.spec.claimRef.name}{"\n"}{end}' 2>/dev/null); then
+    log_warn "Unable to query persistent volumes with selector '${selector}'"
+    return 0
+  fi
+
+  if [[ -z ${pv_info} ]]; then
+    log_info "No persistent volumes matched selector '${selector}'"
+    return 0
+  fi
+
+  local line
+  while IFS= read -r line; do
+    [[ -z ${line} ]] && continue
+    local pv_name=""
+    local phase=""
+    local claim_ref=""
+    IFS='|' read -r pv_name phase claim_ref <<<"${line}"
+    [[ -z ${pv_name} ]] && continue
+    [[ ${claim_ref} == "<no value>" ]] && claim_ref=""
+    [[ ${phase} == "<no value>" ]] && phase=""
+
+    if { [[ ${phase} == "Released" ]] || [[ ${phase} == "Failed" ]]; } && [[ -n ${claim_ref} ]]; then
+      if [[ ${DRY_RUN} == true ]]; then
+        log_info "[DRY-RUN] Would remove claimRef '${claim_ref}' from PV ${pv_name} (phase: ${phase})"
+      else
+        log_info "Removing claimRef '${claim_ref}' from PV ${pv_name} (phase: ${phase})"
+        local patch_payload='[{"op":"remove","path":"/spec/claimRef"}]'
+        if run_cmd kubectl patch pv "${pv_name}" --type=json -p "${patch_payload}" >/dev/null; then
+          log_info "PV ${pv_name} claimRef cleared; volume is ready for rebinding"
+        else
+          log_warn "Failed to clear claimRef from PV ${pv_name}"
+        fi
+      fi
+    elif [[ -z ${claim_ref} ]]; then
+      local phase_display=${phase:-Unknown}
+      log_info "PV ${pv_name} is ${phase_display} with no claimRef; already available"
+    else
+      log_debug "PV ${pv_name} is ${phase:-Unknown} with claimRef '${claim_ref}'; no action required"
+    fi
+  done <<<"${pv_info}"
+}
+
 install_postgresql() {
   local cmd=(
     helm upgrade --install postgresql bitnami/postgresql
@@ -533,6 +580,8 @@ main() {
     log_info "Applying ${manifest_file}"
     apply_manifest_with_envsubst "${manifest_file}"
   done
+
+  clear_lingering_pv_claim_refs
 
   wait_for_pvc_bound_safe databases postgresql-data
   wait_for_pvc_bound_safe nextcloud nextcloud-data
