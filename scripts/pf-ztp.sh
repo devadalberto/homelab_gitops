@@ -1398,6 +1398,12 @@ ensure_bridge_ipv4() {
 }
 
 cleanup_bridge_ip() {
+  if [[ ${PF_LAN_TEMP_ADDR_ADDED:-false} == true ]]; then
+    if [[ $(type -t pf_lan_temp_addr_cleanup) == function ]]; then
+      pf_lan_temp_addr_cleanup || log_warn "Failed to remove pf-lan temporary IP ${PF_LAN_TEMP_ADDR_CIDR:-} from ${PF_LAN_TEMP_ADDR_DEVICE:-}"
+    fi
+  fi
+
   if [[ ${BRIDGE_IP_TEMP_ADDED} != true ]]; then
     return
   fi
