@@ -27,75 +27,53 @@ fi
 
 readonly EX_OK=0
 readonly EX_USAGE=64
+readonly EX_CONFIG=78
 readonly EX_DEPENDENCY=65
 readonly EX_RUNTIME=69
-readonly EX_CONFIG=78
 
-DEFAULT_VM_NAME=""
-DEFAULT_GATEWAY=""
-DEFAULT_LAN_NETWORK=""
-DEFAULT_LAN_PREFIX=""
-DEFAULT_HTTP_URL=""
-DEFAULT_WAN_PROBE=""
-DEFAULT_HTTP_TARGET=""
-DEFAULT_NETNS=""
-DEFAULT_BRIDGE_CANDIDATE=""
-
-initialize_defaults() {
-  DEFAULT_VM_NAME="${PF_VM_NAME:-pfsense-uranus}"
-  DEFAULT_GATEWAY="${PF_LAN_GATEWAY:-10.10.0.1}"
-  DEFAULT_LAN_NETWORK="${PF_LAN_NETWORK:-10.10.0.0}"  # network portion for temporary address validation
-  DEFAULT_LAN_PREFIX="${PF_LAN_PREFIX:-24}"
-  DEFAULT_HTTP_URL="${PF_LAN_HTTP_URL:-https://${DEFAULT_GATEWAY}/}"
-  DEFAULT_WAN_PROBE="${PF_SMOKETEST_TARGET:-1.1.1.1}"
-  DEFAULT_HTTP_TARGET="${PF_SMOKETEST_HTTP_TARGET:-https://example.com/}"
-  DEFAULT_NETNS="${PF_SMOKETEST_NETNS:-pf-smoketest}"
-  DEFAULT_BRIDGE_CANDIDATE="${PF_LAN_BRIDGE:-}"  # may be empty; detection routine will evaluate
-}
-
-VM_NAME_OVERRIDDEN=false
-ENV_FILE_PATH=""
-
-VM_NAME=""
+ENV_FILE=""
 LAN_BRIDGE_OVERRIDE=""
 SKIP_NETNS=false
 SKIP_REACHABILITY=false
 LOG_LEVEL_OVERRIDE=""
 
+VM_NAME=""
+LAN_BRIDGE=""
+LAN_BRIDGE_SOURCE=""
+LAN_GW_IP=""
+HTTPS_PROBE_URL=""
 NETNS_NAME=""
-VETH_HOST=""
-VETH_NS=""
+NETNS_HOST_IF=""
+NETNS_NS_IF=""
+WAN_ICMP_TARGET=""
+WAN_HTTP_TARGET=""
+
+SUDO=()
+VIRSH_CMD=()
 TMP_DIR=""
+
 DHCP_REQUEST_CMD=()
 DHCP_RELEASE_CMD=()
 DHCP_RELEASE_REQUIRED=false
+DHCP_LEASE_ACQUIRED=false
 
-refresh_runtime_settings() {
-  initialize_defaults
-  if [[ ${VM_NAME_OVERRIDDEN} == false ]]; then
-    VM_NAME="${DEFAULT_VM_NAME}"
-  fi
-  NETNS_NAME="${DEFAULT_NETNS}"
-  VETH_HOST="${NETNS_NAME}-host"
-  VETH_NS="${NETNS_NAME}-ns"
-}
-
-refresh_runtime_settings
+NETNS_CREATED=false
+VETH_CREATED=false
 
 usage() {
   cat <<'USAGE'
 Usage: pf-smoketest.sh [OPTIONS]
 
-Perform a fast pfSense health check including libvirt domain validation,
-LAN reachability probes, and a disposable network namespace DHCP/NAT test.
+Validate pfSense libvirt domain status, LAN reachability, and perform a
+network namespace DHCP/NAT probe against the LAN bridge.
 
 Options:
-  --vm-name NAME        Override the libvirt domain name (default: pfsense-uranus).
-  --lan-bridge BRIDGE   Force the LAN bridge name instead of auto-detection.
-  --env-file PATH       Load environment variables from the provided file.
+  --env-file PATH       Source environment variables from PATH before running.
+  --lan-bridge NAME     Override the LAN bridge used for probing.
+  --vm-name NAME        Override the pfSense libvirt domain name.
   --skip-netns          Skip the network namespace DHCP/NAT validation.
-  --skip-reachability   Skip host reachability probes (not recommended).
-  --log-level LEVEL     Set log verbosity (trace, debug, info, warn, error).
+  --skip-reachability   Skip host reachability probes (gateway/HTTPS).
+  --log-level LEVEL     Adjust logging verbosity (trace, debug, info, warn, error).
   -h, --help            Show this help message and exit.
 USAGE
 }
@@ -103,13 +81,12 @@ USAGE
 parse_args() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --vm-name)
+      --env-file)
         if [[ $# -lt 2 ]]; then
           usage >&2
           exit "${EX_USAGE}"
         fi
-        VM_NAME="$2"
-        VM_NAME_OVERRIDDEN=true
+        ENV_FILE="$2"
         shift 2
         ;;
       --lan-bridge)
@@ -120,12 +97,12 @@ parse_args() {
         LAN_BRIDGE_OVERRIDE="$2"
         shift 2
         ;;
-      --env-file)
+      --vm-name)
         if [[ $# -lt 2 ]]; then
           usage >&2
           exit "${EX_USAGE}"
         fi
-        ENV_FILE_PATH="$2"
+        VM_NAME="$2"
         shift 2
         ;;
       --skip-netns)
@@ -164,7 +141,54 @@ parse_args() {
   done
 }
 
-SUDO=()
+load_env_file() {
+  local path="$1"
+  if [[ ! -f ${path} ]]; then
+    die "${EX_CONFIG}" "Environment file '${path}' not found."
+  fi
+  if [[ ! -r ${path} ]]; then
+    die "${EX_CONFIG}" "Environment file '${path}' is not readable."
+  fi
+  # shellcheck disable=SC1090
+  source "${path}"
+}
+
+initialize_defaults() {
+  if [[ -z ${VM_NAME} ]]; then
+    VM_NAME="${PF_VM_NAME:-pfsense-uranus}"
+  fi
+
+  local env_bridge="${LAN_BRIDGE:-}"
+  if [[ -n ${LAN_BRIDGE_OVERRIDE} ]]; then
+    LAN_BRIDGE="${LAN_BRIDGE_OVERRIDE}"
+    LAN_BRIDGE_SOURCE="--lan-bridge"
+  elif [[ -n ${env_bridge} ]]; then
+    LAN_BRIDGE="${env_bridge}"
+    LAN_BRIDGE_SOURCE="environment"
+  elif [[ -n ${PF_LAN_BRIDGE:-} ]]; then
+    LAN_BRIDGE="${PF_LAN_BRIDGE}"
+    LAN_BRIDGE_SOURCE="PF_LAN_BRIDGE"
+  else
+    LAN_BRIDGE=""
+    LAN_BRIDGE_SOURCE="auto-detect"
+  fi
+
+  if [[ -n ${LAN_GW_IP:-} ]]; then
+    :
+  elif [[ -n ${PF_LAN_GATEWAY:-} ]]; then
+    LAN_GW_IP="${PF_LAN_GATEWAY}"
+  else
+    LAN_GW_IP="10.10.0.1"
+  fi
+
+  HTTPS_PROBE_URL="${PF_LAN_HTTP_URL:-https://${LAN_GW_IP}/}"
+  NETNS_NAME="${PF_SMOKETEST_NETNS:-pf-smoketest}"
+  NETNS_HOST_IF="${NETNS_NAME}-host"
+  NETNS_NS_IF="${NETNS_NAME}-ns"
+  WAN_ICMP_TARGET="${PF_SMOKETEST_TARGET:-1.1.1.1}"
+  WAN_HTTP_TARGET="${PF_SMOKETEST_HTTP_TARGET:-https://example.com/}"
+}
+
 ensure_privileges() {
   if [[ ${EUID:-} -ne 0 ]]; then
     if command -v sudo >/dev/null 2>&1; then
@@ -175,79 +199,43 @@ ensure_privileges() {
   fi
 }
 
+setup_command_wrappers() {
+  ensure_privileges
+  VIRSH_CMD=("${SUDO[@]}" virsh)
+}
+
 interface_exists() {
   local dev="$1"
   if [[ -z ${dev} ]]; then
     return 1
   fi
-  if command -v ip >/dev/null 2>&1; then
-    "${SUDO[@]}" ip link show dev "${dev}" >/dev/null 2>&1
-  else
-    [[ -e "/sys/class/net/${dev}" ]]
-  fi
+  "${SUDO[@]}" ip link show dev "${dev}" >/dev/null 2>&1
 }
-
-resolve_bridge_candidate() {
-  local candidate="$1"
-  local kind="bridge"
-  local name="${candidate}"
-
-  if [[ ${candidate} == *:* ]]; then
-    kind="${candidate%%:*}"
-    name="${candidate#*:}"
-  fi
-
-  case "${kind}" in
-    bridge|tap)
-      printf '%s\n' "${name}"
-      return 0
-      ;;
-    network)
-      if [[ -n ${name} ]] && command -v virsh >/dev/null 2>&1 && declare -F pf_lan_resolve_network_bridge >/dev/null 2>&1; then
-        if pf_lan_resolve_network_bridge "${name}"; then
-          return 0
-        fi
-      fi
-      ;;
-    *)
-      if [[ -n ${name} ]]; then
-        printf '%s\n' "${name}"
-        return 0
-      fi
-      ;;
-  esac
-  return 1
-}
-
-LAN_BRIDGE=""
-LAN_BRIDGE_SOURCE=""
 
 detect_lan_bridge() {
-  if [[ -n ${LAN_BRIDGE_OVERRIDE} ]]; then
-    if interface_exists "${LAN_BRIDGE_OVERRIDE}"; then
-      LAN_BRIDGE="${LAN_BRIDGE_OVERRIDE}"
-      LAN_BRIDGE_SOURCE="--lan-bridge"
+  if [[ -n ${LAN_BRIDGE} ]]; then
+    if interface_exists "${LAN_BRIDGE}"; then
       return 0
     fi
-    die "${EX_RUNTIME}" "Specified LAN bridge '${LAN_BRIDGE_OVERRIDE}' not present on host."
+    die "${EX_RUNTIME}" "Specified LAN bridge '${LAN_BRIDGE}' not present on host."
   fi
 
   local -a candidates=()
   local -a reasons=()
 
   if [[ -n ${PF_LAN_LINK:-} ]]; then
-    local resolved=""
-    if resolved=$(resolve_bridge_candidate "${PF_LAN_LINK}" 2>/dev/null); then
-      candidates+=("${resolved}")
-      reasons+=("PF_LAN_LINK=${PF_LAN_LINK}")
-    else
-      log_warn "Unable to resolve PF_LAN_LINK='${PF_LAN_LINK}' to a host bridge."
+    if declare -F pf_lan_resolve_network_bridge >/dev/null 2>&1; then
+      local resolved=""
+      if resolved=$(pf_lan_resolve_network_bridge "${PF_LAN_LINK}" 2>/dev/null); then
+        candidates+=("${resolved}")
+        reasons+=("PF_LAN_LINK=${PF_LAN_LINK}")
+      fi
     fi
   fi
 
-  if [[ -n ${DEFAULT_BRIDGE_CANDIDATE} ]]; then
-    candidates+=("${DEFAULT_BRIDGE_CANDIDATE}")
-    reasons+=("PF_LAN_BRIDGE=${DEFAULT_BRIDGE_CANDIDATE}")
+  if [[ -n ${PF_LAN_BRIDGE:-} ]]; then
+    candidates+=("${PF_LAN_BRIDGE}")
+    reasons+=("PF_LAN_BRIDGE=${PF_LAN_BRIDGE}")
   fi
 
   candidates+=("pfsense-lan")
@@ -256,31 +244,20 @@ detect_lan_bridge() {
   local idx
   for idx in "${!candidates[@]}"; do
     local candidate="${candidates[$idx]}"
-    local reason="${reasons[$idx]}"
-    if [[ -z ${candidate} ]]; then
-      continue
-    fi
     if interface_exists "${candidate}"; then
       LAN_BRIDGE="${candidate}"
-      LAN_BRIDGE_SOURCE="${reason}"
+      LAN_BRIDGE_SOURCE="${reasons[$idx]}"
       return 0
     fi
-    log_debug "LAN candidate '${candidate}' (${reason}) not present."
   done
 
   die "${EX_RUNTIME}" "Unable to detect an operational pfSense LAN bridge."
 }
 
-VIRSH_CMD=()
-setup_command_wrappers() {
-  ensure_privileges
-  VIRSH_CMD=("${SUDO[@]}" virsh)
-}
-
 check_dependencies() {
-  local -a base_reqs=(virsh ip ping curl nc timeout awk sed grep)
-  if ! need "${base_reqs[@]}"; then
-    die "${EX_DEPENDENCY}" "Missing required commands: ${base_reqs[*]}"
+  local -a deps=(virsh ip ping curl nc timeout awk sed grep)
+  if ! need "${deps[@]}"; then
+    die "${EX_DEPENDENCY}" "Missing required commands for pf-smoketest."
   fi
   if [[ ${SKIP_NETNS} == false ]]; then
     if ! need ip; then
@@ -298,7 +275,7 @@ ensure_domain_running() {
   local state
   state=$("${VIRSH_CMD[@]}" domstate "${VM_NAME}" 2>/dev/null || true)
   if [[ ${state} != "running" ]]; then
-    log_warn "Domain '${VM_NAME}' state is '${state}'. Attempting to start..."
+    log_warn "Domain '${VM_NAME}' is '${state}'. Attempting to start..."
     if ! "${VIRSH_CMD[@]}" start "${VM_NAME}" >/dev/null 2>&1; then
       die "${EX_RUNTIME}" "Unable to start domain '${VM_NAME}'."
     fi
@@ -309,20 +286,6 @@ ensure_domain_running() {
     fi
   fi
   log_info "Domain '${VM_NAME}' is running."
-
-  if iflist=$("${VIRSH_CMD[@]}" domiflist "${VM_NAME}" 2>/dev/null); then
-    log_debug "domiflist for ${VM_NAME}:\n${iflist}"
-  fi
-
-  if ! "${VIRSH_CMD[@]}" domifaddr "${VM_NAME}" --full --source arp >/dev/null 2>&1; then
-    log_warn "domifaddr data unavailable (guest agent missing?); continuing."
-  else
-    local ifaddr
-    ifaddr=$("${VIRSH_CMD[@]}" domifaddr "${VM_NAME}" --full --source arp 2>/dev/null || true)
-    if [[ -n ${ifaddr} ]]; then
-      log_debug "domifaddr output:\n${ifaddr}"
-    fi
-  fi
 }
 
 reachability_probes() {
@@ -331,58 +294,23 @@ reachability_probes() {
     return
   fi
 
-  local gateway="${DEFAULT_GATEWAY}"
-  local https_url="${DEFAULT_HTTP_URL}"
-
-  log_info "Pinging pfSense LAN gateway ${gateway}"
-  if ! ping -c1 -W2 "${gateway}" >/dev/null 2>&1; then
-    die "${EX_RUNTIME}" "Unable to reach pfSense gateway ${gateway} via ICMP."
+  log_info "Pinging pfSense LAN gateway ${LAN_GW_IP}"
+  if ! ping -c1 -W2 "${LAN_GW_IP}" >/dev/null 2>&1; then
+    die "${EX_RUNTIME}" "Unable to reach pfSense gateway ${LAN_GW_IP} via ICMP."
   fi
-  log_info "pfSense gateway ${gateway} responded to ICMP."
+  log_info "pfSense gateway ${LAN_GW_IP} responded to ICMP."
 
-  log_info "Checking TCP/443 on ${gateway}"
-  if ! timeout 5 nc -z "${gateway}" 443 >/dev/null 2>&1; then
-    die "${EX_RUNTIME}" "Port 443 on ${gateway} is unreachable."
+  log_info "Checking TCP/443 on ${LAN_GW_IP}"
+  if ! timeout 5 nc -z "${LAN_GW_IP}" 443 >/dev/null 2>&1; then
+    die "${EX_RUNTIME}" "Port 443 on ${LAN_GW_IP} is unreachable."
   fi
   log_info "pfSense HTTPS port reachable."
 
-  log_info "Performing HTTPS probe ${https_url}"
-  if ! curl -ksS --connect-timeout 5 --max-time 10 -o /dev/null "${https_url}"; then
-    die "${EX_RUNTIME}" "HTTPS probe to ${https_url} failed."
+  log_info "Performing HTTPS probe ${HTTPS_PROBE_URL}"
+  if ! curl -ksS --connect-timeout 5 --max-time 10 -o /dev/null "${HTTPS_PROBE_URL}"; then
+    die "${EX_RUNTIME}" "HTTPS probe to ${HTTPS_PROBE_URL} failed."
   fi
-  log_info "HTTPS probe to ${https_url} succeeded."
-}
-
-cleanup_netns() {
-  local status=$?
-  if [[ -n ${TMP_DIR} && -d ${TMP_DIR} ]]; then
-    rm -rf -- "${TMP_DIR}" >/dev/null 2>&1 || true
-    TMP_DIR=""
-  fi
-
-  if [[ ${DHCP_RELEASE_REQUIRED} == true && -n ${NETNS_NAME} ]]; then
-    if [[ -n ${DHCP_RELEASE_CMD[*]} ]]; then
-      if ! "${SUDO[@]}" ip netns exec "${NETNS_NAME}" "${DHCP_RELEASE_CMD[@]}" >/dev/null 2>&1; then
-        log_debug "DHCP release command failed; continuing cleanup."
-      else
-        log_debug "Released DHCP lease inside netns ${NETNS_NAME}."
-      fi
-    fi
-  fi
-
-  if [[ -n ${VETH_HOST} ]]; then
-    if "${SUDO[@]}" ip link show "${VETH_HOST}" >/dev/null 2>&1; then
-      "${SUDO[@]}" ip link delete "${VETH_HOST}" >/dev/null 2>&1 || true
-    fi
-  fi
-
-  if [[ -n ${NETNS_NAME} ]]; then
-    if "${SUDO[@]}" ip netns list | awk '{print $1}' | grep -Fx "${NETNS_NAME}" >/dev/null 2>&1; then
-      "${SUDO[@]}" ip netns delete "${NETNS_NAME}" >/dev/null 2>&1 || true
-    fi
-  fi
-
-  return "${status}"
+  log_info "HTTPS probe to ${HTTPS_PROBE_URL} succeeded."
 }
 
 choose_dhcp_client() {
@@ -416,11 +344,44 @@ choose_dhcp_client() {
   return 1
 }
 
-netns_dhcp_nat_validation() {
+cleanup() {
+  local status=$?
+  set +e
+
+  if [[ ${DHCP_RELEASE_REQUIRED} == true && ${DHCP_LEASE_ACQUIRED} == true && ${NETNS_CREATED} == true ]]; then
+    if [[ ${#DHCP_RELEASE_CMD[@]} -gt 0 ]]; then
+      "${SUDO[@]}" ip netns exec "${NETNS_NAME}" "${DHCP_RELEASE_CMD[@]}" >/dev/null 2>&1 || true
+    fi
+  fi
+
+  if [[ -n ${NETNS_HOST_IF} && ${VETH_CREATED} == true ]]; then
+    "${SUDO[@]}" ip link delete "${NETNS_HOST_IF}" >/dev/null 2>&1 || true
+  fi
+
+  if [[ ${NETNS_CREATED} == true ]]; then
+    "${SUDO[@]}" ip netns delete "${NETNS_NAME}" >/dev/null 2>&1 || true
+  fi
+
+  if [[ -n ${TMP_DIR} && -d ${TMP_DIR} ]]; then
+    rm -rf -- "${TMP_DIR}" >/dev/null 2>&1 || true
+  fi
+
+  set -e
+  return "${status}"
+}
+
+trap cleanup EXIT INT TERM
+
+netns_dhcp_nat_probe() {
   if [[ ${SKIP_NETNS} == true ]]; then
     log_warn "Skipping network namespace validation per --skip-netns."
     return
   fi
+
+  NETNS_CREATED=false
+  VETH_CREATED=false
+  DHCP_LEASE_ACQUIRED=false
+  TMP_DIR=""
 
   if [[ -z ${LAN_BRIDGE} ]]; then
     die "${EX_RUNTIME}" "LAN bridge not detected; cannot perform netns validation."
@@ -429,29 +390,33 @@ netns_dhcp_nat_validation() {
   log_info "Starting network namespace DHCP/NAT validation (bridge=${LAN_BRIDGE})"
 
   TMP_DIR="$(mktemp -d -t pf-smoke-XXXXXX)"
-  trap_add cleanup_netns EXIT INT TERM
 
   if ! choose_dhcp_client "eth0"; then
     die "${EX_DEPENDENCY}" "No supported DHCP client available (dhclient/udhcpc)."
   fi
 
-  if "${SUDO[@]}" ip link show "${VETH_HOST}" >/dev/null 2>&1; then
-    die "${EX_RUNTIME}" "Temporary veth '${VETH_HOST}' already exists; aborting to avoid conflicts."
+  if "${SUDO[@]}" ip link show "${NETNS_HOST_IF}" >/dev/null 2>&1; then
+    die "${EX_RUNTIME}" "Temporary veth '${NETNS_HOST_IF}' already exists; aborting to avoid conflicts."
   fi
 
   "${SUDO[@]}" ip netns add "${NETNS_NAME}"
-  "${SUDO[@]}" ip link add "${VETH_HOST}" type veth peer name "${VETH_NS}"
-  "${SUDO[@]}" ip link set "${VETH_HOST}" master "${LAN_BRIDGE}"
-  "${SUDO[@]}" ip link set "${VETH_HOST}" up
-  "${SUDO[@]}" ip link set "${VETH_NS}" netns "${NETNS_NAME}"
+  NETNS_CREATED=true
+
+  "${SUDO[@]}" ip link add "${NETNS_HOST_IF}" type veth peer name "${NETNS_NS_IF}"
+  VETH_CREATED=true
+
+  "${SUDO[@]}" ip link set "${NETNS_HOST_IF}" master "${LAN_BRIDGE}"
+  "${SUDO[@]}" ip link set "${NETNS_HOST_IF}" up
+  "${SUDO[@]}" ip link set "${NETNS_NS_IF}" netns "${NETNS_NAME}"
   "${SUDO[@]}" ip netns exec "${NETNS_NAME}" ip link set lo up
-  "${SUDO[@]}" ip netns exec "${NETNS_NAME}" ip link set "${VETH_NS}" name eth0
+  "${SUDO[@]}" ip netns exec "${NETNS_NAME}" ip link set "${NETNS_NS_IF}" name eth0
   "${SUDO[@]}" ip netns exec "${NETNS_NAME}" ip link set eth0 up
 
   log_info "Requesting DHCP lease inside namespace ${NETNS_NAME}"
   if ! "${SUDO[@]}" ip netns exec "${NETNS_NAME}" timeout 30 "${DHCP_REQUEST_CMD[@]}"; then
     die "${EX_RUNTIME}" "Failed to acquire DHCP lease inside namespace ${NETNS_NAME}."
   fi
+  DHCP_LEASE_ACQUIRED=true
 
   local addr_output
   addr_output=$("${SUDO[@]}" ip netns exec "${NETNS_NAME}" ip -4 -o addr show dev eth0)
@@ -469,22 +434,19 @@ netns_dhcp_nat_validation() {
   fi
   log_info "Namespace default route: ${default_route}"
 
-  local gateway="${DEFAULT_GATEWAY}"
-  log_info "Pinging pfSense gateway ${gateway} from namespace"
-  if ! "${SUDO[@]}" ip netns exec "${NETNS_NAME}" ping -c1 -W2 "${gateway}" >/dev/null 2>&1; then
-    die "${EX_RUNTIME}" "Namespace unable to reach pfSense gateway ${gateway}."
+  log_info "Pinging pfSense gateway ${LAN_GW_IP} from namespace"
+  if ! "${SUDO[@]}" ip netns exec "${NETNS_NAME}" ping -c1 -W2 "${LAN_GW_IP}" >/dev/null 2>&1; then
+    die "${EX_RUNTIME}" "Namespace unable to reach pfSense gateway ${LAN_GW_IP}."
   fi
 
-  local wan_target="${DEFAULT_WAN_PROBE}"
-  log_info "Verifying external connectivity via ping to ${wan_target}"
-  if ! "${SUDO[@]}" ip netns exec "${NETNS_NAME}" ping -c1 -W3 "${wan_target}" >/dev/null 2>&1; then
-    die "${EX_RUNTIME}" "Namespace unable to reach ${wan_target}; pfSense NAT may be failing."
+  log_info "Verifying external connectivity via ping to ${WAN_ICMP_TARGET}"
+  if ! "${SUDO[@]}" ip netns exec "${NETNS_NAME}" ping -c1 -W3 "${WAN_ICMP_TARGET}" >/dev/null 2>&1; then
+    die "${EX_RUNTIME}" "Namespace unable to reach ${WAN_ICMP_TARGET}; pfSense NAT may be failing."
   fi
 
-  local http_target="${DEFAULT_HTTP_TARGET}"
-  log_info "Validating HTTP connectivity (${http_target}) from namespace"
-  if ! "${SUDO[@]}" ip netns exec "${NETNS_NAME}" curl -ksS --connect-timeout 5 --max-time 10 -o /dev/null "${http_target}"; then
-    die "${EX_RUNTIME}" "Namespace HTTP probe to ${http_target} failed."
+  log_info "Validating HTTP connectivity (${WAN_HTTP_TARGET}) from namespace"
+  if ! "${SUDO[@]}" ip netns exec "${NETNS_NAME}" curl -ksS --connect-timeout 5 --max-time 10 -o /dev/null "${WAN_HTTP_TARGET}"; then
+    die "${EX_RUNTIME}" "Namespace HTTP probe to ${WAN_HTTP_TARGET} failed."
   fi
 
   log_info "Network namespace DHCP/NAT validation successful."
@@ -493,19 +455,11 @@ netns_dhcp_nat_validation() {
 main() {
   parse_args "$@"
 
-  if [[ -n ${ENV_FILE_PATH} ]]; then
-    if [[ ! -f ${ENV_FILE_PATH} ]]; then
-      die "${EX_CONFIG}" "Environment file '${ENV_FILE_PATH}' not found."
-    fi
-    if [[ ! -r ${ENV_FILE_PATH} ]]; then
-      die "${EX_CONFIG}" "Environment file '${ENV_FILE_PATH}' is not readable."
-    fi
-    if ! load_env "${ENV_FILE_PATH}"; then
-      die "${EX_CONFIG}" "Failed to load environment file '${ENV_FILE_PATH}'."
-    fi
+  if [[ -n ${ENV_FILE} ]]; then
+    load_env_file "${ENV_FILE}"
   fi
 
-  refresh_runtime_settings
+  initialize_defaults
 
   if [[ -n ${LOG_LEVEL_OVERRIDE} ]]; then
     log_set_level "${LOG_LEVEL_OVERRIDE}"
@@ -514,11 +468,13 @@ main() {
   setup_command_wrappers
   check_dependencies
   detect_lan_bridge
-  log_info "Detected LAN bridge ${LAN_BRIDGE} (${LAN_BRIDGE_SOURCE:-auto-detected})"
+
+  log_info "Using LAN bridge ${LAN_BRIDGE} (${LAN_BRIDGE_SOURCE})"
+  log_info "Using pfSense gateway ${LAN_GW_IP}"
 
   ensure_domain_running
   reachability_probes
-  netns_dhcp_nat_validation
+  netns_dhcp_nat_probe
 
   log_info "pfSense smoketest completed successfully."
 }
