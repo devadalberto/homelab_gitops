@@ -280,6 +280,13 @@ discover_installer_path() {
     die ${EX_CONFIG} "Installer not found or invalid: ${INSTALL_PATH_OVERRIDE}"
   fi
 
+  if [[ -n ${PF_INSTALLER_SRC:-} ]]; then
+    if is_installer_file "${PF_INSTALLER_SRC}"; then
+      printf '%s\n' "${PF_INSTALLER_SRC}"
+      return 0
+    fi
+  fi
+
   if [[ -n ${PF_SERIAL_INSTALLER_PATH:-} ]]; then
     if is_installer_file "${PF_SERIAL_INSTALLER_PATH}"; then
       printf '%s\n' "${PF_SERIAL_INSTALLER_PATH}"
@@ -690,8 +697,8 @@ main() {
 
   local installer
   if ! installer=$(discover_installer_path); then
-    log_warn "No pfSense installer detected. Set PF_SERIAL_INSTALLER_PATH to the downloaded archive or rename it to match the expected netgate-installer-amd64-serial image."
-    die ${EX_CONFIG} "Unable to locate pfSense installer. Provide --installation-path or set PF_SERIAL_INSTALLER_PATH/PF_ISO_PATH/PF_INSTALLER_DIR."
+    log_warn "No pfSense installer detected. Set PF_INSTALLER_SRC to the downloaded archive (legacy PF_SERIAL_INSTALLER_PATH/PF_ISO_PATH remain supported) or rename it to match the expected netgate-installer-amd64-serial image."
+    die ${EX_CONFIG} "Unable to locate pfSense installer. Provide --installation-path or set PF_INSTALLER_SRC (PF_SERIAL_INSTALLER_PATH/PF_ISO_PATH/PF_INSTALLER_DIR remain supported)."
   fi
   log_info "Using pfSense installer at ${installer}"
   stage_installer_media "${installer}"
