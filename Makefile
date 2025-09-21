@@ -13,6 +13,7 @@ help:
 	@echo "  pf.install    - Ensure pfSense VM exists (virt-install)"
 	@echo "  pf.ztp        - Run pfSense bootstrap (installer optional if VM exists)"
 	@echo "  pf.config     - Render pfSense config ISO/assets"
+	@echo "  smoketest     - Run pfSense smoketest"
 	@echo "  check.env     - Show key environment values"
 
 .PHONY: check.env
@@ -43,6 +44,11 @@ pf.ztp:
 	@chmod +x ./pfsense/pf-bootstrap.sh
 	@sudo ./pfsense/pf-bootstrap.sh --env-file "$(ENV_FILE)" --headless
 	@echo "pfSense ZTP done."
+
+.PHONY: smoketest
+smoketest:
+	@chmod +x ./scripts/pf-smoketest.sh
+	@./scripts/pf-smoketest.sh --env-file "$(ENV_FILE)"
 
 .PHONY: up
 up: preflight pf.config pf.install pf.ztp
