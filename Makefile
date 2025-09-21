@@ -71,16 +71,16 @@ ifeq ($(POSTGRES_HELM_VERSION),)
 POSTGRES_HELM_VERSION := 16.2.6
 endif
 
-.PHONY: up preflight bootstrap core-addons apps db post-check down status logs reconcile destroy fmt lint docs docs-serve docs-diagrams
+.PHONY: up preflight pf.install bootstrap core-addons apps db post-check down status logs reconcile destroy fmt lint docs docs-serve docs-diagrams
 
 $(info Using environment file $(ENV_FILE))
 
 up: preflight core-addons apps post-check
 	@echo "Homelab bootstrap complete."
 
-preflight:
-	sudo ./pfsense/pf-config-gen.sh --env-file "$(ENV_FILE)"
-	installer_path="$$(awk -F= '/^[[:space:]]*PF_SERIAL_INSTALLER_PATH[[:space:]]*=/ { val=$$2; gsub(/^[[:space:]]+|[[:space:]]+$$/, "", val); if (val != "") { print val; exit } } /^[[:space:]]*PF_ISO_PATH[[:space:]]*=/ { val=$$2; gsub(/^[[:space:]]+|[[:space:]]+$$/, "", val); if (val != "") { print val; exit } }' "$(ENV_FILE)")"; \
+preflight: pf.install
+        sudo ./pfsense/pf-config-gen.sh --env-file "$(ENV_FILE)"
+        installer_path="$$(awk -F= '/^[[:space:]]*PF_SERIAL_INSTALLER_PATH[[:space:]]*=/ { val=$$2; gsub(/^[[:space:]]+|[[:space:]]+$$/, "", val); if (val != "") { print val; exit } } /^[[:space:]]*PF_ISO_PATH[[:space:]]*=/ { val=$$2; gsub(/^[[:space:]]+|[[:space:]]+$$/, "", val); if (val != "") { print val; exit } }' "$(ENV_FILE)")"; \
 	if [ -n "$$installer_path" ]; then \
 		if [ ! -f "$$installer_path" ] && [[ "$$installer_path" == *.gz ]]; then \
 			alt_path="$${installer_path%.gz}"; \
@@ -101,8 +101,11 @@ preflight:
 	    echo "pfSense ZTP stage failed (exit $$pf_ztp_status); aborting bootstrap." >&2; \
 	  fi; \
 	  exit $$pf_ztp_status; \
-	fi
-	./scripts/preflight_and_bootstrap.sh $(COMMON_ARGS) $(DELETE_ARG) --preflight-only
+        fi
+        ./scripts/preflight_and_bootstrap.sh $(COMMON_ARGS) $(DELETE_ARG) --preflight-only
+
+pf.install:
+        bash ./scripts/pf-vm-install.sh "$(ENV_FILE)"
 
 bootstrap: preflight
 	./scripts/uranus_nuke_and_bootstrap.sh $(COMMON_ARGS) $(DELETE_ARG) $(HOLD_PORT_FORWARD_ARG)
