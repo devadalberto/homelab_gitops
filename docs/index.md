@@ -57,6 +57,13 @@ virsh shutdown ${VM_NAME}    # skip if the VM has never been started
 | `PG_BACKUP_HOSTPATH`    | `LABZ_MOUNT_BACKUPS`| Backups              |
 | `/srv/*` mounts         | `LABZ_MOUNT_*`      | hostPath PVs         |
 
+After updating the MetalLB fields in `.env`, regenerate the Flux manifest so the
+GitOps path and bootstrap helpers agree on the pool range:
+
+```bash
+./scripts/render_metallb_pool_manifest.sh --env-file ./.env
+```
+
 ## Internal CA
 
 Export root CA to trust on clients:

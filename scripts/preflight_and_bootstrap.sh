@@ -979,28 +979,23 @@ reconcile_metallb_pool() {
   fi
   log_info "Applying MetalLB IPAddressPool ${LABZ_METALLB_RANGE}"
   ensure_namespace_safe metallb-system
-  local manifest
-  manifest=$(cat <<EOF
-apiVersion: metallb.io/v1beta1
-kind: IPAddressPool
-metadata:
-  name: labz-pool
-  namespace: metallb-system
-spec:
-  addresses:
-    - ${LABZ_METALLB_RANGE}
----
+  local pool_manifest advertisement
+  if ! pool_manifest=$(metallb_render_ip_pool_manifest "homelab-pool" "metallb-system"); then
+    die ${EX_CONFIG} "Failed to render MetalLB IPAddressPool"
+  fi
+  advertisement=$(cat <<'EOF'
 apiVersion: metallb.io/v1beta1
 kind: L2Advertisement
 metadata:
-  name: labz-advertisement
+  name: homelab-l2
   namespace: metallb-system
 spec:
   ipAddressPools:
-    - labz-pool
+    - homelab-pool
 EOF
 )
-  kubectl_apply_manifest "${manifest}"
+  kubectl_apply_manifest "${pool_manifest}"
+  kubectl_apply_manifest "${advertisement}"
 }
 
 restart_flux_controllers() {
