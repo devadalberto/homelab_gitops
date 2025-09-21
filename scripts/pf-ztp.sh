@@ -291,6 +291,27 @@ parse_args() {
   fi
 }
 
+source_cli_env_file() {
+  local env_path=$1
+
+  if [[ -z ${env_path} ]]; then
+    return
+  fi
+
+  if [[ ! -f ${env_path} ]]; then
+    log_warn "Environment file ${env_path} not found; continuing without sourcing"
+    return
+  fi
+
+  log_debug "Sourcing CLI environment overrides from ${env_path}"
+  set +u
+  set -a
+  # shellcheck disable=SC1090
+  source "${env_path}"
+  set +a
+  set -u
+}
+
 load_env_file() {
   local candidates=()
   if [[ -n ${ENV_FILE} ]]; then
@@ -457,6 +478,43 @@ ensure_vm_name() {
   if [[ -z ${VM_NAME:-} ]]; then
     die ${EX_PREFLIGHT} "--vm-name is required when VM_NAME is not set in the environment"
   fi
+}
+
+ensure_pf_vm_exists() {
+  if [[ -z ${PF_VM_NAME:-} ]]; then
+    die ${EX_PREFLIGHT} "PF_VM_NAME is required to verify the pfSense VM"
+  fi
+
+  if ! command -v virsh >/dev/null 2>&1; then
+    die ${EX_PREFLIGHT} "virsh command is required"
+  fi
+
+  if sudo virsh dominfo "${PF_VM_NAME}" >/dev/null 2>&1; then
+    log_info "pfSense VM ${PF_VM_NAME} already exists; continuing"
+    return
+  fi
+
+  local installer="${REPO_ROOT}/scripts/pf-vm-install.sh"
+  if [[ ! -x ${installer} ]]; then
+    die ${EX_PREFLIGHT} "pfSense VM installer not found at ${installer}"
+  fi
+
+  log_info "pfSense VM ${PF_VM_NAME} not found; invoking installer"
+
+  local -a install_cmd=("${installer}")
+  if [[ -n ${ENV_FILE:-} ]]; then
+    install_cmd+=("--env-file" "${ENV_FILE}")
+  fi
+
+  if ! "${install_cmd[@]}"; then
+    die ${EX_FATAL} "pfSense VM installation failed"
+  fi
+
+  if ! sudo virsh dominfo "${PF_VM_NAME}" >/dev/null 2>&1; then
+    die ${EX_PREFLIGHT} "pfSense VM ${PF_VM_NAME} remains unavailable after installation"
+  fi
+
+  log_info "pfSense VM ${PF_VM_NAME} created via installer"
 }
 
 json_extract() {
@@ -1599,6 +1657,8 @@ print_summary() {
 main() {
   parse_args "$@"
 
+  source_cli_env_file "${ENV_FILE}"
+
   if [[ ${VERBOSE} == true ]]; then
     log_set_level debug || true
   fi
@@ -1607,10 +1667,18 @@ main() {
     die ${EX_PREFLIGHT} "Root privileges are required; rerun with sudo"
   fi
 
+  setup_logging
+  install_error_trap
+  load_env_file
+  if [[ -n ${VM_NAME_ARG:-} ]]; then
+    PF_VM_NAME="${VM_NAME_ARG}"
+  fi
+  PF_VM_NAME="${PF_VM_NAME:-pfsense-uranus}"
+  export PF_VM_NAME
+
+  ensure_pf_vm_exists
+
   if [[ ${ROLLBACK} == true ]]; then
-    setup_logging
-    install_error_trap
-    load_env_file
     ensure_vm_name
     setup_tmp_dir
     fetch_domain_info
@@ -1618,10 +1686,6 @@ main() {
     restore_domain_backup
     exit ${EX_SUCCESS}
   fi
-
-  setup_logging
-  install_error_trap
-  load_env_file
   if [[ -n ${VM_NAME_ARG} ]]; then
     VM_NAME="${VM_NAME_ARG}"
   fi
