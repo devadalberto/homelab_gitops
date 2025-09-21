@@ -9,6 +9,7 @@ PF_VM_NAME ?= pfsense-uranus
 help:
 	@echo "Targets:"
 	@echo "  up              - Run full bootstrap: pfSense + Kubernetes + status"
+	@echo "  net.ensure      - Ensure WAN/LAN bridges are present"
 	@echo "  preflight       - Ensure pfSense VM is running & IPs sane"
 	@echo "  pf.config       - Render pfSense config ISO/assets"
 	@echo "  pf.install      - Ensure pfSense VM exists (virt-install)"
@@ -23,6 +24,16 @@ help:
 check.env:
 	@echo "Using environment file $(ENV_FILE)"
 	@test -f $(ENV_FILE) && grep -E '^(LAN_CIDR|LAN_GW_IP|PF_VM_NAME|PF_LAN_BRIDGE|PF_WAN_BRIDGE|WAN_MODE|WAN_NIC|PF_OSINFO|PF_INSTALLER_SRC|LABZ_METALLB_RANGE|TRAEFIK_LOCAL_IP)=' $(ENV_FILE) || true
+
+.PHONY: net.ensure
+net.ensure:
+	@echo "Ensuring pfSense network bridges exist..."
+	@chmod +x ./scripts/net-ensure-bridge.sh
+	@if [[ -f "$(ENV_FILE)" ]]; then source "$(ENV_FILE)"; else echo "Environment file $(ENV_FILE) not found" >&2; exit 1; fi
+	@: "$${PF_WAN_BRIDGE:?PF_WAN_BRIDGE must be set in $(ENV_FILE)}"
+	@: "$${PF_LAN_BRIDGE:?PF_LAN_BRIDGE must be set in $(ENV_FILE)}"
+	@./scripts/net-ensure-bridge.sh "$$PF_WAN_BRIDGE"
+	@./scripts/net-ensure-bridge.sh "$$PF_LAN_BRIDGE"
 
 .PHONY: preflight
 preflight:
@@ -51,7 +62,9 @@ pf.ztp:
 .PHONY: pf.smoketest
 pf.smoketest:
 	@chmod +x ./scripts/pf-smoketest.sh
-	@./scripts/pf-smoketest.sh --env-file "$(ENV_FILE)"
+	@if [[ -f "$(ENV_FILE)" ]]; then source "$(ENV_FILE)"; else echo "Environment file $(ENV_FILE) not found" >&2; exit 1; fi
+	@: "$${PF_LAN_BRIDGE:?PF_LAN_BRIDGE must be set in $(ENV_FILE)}"
+	@./scripts/pf-smoketest.sh --env-file "$(ENV_FILE)" --lan-bridge "$$PF_LAN_BRIDGE"
 
 .PHONY: k8s.up
 k8s.up:
@@ -71,5 +84,5 @@ status:
 	@./scripts/resume-state.sh --env-file "$(ENV_FILE)"
 
 .PHONY: up
-up: preflight pf.config pf.install pf.ztp pf.smoketest k8s.up k8s.smoketest status
+up: net.ensure preflight pf.config pf.install pf.ztp pf.smoketest k8s.up k8s.smoketest status
 	@echo "Homelab bootstrap complete."
