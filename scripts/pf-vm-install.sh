@@ -44,41 +44,24 @@ detect_bridge() {
   if [[ -n "${PF_LAN_BRIDGE}" ]]; then
     echo "${PF_LAN_BRIDGE}"; return 0
   fi
-  local bridges cand
-  bridges="$(ip -br link 2>/dev/null || true)"
-
-  if printf '%s\n' "${bridges}" | awk '$1=="br0" && $2 ~ /UP/ {exit 0} END {exit 1}'; then
-    echo "br0"
-    return 0
+  if ip -br link 2>/dev/null | awk '$2=="UP"{print $1}' | grep -qx "br0"; then
+    echo "br0"; return 0
   fi
-
+  local cand=""
   cand="$(
-    printf '%s\n' "${bridges}" \
-      | awk '$1!="br0" && $1 ~ /^br/ && $2 ~ /UP/ {print $1}' \
+    ip -br link 2>/dev/null \
+      | awk '$2=="UP"{print $1}' \
+      | grep -E '^br|^virbr' \
       | grep -Ev '^br-[0-9a-f]{12}$' \
       | head -n1 || true
   )"
   if [[ -n "${cand}" ]]; then
-    echo "${cand}"
-    return 0
+    echo "${cand}"; return 0
   fi
-
-  cand="$(
-    printf '%s\n' "${bridges}" \
-      | awk '$1 ~ /^virbr/ && $2 ~ /UP/ {print $1}' \
-      | head -n1 || true
-  )"
-  if [[ -n "${cand}" ]]; then
-    echo "${cand}"
-    return 0
+  if ip -br link 2>/dev/null | awk '{print $1}' | grep -qx "br0"; then
+    echo "br0"; return 0
   fi
-
-  if printf '%s\n' "${bridges}" | awk '$1=="br0" {exit 0} END {exit 1}'; then
-    echo "br0"
-    return 0
-  fi
-
-  die "No suitable UP bridge found. Bring up br0 or set PF_LAN_BRIDGE."
+  die "No suitable bridge found. Bring up br0 or set PF_LAN_BRIDGE."
 }
 BRIDGE="$(detect_bridge)"
 ok "Using bridge: ${BRIDGE}"
