@@ -32,6 +32,8 @@ spec:
         name: traefik
         namespace: flux-system
   values:
+    deployment:
+      enabled: true
     service:
       type: LoadBalancer
     ingressClass:
