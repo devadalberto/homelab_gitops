@@ -24,7 +24,7 @@ check.env:
 preflight:
 	@echo "Running pfSense preflight..."
 	@chmod +x ./scripts/pf-preflight.sh
-	@./scripts/pf-preflight.sh "$(ENV_FILE)"
+	@./scripts/pf-preflight.sh --env-file "$(ENV_FILE)"
 
 .PHONY: pf.config
 pf.config:
