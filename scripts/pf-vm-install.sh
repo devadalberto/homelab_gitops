@@ -1,291 +1,167 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCRIPT_NAME="$(basename "${BASH_SOURCE[0]}")"
+log()   { printf "%s %s\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >&2; }
+die()   { log "[ERROR] $*"; exit 1; }
+info()  { log "[INFO] $*"; }
+ok()    { log "[OK] $*"; }
+warn()  { log "[WARN] $*"; }
 
-TMP_FILES=()
-cleanup_tmp_files() {
-  local path
-  for path in "${TMP_FILES[@]:-}"; do
-    [[ -n ${path} && -f ${path} ]] || continue
-    rm -f -- "${path}" 2>/dev/null || true
-  done
-}
-trap cleanup_tmp_files EXIT
+# -------- args & env --------
+ENV_FILE=""
+PF_INSTALLER_SRC="${PF_INSTALLER_SRC:-}"
+PF_LAN_BRIDGE="${PF_LAN_BRIDGE:-}"
+PF_VM_NAME="${PF_VM_NAME:-pfsense-uranus}"
+PF_OSINFO="${PF_OSINFO:-freebsd14.2}"
+PF_QCOW2_PATH="${PF_QCOW2_PATH:-/var/lib/libvirt/images/pfsense-uranus.qcow2}"
+PF_QCOW2_SIZE_GB="${PF_QCOW2_SIZE_GB:-20}"
+PF_INSTALLER_DEST="${PF_INSTALLER_DEST:-/var/lib/libvirt/images/netgate-installer-amd64.img}"
 
-log_info() {
-  printf '[INFO] %s\n' "$*"
-}
+# Simple flag parser
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --env-file|-e) ENV_FILE="${2:-}"; shift 2;;
+    --installer|--installer-src) PF_INSTALLER_SRC="${2:-}"; shift 2;;
+    --bridge) PF_LAN_BRIDGE="${2:-}"; shift 2;;
+    --vm-name) PF_VM_NAME="${2:-}"; shift 2;;
+    *) shift;;
+  esac
+done
 
-log_warn() {
-  printf '[WARN] %s\n' "$*" >&2
-}
-
-log_error() {
-  printf '[ERROR] %s\n' "$*" >&2
-}
-
-usage() {
-  cat <<USAGE
-Usage: ${SCRIPT_NAME} [--env-file PATH]
-
-Bootstrap a pfSense VM installer environment and launch virt-install.
-
-Options:
-  --env-file PATH  Source environment overrides from PATH.
-  -h, --help       Show this help message.
-USAGE
-}
-
-parse_args() {
-  ENV_FILE=""
-  while [[ $# -gt 0 ]]; do
-    case "$1" in
-      --env-file)
-        if [[ $# -lt 2 ]]; then
-          log_error "--env-file requires a path argument"
-          usage
-          exit 64
-        fi
-        ENV_FILE="$2"
-        shift 2
-        ;;
-      -h|--help)
-        usage
-        exit 0
-        ;;
-      --)
-        shift
-        break
-        ;;
-      *)
-        log_error "Unknown argument: $1"
-        usage
-        exit 64
-        ;;
-    esac
-  done
-
-}
-
-source_env_file() {
-  if [[ -z ${ENV_FILE:-} ]]; then
-    return
-  fi
-  if [[ ! -f ${ENV_FILE} ]]; then
-    log_error "Environment file '${ENV_FILE}' not found."
-    exit 1
-  fi
-  log_info "Loading environment from ${ENV_FILE}"
+if [[ -n "${ENV_FILE}" && -f "${ENV_FILE}" ]]; then
+  info "Loading environment from ${ENV_FILE}"
   # shellcheck disable=SC1090
   source "${ENV_FILE}"
-}
+fi
 
-require_env() {
-  local var_name=$1
-  local value="${!var_name:-}"
-  if [[ -z ${value} ]]; then
-    log_error "Required environment variable '${var_name}' is not set."
-    exit 1
+export XDG_CACHE_HOME=/root/.cache
+
+need() { command -v "$1" >/dev/null 2>&1 || die "Missing dependency: $1"; }
+need sudo; need virsh; need virt-install; need qemu-img; need gzip; need install; need ip; need awk; need grep; need sed; need ls
+
+# -------- pick bridge --------
+detect_bridge() {
+  if [[ -n "${PF_LAN_BRIDGE}" ]]; then
+    echo "${PF_LAN_BRIDGE}"; return 0
   fi
-}
-
-require_positive_integer() {
-  local var_name=$1
-  local value="${!var_name:-}"
-  if [[ ! ${value} =~ ^[0-9]+$ ]] || (( value <= 0 )); then
-    log_error "Environment variable '${var_name}' must be a positive integer."
-    exit 1
+  local cand
+  cand="$(
+    ip -br link 2>/dev/null \
+      | awk '$2=="UP"{print $1}' \
+      | grep -E '^(br|virbr|br0)' \
+      | grep -Ev '^br-[0-9a-f]{12}$' \
+      | head -n1 || true
+  )"
+  if [[ -z "${cand}" ]] && ip -br link 2>/dev/null | awk '{print $1}' | grep -qx "br0"; then
+    cand="br0"
   fi
+  [[ -n "${cand}" ]] || die "No suitable UP bridge found. Bring up br0 or set PF_LAN_BRIDGE."
+  echo "${cand}"
 }
+BRIDGE="$(detect_bridge)"
+ok "Using bridge: ${BRIDGE}"
 
-check_dependencies() {
-  local missing=()
-  local cmd
-  for cmd in "$@"; do
-    if ! command -v "${cmd}" >/dev/null 2>&1; then
-      missing+=("${cmd}")
-    fi
-  done
-  if (( ${#missing[@]} > 0 )); then
-    log_error "Missing required commands: ${missing[*]}"
-    exit 1
-  fi
-}
-
-ensure_bridge_exists() {
-  local bridge=$1
-  if ip link show "${bridge}" >/dev/null 2>&1; then
-    return
-  fi
-  log_error "Bridge '${bridge}' not found."
-  exit 1
-}
-
-detect_lan_bridge() {
-  if [[ -n ${PF_LAN_BRIDGE:-} ]]; then
-    log_info "Using LAN bridge from PF_LAN_BRIDGE: ${PF_LAN_BRIDGE}"
-    echo "${PF_LAN_BRIDGE}"
-    return
+# -------- locate installer --------
+# Accept both serial and non-serial names, .img.gz or .img, and search common dirs
+locate_installer() {
+  local explicit="${PF_INSTALLER_SRC:-}"
+  if [[ -n "${explicit}" ]]; then
+    if [[ -f "${explicit}" ]]; then echo "${explicit}"; return 0; fi
+    # try toggle .gz
+    if [[ "${explicit}" == *.gz && -f "${explicit%.gz}" ]]; then echo "${explicit%.gz}"; return 0; fi
+    if [[ "${explicit}" != *.gz && -f "${explicit}.gz" ]]; then echo "${explicit}.gz"; return 0; fi
+    warn "PF_INSTALLER_SRC points to '${explicit}', not found; falling back to auto-discovery."
   fi
 
-  local line name
-  while IFS= read -r line; do
-    [[ ${line} == *"state UP"* ]] || continue
-    name=$(awk -F': ' '{print $2}' <<< "${line}")
-    name=${name%%:*}
-    name=${name// /}
-    if [[ ${name} == docker* ]]; then
-      continue
-    fi
-    if [[ ${name} == br-* && ${name} != br0 ]]; then
-      continue
-    fi
-    log_info "Detected active bridge '${name}' for LAN attachment."
-    echo "${name}"
-    return
-  done < <(ip -o link show type bridge 2>/dev/null || true)
-
-  log_warn "Falling back to default bridge 'br0'."
-  echo "br0"
-}
-
-stage_installer() {
-  local src=$1
-  local dest=$2
-  local dest_dir
-  dest_dir=$(dirname "${dest}")
-  sudo install -d -m 0755 "${dest_dir}"
-
-  if [[ ${src} == *.gz ]]; then
-    local tmp_file
-    tmp_file=$(mktemp)
-    TMP_FILES+=("${tmp_file}")
-    log_info "Decompressing installer from ${src} to ${dest}"
-    gzip -cd "${src}" > "${tmp_file}"
-    sudo install -m 0644 "${tmp_file}" "${dest}"
-  else
-    log_info "Copying installer from ${src} to ${dest}"
-    sudo install -m 0644 "${src}" "${dest}"
-  fi
-}
-
-ensure_qcow2_disk() {
-  local qcow_path=$1
-  local qcow_size_gb=$2
-  local qcow_dir
-  qcow_dir=$(dirname "${qcow_path}")
-  sudo install -d -m 0755 "${qcow_dir}"
-  if [[ -f ${qcow_path} ]]; then
-    log_info "Using existing qcow2 disk at ${qcow_path}"
-    return
-  fi
-  log_info "Creating qcow2 disk at ${qcow_path} (${qcow_size_gb}G)"
-  sudo qemu-img create -f qcow2 "${qcow_path}" "${qcow_size_gb}G"
-}
-
-launch_virt_install() {
-  local installer_path=$1
-  local qcow_path=$2
-  local lan_bridge=$3
-  local wan_bridge=$4
-
-  local virt_args=(
-    --name "${PF_VM_NAME}"
-    --memory "${PF_VM_MEMORY_MB}"
-    --vcpus "${PF_VM_VCPUS}"
-    --cpu host
-    --import
-    --graphics none
-    --noautoconsole
-    --console pty,target.type=serial
-    --serial pty,target.type=serial
-    --disk "path=${installer_path},device=disk,bus=usb,readonly=on,boot.order=1"
-    --disk "path=${qcow_path},format=qcow2,bus=virtio,boot.order=2"
-    --network "bridge=${wan_bridge},model=virtio"
-    --network "bridge=${lan_bridge},model=virtio"
+  # Candidate basenames (ordered)
+  local names=(
+    "netgate-installer-amd64-serial.img.gz"
+    "netgate-installer-amd64.img.gz"
+    "netgate-installer-amd64-serial.img"
+    "netgate-installer-amd64.img"
+  )
+  local dirs=(
+    "$HOME/downloads"
+    "/opt/homelab/pfsense"
+    "/var/lib/libvirt/images"
   )
 
-  if [[ -n ${PF_OS_VARIANT:-} ]]; then
-    virt_args+=(--os-variant "${PF_OS_VARIANT}")
-  else
-    virt_args+=(--osinfo detect=on,require=off)
-  fi
+  # exact names first
+  for d in "${dirs[@]}"; do
+    for n in "${names[@]}"; do
+      if [[ -f "${d}/${n}" ]]; then echo "${d}/${n}"; return 0; fi
+    done
+  done
 
-  if [[ -n ${PF_EXTRA_VIRT_INSTALL_ARGS:-} ]]; then
-    # shellcheck disable=SC2206
-    virt_args+=(${PF_EXTRA_VIRT_INSTALL_ARGS})
-  fi
-
-  log_info "Launching virt-install for ${PF_VM_NAME}"
-  sudo virt-install "${virt_args[@]}"
-
-  printf '\nDetach the installer disk after installation completes:\n'
-  printf '  sudo virsh detach-disk "%s" "%s" --config --persistent\n' "${PF_VM_NAME}" "${installer_path}"
+  # last resort: any netgate*amd64*.img* by mtime
+  local any=""
+  any="$(ls -1t "$HOME"/downloads/netgate*amd64*.img* 2>/dev/null | head -n1 || true)"
+  if [[ -z "${any}" ]]; then any="$(ls -1t /opt/homelab/pfsense/netgate*amd64*.img* 2>/dev/null | head -n1 || true)"; fi
+  if [[ -z "${any}" ]]; then any="$(ls -1t /var/lib/libvirt/images/netgate*amd64*.img* 2>/dev/null | head -n1 || true)"; fi
+  [[ -n "${any}" ]] || die "Installer not found. Place one of: ${names[*]} under: ${dirs[*]} or set PF_INSTALLER_SRC."
+  echo "${any}"
 }
 
-main() {
-  parse_args "$@"
-  source_env_file
-
-  check_dependencies sudo virsh virt-install qemu-img gzip install ip
-
-  PF_INSTALLER_SRC="${PF_INSTALLER_SRC:-}"
-  if [[ -z ${PF_INSTALLER_SRC} ]]; then
-    if [[ -n ${PF_SERIAL_INSTALLER_PATH:-} ]]; then
-      PF_INSTALLER_SRC="${PF_SERIAL_INSTALLER_PATH}"
-    elif [[ -n ${PF_ISO_PATH:-} ]]; then
-      PF_INSTALLER_SRC="${PF_ISO_PATH}"
-    fi
-  fi
-  require_env PF_INSTALLER_SRC
-  if [[ ! -f ${PF_INSTALLER_SRC} ]]; then
-    log_error "Installer source '${PF_INSTALLER_SRC}' not found."
-    exit 1
-  fi
-
-  PF_VM_NAME="${PF_VM_NAME:-${VM_NAME:-pfsense-uranus}}"
-  require_env PF_VM_NAME
-
-  PF_VM_MEMORY_MB="${PF_VM_MEMORY_MB:-${RAM_MB:-4096}}"
-  require_positive_integer PF_VM_MEMORY_MB
-
-  PF_VM_VCPUS="${PF_VM_VCPUS:-${VCPUS:-2}}"
-  require_positive_integer PF_VM_VCPUS
-
-  PF_QCOW2_SIZE_GB="${PF_QCOW2_SIZE_GB:-${DISK_SIZE_GB:-20}}"
-  require_positive_integer PF_QCOW2_SIZE_GB
-
-  if [[ -z ${PF_INSTALLER_DEST:-} ]]; then
-    PF_INSTALLER_DEST="$(basename "${PF_INSTALLER_SRC%.gz}")"
-  fi
-
-  PF_QCOW2_PATH="${PF_QCOW2_PATH:-/var/lib/libvirt/images/${PF_VM_NAME}.qcow2}"
-
-  local images_root="/var/lib/libvirt/images"
-  local installer_path
-  if [[ ${PF_INSTALLER_DEST} == /* ]]; then
-    installer_path="${PF_INSTALLER_DEST}"
+prepare_installer() {
+  local src dest
+  src="$(locate_installer)"
+  PF_INSTALLER_SRC="${src}"
+  ok "Installer source: ${PF_INSTALLER_SRC}"
+  dest="${PF_INSTALLER_DEST}"
+  sudo mkdir -p "$(dirname "${dest}")"
+  if [[ "${src}" == *.gz ]]; then
+    info "Verifying and expanding ${src} -> ${dest}"
+    gzip -t "${src}"
+    gunzip -c "${src}" | sudo tee "${dest}" >/dev/null
   else
-    installer_path="${images_root}/${PF_INSTALLER_DEST}"
+    info "Copying ${src} -> ${dest}"
+    sudo install -D -m 0644 "${src}" "${dest}"
   fi
-
-  stage_installer "${PF_INSTALLER_SRC}" "${installer_path}"
-  ensure_qcow2_disk "${PF_QCOW2_PATH}" "${PF_QCOW2_SIZE_GB}"
-
-  local lan_bridge
-  lan_bridge=$(detect_lan_bridge)
-  ensure_bridge_exists "${lan_bridge}"
-
-  local wan_bridge="${PF_WAN_BRIDGE:-br0}"
-  ensure_bridge_exists "${wan_bridge}"
-
-  if sudo virsh dominfo "${PF_VM_NAME}" >/dev/null 2>&1; then
-    log_info "VM '${PF_VM_NAME}' already exists; skipping virt-install invocation."
-    return
-  fi
-
-  launch_virt_install "${installer_path}" "${PF_QCOW2_PATH}" "${lan_bridge}" "${wan_bridge}"
+  sudo test -s "${dest}" || die "Expanded installer at ${dest} is empty"
 }
+prepare_installer
 
-main "$@"
+# -------- qcow2 --------
+if ! sudo test -f "${PF_QCOW2_PATH}"; then
+  info "Creating qcow2 ${PF_QCOW2_PATH} (${PF_QCOW2_SIZE_GB}G)"
+  sudo qemu-img create -f qcow2 "${PF_QCOW2_PATH}" "${PF_QCOW2_SIZE_GB}G" >/dev/null
+else
+  ok "Reusing qcow2 ${PF_QCOW2_PATH}"
+fi
+
+# -------- skip if domain exists --------
+if sudo virsh dominfo "${PF_VM_NAME}" >/dev/null 2>&1; then
+  ok "Domain ${PF_VM_NAME} already exists; skipping create"
+  exit 0
+fi
+
+# -------- osinfo handling --------
+OSINFO_ARG="--osinfo ${PF_OSINFO}"
+if ! virt-install --osinfo list | awk '{print $1}' | grep -qx "${PF_OSINFO}"; then
+  warn "OSINFO ${PF_OSINFO} not present; using detect=on,require=off"
+  OSINFO_ARG="--osinfo detect=on,require=off"
+fi
+
+# -------- create VM --------
+info "Creating domain ${PF_VM_NAME} (serial-only, virtio, bridge=${BRIDGE})"
+set -x
+sudo virt-install \
+  --connect qemu:///system \
+  --name "${PF_VM_NAME}" \
+  --memory 4096 \
+  --vcpus 2 \
+  --cpu host \
+  ${OSINFO_ARG} \
+  --import \
+  --boot hd,menu=on,useserial=on \
+  --graphics none \
+  --console pty,target_type=serial \
+  --disk "path=${PF_INSTALLER_DEST},format=raw,readonly=on,boot.order=1" \
+  --disk "path=${PF_QCOW2_PATH},format=qcow2,boot.order=2" \
+  --network "bridge=${BRIDGE},model=virtio"
+set +x
+
+ok "Domain ${PF_VM_NAME} created. Finish install over serial, then detach installer:"
+echo "  sudo virsh detach-disk ${PF_VM_NAME} ${PF_INSTALLER_DEST} --config --persistent || true"
+echo "  sudo virsh start ${PF_VM_NAME} || true"
+echo "  sudo virsh console ${PF_VM_NAME}"
