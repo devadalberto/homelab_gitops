@@ -3,3 +3,4 @@ kind: Kustomization
 resources:
   - helmrepo.yaml
   - release.yaml
+  - dashboard.yaml

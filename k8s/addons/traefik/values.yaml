@@ -1,9 +1,0 @@
-# Values file to be used by a HelmRelease (Flux) or for reference if installing manually.
-# Mirrors: service.type=LoadBalancer, default ingress class.
-deployment:
-  enabled: true
-ingressClass:
-  enabled: true
-  isDefaultClass: true
-service:
-  type: LoadBalancer
