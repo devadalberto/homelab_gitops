@@ -105,7 +105,7 @@ preflight: pf.install
         ./scripts/preflight_and_bootstrap.sh $(COMMON_ARGS) $(DELETE_ARG) --preflight-only
 
 pf.install:
-        bash ./scripts/pf-vm-install.sh "$(ENV_FILE)"
+	bash ./scripts/pf-vm-install.sh --env-file "$(ENV_FILE)"
 
 bootstrap: preflight
 	./scripts/uranus_nuke_and_bootstrap.sh $(COMMON_ARGS) $(DELETE_ARG) $(HOLD_PORT_FORWARD_ARG)
