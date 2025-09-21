@@ -25,55 +25,48 @@ readonly EX_USAGE=64
 readonly EX_UNAVAILABLE=69
 readonly EX_SOFTWARE=70
 readonly EX_CONFIG=78
-readonly EX_NOTREADY=4
 
 ORIGINAL_ARGS=("$@")
 
-DRY_RUN=false
 ENV_FILE=""
-INSTALL_PATH_OVERRIDE=""
+ENV_SOURCE_USED=""
+INSTALLATION_PATH_OVERRIDE=""
 HEADLESS=${PF_HEADLESS:-true}
+DRY_RUN=false
 
 WORK_ROOT_DEFAULT="/opt/homelab"
-IMAGES_DIR_DEFAULT="/var/lib/libvirt/images"
-LAN_NET_NAME_DEFAULT="pfsense-lan"
-LAN_BRIDGE_DEFAULT="pfsense-lan"
-ISO_CMD=""
+DEFAULT_RAM_MB=4096
+DEFAULT_VCPUS=2
 
 PF_WORK=""
 CONFIG_DIR=""
-CONFIG_LATEST=""
-CONFIG_LEGACY=""
 CONFIG_ISO_PATH=""
 INSTALL_MEDIA_PATH=""
-VM_DISK_PATH=""
 
 usage() {
   cat <<'USAGE'
 Usage: pf-bootstrap.sh [OPTIONS]
 
-Prepare the pfSense VM, ensuring the configuration ISO is available and the
-installer media is staged for virt-install.
+Ensure the pfSense libvirt domain exists, refresh the configuration ISO, and
+optionally stage installer media.
 
 Options:
-  --installation-path PATH   Override the pfSense installer archive (.iso[.gz] or .img[.gz]).
-  --env-file PATH            Load environment overrides from PATH.
-  --headless                 Force serial/headless install (default).
-  --no-headless              Enable the legacy VNC console.
-  --dry-run                  Log actions without modifying the system.
-  -h, --help                 Show this help message.
-
-Exit codes:
-  0  Success.
-  4  Environment not ready (e.g., VM running when media swap requested).
-  64 Usage error (invalid CLI arguments).
-  69 Missing required dependencies (install xorriso/genisoimage/mkisofs, gzip, virt-install).
-  70 Runtime failure (command execution or libvirt configuration).
-  78 Configuration error (missing environment variables or installer media).
+  --env-file PATH         Load environment overrides from PATH.
+  --installation-path PATH
+                          Use PATH as the pfSense installer archive (.img[.gz] or
+                          .iso[.gz]).
+  --headless              Configure the VM for a serial-only console (default).
+  --no-headless           Enable a VNC console alongside the serial port.
+  --dry-run               Log planned actions without making changes.
+  -h, --help              Show this help message.
 USAGE
 }
 
 format_command() {
+  if [[ $# -eq 0 ]]; then
+    printf ''
+    return 0
+  fi
   local formatted=""
   local arg
   for arg in "$@"; do
@@ -98,20 +91,20 @@ run_cmd() {
 parse_args() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --installation-path)
-        if [[ $# -lt 2 ]]; then
-          usage
-          die ${EX_USAGE} "--installation-path requires a path argument"
-        fi
-        INSTALL_PATH_OVERRIDE="$2"
-        shift 2
-        ;;
       --env-file)
         if [[ $# -lt 2 ]]; then
           usage
           die ${EX_USAGE} "--env-file requires a path argument"
         fi
         ENV_FILE="$2"
+        shift 2
+        ;;
+      --installation-path)
+        if [[ $# -lt 2 ]]; then
+          usage
+          die ${EX_USAGE} "--installation-path requires a path argument"
+        fi
+        INSTALLATION_PATH_OVERRIDE="$2"
         shift 2
         ;;
       --headless)
@@ -134,11 +127,11 @@ parse_args() {
         shift
         break
         ;;
-      -* )
+      -*)
         usage
         die ${EX_USAGE} "Unknown option: $1"
         ;;
-      * )
+      *)
         usage
         die ${EX_USAGE} "Unexpected positional argument: $1"
         ;;
@@ -154,7 +147,6 @@ load_environment() {
     candidates=(
       "${REPO_ROOT}/.env"
       "${REPO_ROOT}/.env.example"
-      "/opt/homelab/.env"
     )
   fi
 
@@ -163,61 +155,38 @@ load_environment() {
     if [[ -f ${candidate} ]]; then
       log_info "Loading environment from ${candidate}"
       load_env "${candidate}" || die ${EX_CONFIG} "Failed to load environment from ${candidate}"
+      ENV_SOURCE_USED="${candidate}"
       return
     fi
   done
 
   log_warn "No environment file found; relying on existing shell variables."
-}
-
-check_dependencies() {
-  local missing=()
-
-  if need xorriso &>/dev/null; then
-    ISO_CMD="$(command -v xorriso)"
-  elif need genisoimage &>/dev/null; then
-    ISO_CMD="$(command -v genisoimage)"
-  elif need mkisofs &>/dev/null; then
-    ISO_CMD="$(command -v mkisofs)"
-  else
-    missing+=("xorriso|genisoimage|mkisofs")
-  fi
-
-  if ! need gzip &>/dev/null; then
-    missing+=(gzip)
-  fi
-
-  if ! need virt-install &>/dev/null; then
-    missing+=(virt-install)
-  fi
-
-  if (( ${#missing[@]} > 0 )); then
-    log_error "Missing required dependencies: ${missing[*]}"
-    log_info "Install them via: sudo apt-get install xorriso genisoimage mkisofs gzip virt-install"
-    die 3
-  fi
+  ENV_SOURCE_USED=""
 }
 
 init_defaults() {
   : "${WORK_ROOT:=${WORK_ROOT_DEFAULT}}"
-  : "${IMAGES_DIR:=${IMAGES_DIR_DEFAULT}}"
-  : "${LAN_NET_NAME:=${LAN_NET_NAME_DEFAULT}}"
-  : "${LAN_BRIDGE:=${LAN_BRIDGE_DEFAULT}}"
-  : "${VM_NAME:=pfsense-uranus}"
-  : "${VCPUS:=2}"
-  : "${RAM_MB:=4096}"
-  : "${DISK_SIZE_GB:=20}"
-  : "${WAN_MODE:=br0}"
-  : "${WAN_NIC:=eth0}"
+  : "${PF_VM_NAME:=pfsense-uranus}"
+  : "${PF_QCOW2_PATH:=/var/lib/libvirt/images/${PF_VM_NAME}.qcow2}"
+  : "${PF_QCOW2_SIZE_GB:=20}"
+  : "${PF_INSTALLER_DEST:=/var/lib/libvirt/images/netgate-installer-amd64.img}"
+  : "${PF_OSINFO:=freebsd14.2}"
+  : "${PF_VCPUS:=${DEFAULT_VCPUS}}"
+  : "${PF_RAM_MB:=${DEFAULT_RAM_MB}}"
+  : "${PF_INSTALLER_DIR:=${WORK_ROOT}/pfsense/installers}"
 
   PF_WORK="${WORK_ROOT}/pfsense"
   CONFIG_DIR="${PF_WORK}/config"
-  CONFIG_LATEST="${CONFIG_DIR}/pfSense-config-latest.iso"
-  CONFIG_LEGACY="${CONFIG_DIR}/pfSense-config.iso"
-  : "${PF_INSTALLER_DIR:=${PF_WORK}/installers}"
 }
 
-validate_headless() {
+check_dependencies() {
+  local required=(virsh virt-install qemu-img gzip install awk grep sed ip)
+  if ! need "${required[@]}"; then
+    die ${EX_UNAVAILABLE} "Install required commands: ${required[*]}"
+  fi
+}
+
+enforce_headless_valid() {
   case "${HEADLESS}" in
     true|false) ;;
     *)
@@ -226,7 +195,36 @@ validate_headless() {
   esac
 }
 
-find_installer_in_dir() {
+ensure_work_directories() {
+  if [[ ${DRY_RUN} == true ]]; then
+    log_info "[DRY-RUN] Would ensure directories exist: ${PF_WORK} ${CONFIG_DIR} ${PF_INSTALLER_DIR}"
+    return
+  fi
+  run_cmd mkdir -p "${PF_WORK}" "${CONFIG_DIR}" "${PF_INSTALLER_DIR}"
+}
+
+resolve_existing_path() {
+  local candidate=$1
+  if [[ -z ${candidate} ]]; then
+    return 1
+  fi
+  local paths=("${candidate}")
+  if [[ ${candidate} == *.gz ]]; then
+    paths+=("${candidate%.gz}")
+  else
+    paths+=("${candidate}.gz")
+  fi
+  local path
+  for path in "${paths[@]}"; do
+    if [[ -n ${path} && -f ${path} ]]; then
+      printf '%s\n' "${path}"
+      return 0
+    fi
+  done
+  return 1
+}
+
+discover_installer_in_dir() {
   local dir=$1
   [[ -d ${dir} ]] || return 1
 
@@ -242,11 +240,12 @@ find_installer_in_dir() {
   )
 
   local pattern
-  local best=""
   local file
+  local best=""
   shopt -s nullglob
   for pattern in "${patterns[@]}"; do
     for file in "${dir}"/${pattern}; do
+      [[ -f ${file} ]] || continue
       if [[ -z ${best} || ${file} -nt ${best} ]]; then
         best=${file}
       fi
@@ -261,73 +260,40 @@ find_installer_in_dir() {
   return 1
 }
 
-is_installer_file() {
-  local path=$1
-  [[ -f ${path} ]] || return 1
-  case "${path}" in
-    *.iso|*.iso.gz|*.img|*.img.gz) return 0 ;;
-    *) return 1 ;;
-  esac
-}
-
 discover_installer_path() {
   local candidate
-  if [[ -n ${INSTALL_PATH_OVERRIDE} ]]; then
-    if is_installer_file "${INSTALL_PATH_OVERRIDE}"; then
-      printf '%s\n' "${INSTALL_PATH_OVERRIDE}"
+  if [[ -n ${INSTALLATION_PATH_OVERRIDE} ]]; then
+    candidate=$(resolve_existing_path "${INSTALLATION_PATH_OVERRIDE}")
+    if [[ -n ${candidate} ]]; then
+      printf '%s\n' "${candidate}"
       return 0
     fi
-    die ${EX_CONFIG} "Installer not found or invalid: ${INSTALL_PATH_OVERRIDE}"
+    die ${EX_CONFIG} "Installer not found or invalid: ${INSTALLATION_PATH_OVERRIDE}"
   fi
 
-  if [[ -n ${PF_INSTALLER_SRC:-} ]]; then
-    if is_installer_file "${PF_INSTALLER_SRC}"; then
-      printf '%s\n' "${PF_INSTALLER_SRC}"
+  local env_var
+  for env_var in PF_INSTALLER_SRC PF_SERIAL_INSTALLER_PATH PF_ISO_PATH; do
+    if candidate=$(resolve_existing_path "${!env_var:-}"); then
+      printf '%s\n' "${candidate}"
       return 0
     fi
-  fi
-
-  if [[ -n ${PF_SERIAL_INSTALLER_PATH:-} ]]; then
-    if is_installer_file "${PF_SERIAL_INSTALLER_PATH}"; then
-      printf '%s\n' "${PF_SERIAL_INSTALLER_PATH}"
-      return 0
-    fi
-  fi
-
-  if [[ -n ${PF_ISO_PATH:-} ]]; then
-    if is_installer_file "${PF_ISO_PATH}"; then
-      printf '%s\n' "${PF_ISO_PATH}"
-      return 0
-    fi
-  fi
+  done
 
   local search_dirs=()
   if [[ -n ${PF_INSTALLER_DIR:-} ]]; then
     search_dirs+=("${PF_INSTALLER_DIR}")
   fi
-
-  local defaults=(
+  search_dirs+=(
     "${PF_WORK}/installers"
     "${PF_WORK}"
     "${WORK_ROOT}/pfsense"
     "${HOME:-}/Downloads"
+    "/var/lib/libvirt/images"
   )
 
   local dir
-  for dir in "${defaults[@]}"; do
-    local skip=0
-    local existing
-    for existing in "${search_dirs[@]}"; do
-      if [[ ${dir} == "${existing}" ]]; then
-        skip=1
-        break
-      fi
-    done
-    (( skip == 0 )) && search_dirs+=("${dir}")
-  done
-
   for dir in "${search_dirs[@]}"; do
-    candidate=$(find_installer_in_dir "${dir}") || continue
+    candidate=$(discover_installer_in_dir "${dir}") || continue
     if [[ -n ${candidate} ]]; then
       printf '%s\n' "${candidate}"
       return 0
@@ -344,371 +310,323 @@ stage_installer_media() {
   fi
 
   if [[ ${source} == *.gz ]]; then
-    local dest_base
-    if [[ ${source} == *.img.gz ]]; then
-      dest_base="${PF_WORK}/pfsense-installer.img"
-    else
-      dest_base="${PF_WORK}/pfsense-installer.iso"
+    local dest="${PF_INSTALLER_DEST}"
+    if [[ -z ${dest} ]]; then
+      dest="${PF_INSTALLER_DIR}/$(basename "${source%.gz}")"
     fi
-    log_info "Staging pfSense installer from ${source} to ${dest_base}"
-    INSTALL_MEDIA_PATH="${dest_base}"
+    log_info "Expanding pfSense installer archive ${source} -> ${dest}"
     if [[ ${DRY_RUN} == true ]]; then
-      log_info "[DRY-RUN] gzip -dc '${source}' > '${dest_base}'"
+      log_info "[DRY-RUN] Would extract ${source} to ${dest}"
+      INSTALL_MEDIA_PATH="${dest}"
       return
     fi
-    run_cmd mkdir -p "${PF_WORK}"
+    run_cmd mkdir -p "$(dirname "${dest}")"
     local tmp_dest
-    tmp_dest=$(mktemp -p "${PF_WORK}" "$(basename "${dest_base}").XXXXXX")
-    log_debug "Extracting ${source} to ${tmp_dest}"
+    tmp_dest=$(mktemp -p "$(dirname "${dest}")" "$(basename "${dest}").XXXXXX")
     if ! gzip -dc "${source}" > "${tmp_dest}"; then
-      rm -f "${tmp_dest}"
+      rm -f "${tmp_dest}" || true
       die ${EX_SOFTWARE} "Failed to extract installer from ${source}"
     fi
-    run_cmd mv "${tmp_dest}" "${dest_base}"
+    run_cmd mv "${tmp_dest}" "${dest}"
+    INSTALL_MEDIA_PATH="${dest}"
+    return
+  fi
+
+  if [[ -n ${PF_INSTALLER_DEST} && ${source} != "${PF_INSTALLER_DEST}" ]]; then
+    log_info "Copying installer ${source} -> ${PF_INSTALLER_DEST}"
+    if [[ ${DRY_RUN} == true ]]; then
+      log_info "[DRY-RUN] install -D -m 0644 '${source}' '${PF_INSTALLER_DEST}'"
+      INSTALL_MEDIA_PATH="${PF_INSTALLER_DEST}"
+      return
+    fi
+    run_cmd install -D -m 0644 "${source}" "${PF_INSTALLER_DEST}"
+    INSTALL_MEDIA_PATH="${PF_INSTALLER_DEST}"
   else
     INSTALL_MEDIA_PATH="${source}"
   fi
 }
 
-ensure_config_assets() {
-  local generator="${SCRIPT_DIR}/pf-config-gen.sh"
-
-  if [[ -f ${CONFIG_LATEST} ]]; then
-    CONFIG_ISO_PATH="${CONFIG_LATEST}"
-    log_info "Using pfSense config ISO at ${CONFIG_LATEST}"
+ensure_qcow2_disk() {
+  if [[ -f ${PF_QCOW2_PATH} ]]; then
+    log_info "Reusing existing disk ${PF_QCOW2_PATH}"
     return
   fi
 
-  if [[ -f ${CONFIG_LEGACY} ]]; then
-    log_warn "Detected legacy config ISO name (${CONFIG_LEGACY}). It will be used, but run pf-config-gen.sh to refresh."
-    CONFIG_ISO_PATH="${CONFIG_LEGACY}"
-    return
-  fi
-
-  log_info "pfSense config ISO not found; invoking ${generator}"
-  local args=()
-  if [[ ${DRY_RUN} == true ]]; then
-    args+=(--dry-run)
-  fi
-  run_cmd "${generator}" "${args[@]}"
-
-  if [[ ${DRY_RUN} == true ]]; then
-    CONFIG_ISO_PATH="${CONFIG_LATEST}"
-    log_info "[DRY-RUN] Would consume the ISO from ${CONFIG_ISO_PATH}"
-    return
-  fi
-
-  if [[ -f ${CONFIG_LATEST} ]]; then
-    CONFIG_ISO_PATH="${CONFIG_LATEST}"
-  elif [[ -f ${CONFIG_LEGACY} ]]; then
-    log_warn "pfSense config ISO generation completed without creating ${CONFIG_LATEST}; falling back to legacy name."
-    CONFIG_ISO_PATH="${CONFIG_LEGACY}"
-  else
-    die ${EX_SOFTWARE} "pfSense config ISO missing after regeneration"
-  fi
+  log_info "Creating qcow2 disk ${PF_QCOW2_PATH} (${PF_QCOW2_SIZE_GB}G)"
+  run_cmd mkdir -p "$(dirname "${PF_QCOW2_PATH}")"
+  run_cmd qemu-img create -f qcow2 "${PF_QCOW2_PATH}" "${PF_QCOW2_SIZE_GB}G"
 }
 
-ensure_directories() {
-  if [[ ${DRY_RUN} == true ]]; then
-    log_info "[DRY-RUN] Would ensure directories exist: ${PF_WORK} ${CONFIG_DIR} ${IMAGES_DIR} ${PF_INSTALLER_DIR}"
-    return
-  fi
-  run_cmd mkdir -p "${PF_WORK}" "${CONFIG_DIR}" "${IMAGES_DIR}" "${PF_INSTALLER_DIR}"
-}
-
-ensure_libvirt_network() {
-  local net_xml="${PF_WORK}/${LAN_NET_NAME}.xml"
-
-  if virsh net-info "${LAN_NET_NAME}" &>/dev/null; then
-    local existing_bridge=""
-    local existing_mode=""
-    existing_bridge=$(virsh net-dumpxml "${LAN_NET_NAME}" 2>/dev/null |
-      sed -n "s/.*<bridge[^>]*name='\([^']*\)'.*/\1/p" | head -n1)
-    existing_mode=$(virsh net-dumpxml "${LAN_NET_NAME}" 2>/dev/null |
-      sed -n "s/.*<forward[^>]*mode='\([^']*\)'.*/\1/p" | head -n1)
-
-    local -a mismatch=()
-    if [[ -z ${existing_bridge} ]]; then
-      mismatch+=("bridge not specified")
-    elif [[ ${existing_bridge} != "${LAN_BRIDGE}" ]]; then
-      mismatch+=("bridge ${existing_bridge} != ${LAN_BRIDGE}")
-    fi
-
-    if [[ -z ${existing_mode} ]]; then
-      mismatch+=("forward mode missing")
-    elif [[ ${existing_mode} != "bridge" ]]; then
-      mismatch+=("forward mode ${existing_mode}")
-    fi
-
-    if (( ${#mismatch[@]} == 0 )); then
-      local bridge_display="${existing_bridge:-${LAN_BRIDGE}}"
-      log_info "Libvirt network '${LAN_NET_NAME}' already targets bridge '${bridge_display}'."
-      return
-    fi
-
-    local mismatch_note
-    mismatch_note=$(printf '%s; ' "${mismatch[@]}")
-    mismatch_note=${mismatch_note%; }
-    log_warn "Recreating libvirt network '${LAN_NET_NAME}' (${mismatch_note})."
-
-    if [[ ${DRY_RUN} == true ]]; then
-      log_info "[DRY-RUN] virsh net-destroy ${LAN_NET_NAME} (if active)"
-      log_info "[DRY-RUN] virsh net-undefine ${LAN_NET_NAME}"
-    else
-      local active_state
-      active_state=$(virsh net-info "${LAN_NET_NAME}" 2>/dev/null | awk -F': +' '/Active/ {print $2}')
-      if [[ ${active_state} == "yes" ]]; then
-        run_cmd virsh net-destroy "${LAN_NET_NAME}"
-      fi
-      run_cmd virsh net-undefine "${LAN_NET_NAME}"
-    fi
-  else
-    log_info "Libvirt network '${LAN_NET_NAME}' is not defined; creating it."
+detect_bridge() {
+  if [[ -n ${PF_LAN_BRIDGE:-} ]]; then
+    printf '%s\n' "${PF_LAN_BRIDGE}"
+    return 0
   fi
 
-  log_info "Defining libvirt network ${LAN_NET_NAME} on bridge ${LAN_BRIDGE}"
-
-  if [[ ${DRY_RUN} == true ]]; then
-    log_info "[DRY-RUN] Would write network definition to ${net_xml}"
-    log_info "[DRY-RUN] virsh net-define ${net_xml}"
-    log_info "[DRY-RUN] virsh net-autostart ${LAN_NET_NAME}"
-    log_info "[DRY-RUN] virsh net-start ${LAN_NET_NAME}"
-    return
+  if ! command -v ip >/dev/null 2>&1; then
+    die ${EX_CONFIG} "ip command not available; set PF_LAN_BRIDGE explicitly"
   fi
 
-  cat >"${net_xml}" <<EOF
-<network>
-  <name>${LAN_NET_NAME}</name>
-  <forward mode='bridge'/>
-  <bridge name='${LAN_BRIDGE}'/>
-</network>
-EOF
-  run_cmd virsh net-define "${net_xml}"
-  run_cmd virsh net-autostart "${LAN_NET_NAME}"
-  if command -v ip >/dev/null 2>&1 && ! ip link show dev "${LAN_BRIDGE}" >/dev/null 2>&1; then
-    log_warn "Host bridge '${LAN_BRIDGE}' not found; ensure it exists before starting ${LAN_NET_NAME}."
-  fi
-  run_cmd virsh net-start "${LAN_NET_NAME}"
-}
+  local candidate
+  candidate=$(ip -br link 2>/dev/null \
+    | awk '$2=="UP"{print $1}' \
+    | grep -E '^(br|virbr|br0)' \
+    | grep -Ev '^br-[0-9a-f]{12}$' \
+    | head -n1 || true)
 
-ensure_vm_disk() {
-  VM_DISK_PATH="${IMAGES_DIR}/${VM_NAME}.qcow2"
-  if [[ -f ${VM_DISK_PATH} ]]; then
-    log_info "VM disk already present at ${VM_DISK_PATH}"
-    return
+  if [[ -z ${candidate} ]] && ip -br link 2>/dev/null | awk '{print $1}' | grep -qx "br0"; then
+    candidate="br0"
   fi
 
-  log_info "Creating VM disk at ${VM_DISK_PATH} (${DISK_SIZE_GB}G)"
-  if [[ ${DRY_RUN} == true ]]; then
-    log_info "[DRY-RUN] qemu-img create -f qcow2 ${VM_DISK_PATH} ${DISK_SIZE_GB}G"
-    return
+  if [[ -z ${candidate} ]]; then
+    die ${EX_CONFIG} "Unable to detect LAN bridge; set PF_LAN_BRIDGE"
   fi
 
-  run_cmd qemu-img create -f qcow2 "${VM_DISK_PATH}" "${DISK_SIZE_GB}G"
-}
-
-select_wan_args() {
-  local -n ref=$1
-  ref=()
-  if [[ ${WAN_MODE} == "br0" ]]; then
-    ref=(--network "bridge=br0,model=virtio")
-  else
-    ref=(--network "type=direct,source=${WAN_NIC},source_mode=bridge,model=virtio")
-  fi
-}
-
-select_install_media_args() {
-  local -n ref=$1
-  if [[ ${INSTALL_MEDIA_PATH} == *.img ]]; then
-    ref=(--disk "path=${INSTALL_MEDIA_PATH},device=disk,bus=usb")
-  else
-    ref=(--cdrom "${INSTALL_MEDIA_PATH}")
-  fi
+  log_info "Auto-detected LAN bridge ${candidate}"
+  printf '%s\n' "${candidate}"
 }
 
 select_console_args() {
   local -n graphics_ref=$1
   local -n console_ref=$2
+  graphics_ref=()
+  console_ref=()
   if [[ ${HEADLESS} == true ]]; then
     graphics_ref=(--graphics none)
-    console_ref=(
-      --noautoconsole
-      --console pty,target.type=serial
-      --serial pty,target.type=serial
-      --extra-args "console=ttyS0"
-    )
   else
     graphics_ref=(--graphics vnc)
-    console_ref=(
-      --noautoconsole
-      --console pty,target.type=serial
-      --serial pty,target.type=serial
-    )
+  fi
+  console_ref=(
+    --console pty,target_type=serial
+    --serial pty,target_type=serial
+  )
+}
+
+determine_osinfo_args() {
+  OSINFO_ARGS=()
+  local desired=${PF_OSINFO:-}
+  if [[ -z ${desired} ]]; then
+    return
+  fi
+  if virt-install --osinfo list 2>/dev/null | awk '{print $1}' | grep -qx "${desired}"; then
+    OSINFO_ARGS=(--osinfo "${desired}")
+  else
+    log_warn "Requested OSINFO '${desired}' not present; falling back to detect=on,require=off"
+    OSINFO_ARGS=(--osinfo detect=on,require=off)
   fi
 }
 
-select_os_variant() {
-  local os_variant=""
-  if command -v osinfo-query >/dev/null 2>&1 && osinfo-query os | grep -q 'freebsd13'; then
-    os_variant="freebsd13.2"
+installer_disk_arg() {
+  local path=$1
+  if [[ ${path} == *.iso ]]; then
+    printf '%s\n' "path=${path},device=cdrom,bus=sata,readonly=on,boot.order=1"
+  else
+    printf '%s\n' "path=${path},device=disk,bus=usb,format=raw,readonly=on,boot.order=1"
   fi
-  printf '%s' "${os_variant}"
 }
 
 define_vm() {
-  if virsh dominfo "${VM_NAME}" &>/dev/null; then
-    log_info "VM '${VM_NAME}' already defined."
-    return
-  fi
-
-  if [[ ${DRY_RUN} == true ]]; then
-    log_info "[DRY-RUN] Would define VM ${VM_NAME} with virt-install"
-    return
-  fi
-
-  local wan_args=()
-  select_wan_args wan_args
-  local install_args=()
-  select_install_media_args install_args
+  local bridge
+  bridge=$(detect_bridge)
   local graphics_args=()
   local console_args=()
   select_console_args graphics_args console_args
-  local os_variant
-  os_variant=$(select_os_variant)
+  determine_osinfo_args
+
+  local install_arg
+  install_arg=$(installer_disk_arg "${INSTALL_MEDIA_PATH}")
 
   local virt_args=(
-    --name "${VM_NAME}"
-    --memory "${RAM_MB}"
-    --vcpus "${VCPUS}"
+    --connect qemu:///system
+    --name "${PF_VM_NAME}"
+    --memory "${PF_RAM_MB}"
+    --vcpus "${PF_VCPUS}"
     --cpu host
-    --hvm
-    --virt-type kvm
-    "${graphics_args[@]}"
-    "${install_args[@]}"
-    --disk "path=${VM_DISK_PATH},bus=virtio,format=qcow2"
-    "${wan_args[@]}"
-    --network "network=${LAN_NET_NAME},model=virtio"
-    "${console_args[@]}"
+    --boot hd,menu=on,useserial=on
+    --disk "${install_arg}"
+    --disk "path=${PF_QCOW2_PATH},format=qcow2,boot.order=2"
+    --network "bridge=${bridge},model=virtio"
+    --noautoconsole
   )
 
-  if [[ -n ${os_variant} ]]; then
-    virt_args+=(--os-variant "${os_variant}")
-  fi
+  virt_args+=("${graphics_args[@]}")
+  virt_args+=("${console_args[@]}")
+  virt_args+=("${OSINFO_ARGS[@]}")
 
+  log_info "Defining pfSense VM '${PF_VM_NAME}'"
   run_cmd virt-install "${virt_args[@]}"
 }
 
-ensure_cdrom_iso_attachment() {
-  local vm_name=$1
-  local iso_path=$2
-  local label=${3:-ISO}
+find_config_iso() {
+  local candidates=()
+  if [[ -n ${PF_CONFIG_ISO_PATH:-} ]]; then
+    candidates+=("${PF_CONFIG_ISO_PATH}")
+  fi
+  candidates+=(
+    "${CONFIG_DIR}/pfSense-config-latest.iso"
+    "${CONFIG_DIR}/pfSense-config.iso"
+  )
 
-  if [[ -z ${iso_path} ]]; then
-    die ${EX_CONFIG} "Missing path for ${label}."
+  local candidate
+  for candidate in "${candidates[@]}"; do
+    if [[ -n ${candidate} && -f ${candidate} ]]; then
+      CONFIG_ISO_PATH="${candidate}"
+      log_info "Using pfSense config ISO at ${candidate}"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+ensure_config_iso() {
+  if find_config_iso; then
+    return
   fi
 
   if [[ ${DRY_RUN} == true ]]; then
-    log_info "[DRY-RUN] Would ensure ${label} attached to ${vm_name} via CD-ROM (${iso_path})."
+    CONFIG_ISO_PATH="${CONFIG_DIR}/pfSense-config-latest.iso"
+    log_info "[DRY-RUN] Would ensure pfSense config ISO at ${CONFIG_ISO_PATH}"
     return
   fi
 
-  if ! virsh dominfo "${vm_name}" &>/dev/null; then
+  local generator="${SCRIPT_DIR}/pf-config-gen.sh"
+  if [[ -x ${generator} ]]; then
+    log_info "pfSense config ISO not found; invoking ${generator}"
+    local args=()
+    if [[ -n ${ENV_SOURCE_USED} ]]; then
+      args+=(--env-file "${ENV_SOURCE_USED}")
+    fi
+    run_cmd "${generator}" "${args[@]}"
+  else
+    log_warn "pfSense config generator not executable at ${generator}"
+  fi
+
+  if find_config_iso; then
+    return
+  fi
+
+  die ${EX_CONFIG} "pfSense config ISO missing. Run pf-config-gen.sh before bootstrapping."
+}
+
+domain_exists() {
+  virsh dominfo "${PF_VM_NAME}" >/dev/null 2>&1
+}
+
+domain_is_running() {
+  local state
+  state=$(virsh domstate "${PF_VM_NAME}" 2>/dev/null || true)
+  case ${state} in
+    running|paused) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+ensure_config_iso_attachment() {
+  local vm_name=$1
+  local iso_path=$2
+  local label=${3:-pfSense config ISO}
+
+  if [[ ${DRY_RUN} == true ]]; then
+    log_info "[DRY-RUN] Would ensure ${label} attached to ${vm_name} (${iso_path})"
+    return
+  fi
+
+  if ! virsh dominfo "${vm_name}" >/dev/null 2>&1; then
     log_debug "VM ${vm_name} not defined; skipping ${label} attachment"
     return
+  fi
+
+  if [[ ! -f ${iso_path} ]]; then
+    die ${EX_CONFIG} "${label} not found at ${iso_path}"
   fi
 
   local domblk_output
   domblk_output=$(virsh domblklist "${vm_name}" --details 2>/dev/null || true)
 
   local iso_target=""
+  local first_cdrom=""
   local -A used_targets=()
-  while IFS=$'\t' read -r target source; do
-    [[ -z ${target} ]] && continue
-    target=${target//$'\r'/}
-    source=${source//$'\r'/}
-    case "${target}" in
-      hd*)
-        used_targets["${target}"]=1
-        if [[ ${source} == "${iso_path}" ]]; then
-          iso_target=${target}
-        fi
-        ;;
-    esac
-  done < <(printf '%s\n' "${domblk_output}" | awk 'NR>2 && $2 == "cdrom" {print $3 "\t" $4}')
+  local line
+  while IFS= read -r line; do
+    [[ -z ${line} ]] && continue
+    if [[ ${line} =~ ^file[[:space:]]+cdrom[[:space:]]+([^[:space:]]+)[[:space:]]+(.+) ]]; then
+      local target=${BASH_REMATCH[1]}
+      local source=${BASH_REMATCH[2]}
+      used_targets["${target}"]=1
+      if [[ -z ${first_cdrom} ]]; then
+        first_cdrom=${target}
+      fi
+      if [[ ${source} == "${iso_path}" ]]; then
+        iso_target=${target}
+        break
+      fi
+    elif [[ ${line} =~ ^file[[:space:]]+disk[[:space:]]+([^[:space:]]+) ]]; then
+      local target=${BASH_REMATCH[1]}
+      used_targets["${target}"]=1
+    fi
+  done < <(printf '%s\n' "${domblk_output}" | tail -n +3)
 
   if [[ -n ${iso_target} ]]; then
     log_info "${label} already attached to ${vm_name} (${iso_target})."
     return
   fi
 
-  local target=""
-  local letter
-  for letter in {a..z}; do
-    local candidate="hd${letter}"
-    if [[ -z ${used_targets[${candidate}]:-} ]]; then
-      target=${candidate}
-      break
-    fi
-  done
-
-  if [[ -z ${target} ]]; then
-    die ${EX_SOFTWARE} "Unable to locate a free CD-ROM target for ${label} on ${vm_name}."
+  local live_args=()
+  if domain_is_running "${vm_name}"; then
+    live_args+=(--live)
   fi
 
-  log_info "Attaching ${label} to ${vm_name} at ${target} (${iso_path})."
-  local attach_cmd=(virsh attach-disk "${vm_name}" "${iso_path}" "${target}" --type cdrom --mode readonly --config --live)
-  log_debug "Executing: $(format_command "${attach_cmd[@]}")"
-
-  if "${attach_cmd[@]}"; then
+  if [[ -n ${first_cdrom} ]]; then
+    log_info "Updating ${label} on ${vm_name} target ${first_cdrom}"
+    run_cmd virsh change-media "${vm_name}" "${first_cdrom}" "${iso_path}" --insert --force --config "${live_args[@]}"
     return
   fi
 
-  local dom_state
-  dom_state=$(virsh domstate "${vm_name}" 2>/dev/null | tr -d '\r' || true)
-  if [[ ${dom_state} == "shut off" || ${dom_state} == "pmsuspended" ]]; then
-    log_debug "Live attachment unavailable for ${vm_name} (${dom_state}); retrying offline."
-    local attach_config_cmd=(virsh attach-disk "${vm_name}" "${iso_path}" "${target}" --type cdrom --mode readonly --config)
-    log_debug "Executing: $(format_command "${attach_config_cmd[@]}")"
-    if "${attach_config_cmd[@]}"; then
-      return
+  local candidate_targets=(sdb sdc sdd hdb hdc)
+  local attach_target=""
+  local candidate
+  for candidate in "${candidate_targets[@]}"; do
+    if [[ -z ${used_targets[${candidate}]:-} ]]; then
+      attach_target=${candidate}
+      break
     fi
-  fi
+  done
+  [[ -n ${attach_target} ]] || attach_target="sdb"
 
-  die ${EX_SOFTWARE} "Failed to attach ${label} (${iso_path}) to ${vm_name} at ${target}."
-}
-
-ensure_boot_media_attached() {
-  ensure_cdrom_iso_attachment "${VM_NAME}" "${INSTALL_MEDIA_PATH}" "pfSense installer media"
-  ensure_cdrom_iso_attachment "${VM_NAME}" "${CONFIG_ISO_PATH}" "pfSense config ISO"
+  log_info "Attaching ${label} to ${vm_name} at ${attach_target}"
+  run_cmd virsh attach-disk "${vm_name}" "${iso_path}" "${attach_target}" --type cdrom --mode readonly --config "${live_args[@]}"
 }
 
 main() {
   parse_args "$@"
   load_environment
   init_defaults
-  validate_headless
-
-  homelab_maybe_reexec_for_privileged_paths PF_BOOTSTRAP_SUDO_GUARD \
-    "${WORK_ROOT}" "${PF_WORK}" "${CONFIG_DIR}" "${IMAGES_DIR}" "${PF_INSTALLER_DIR}"
-
+  enforce_headless_valid
   check_dependencies
-  ensure_directories
-  ensure_config_assets
+  ensure_work_directories
+  ensure_config_iso
+
+  if domain_exists; then
+    log_info "Libvirt domain '${PF_VM_NAME}' already exists; ensuring configuration media is current."
+    ensure_config_iso_attachment "${PF_VM_NAME}" "${CONFIG_ISO_PATH}" "pfSense config ISO"
+    log_info "pfSense VM '${PF_VM_NAME}' already defined. Nothing else to do."
+    return
+  fi
 
   local installer
   if ! installer=$(discover_installer_path); then
-    log_warn "No pfSense installer detected. Set PF_INSTALLER_SRC to the downloaded archive (legacy PF_SERIAL_INSTALLER_PATH/PF_ISO_PATH remain supported) or rename it to match the expected netgate-installer-amd64-serial image."
-    die ${EX_CONFIG} "Unable to locate pfSense installer. Provide --installation-path or set PF_INSTALLER_SRC (PF_SERIAL_INSTALLER_PATH/PF_ISO_PATH/PF_INSTALLER_DIR remain supported)."
+    log_warn "No pfSense installer detected. Provide --installation-path or set PF_INSTALLER_SRC (PF_SERIAL_INSTALLER_PATH/PF_ISO_PATH remain supported)."
+    die ${EX_CONFIG} "Unable to locate pfSense installer."
   fi
   log_info "Using pfSense installer at ${installer}"
   stage_installer_media "${installer}"
 
-  ensure_libvirt_network
-  ensure_vm_disk
+  ensure_qcow2_disk
   define_vm
-  ensure_boot_media_attached
+  ensure_config_iso_attachment "${PF_VM_NAME}" "${CONFIG_ISO_PATH}" "pfSense config ISO"
 
-  log_info "pfSense VM ready. Use 'virt-viewer --connect qemu:///system ${VM_NAME}' to install."
+  log_info "pfSense VM '${PF_VM_NAME}' ready. Start it with 'virsh start ${PF_VM_NAME}' when you're ready to install."
 }
 
 main "$@"
