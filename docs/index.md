@@ -23,16 +23,21 @@ If you chose `br0`, the host will reboot once, then resume automatically:
 
 A deeper walk-through of every subsystem, bootstrap dependency, and GitOps controller can be found in the [Architecture](architecture.md) guide. That page also includes Mermaid sequence/state diagrams that are rendered as part of the documentation build.
 
-### Rotate AWX admin credentials
+### Manage encrypted application secrets
 
-The AWX operator expects the `awx-admin` secret (managed with SOPS at `awx/sops-secrets/awx-admin.sops.yaml`) to exist before the instance comes online. To rotate or regenerate the admin password:
+Both the AWX admin and Postgres superuser Kubernetes Secrets live in this repository as [SOPS](https://github.com/getsops/sops) manifests and are encrypted for the Age recipient defined in `.sops/.sops.yaml`. To edit either secret:
 
-1. Export your age key (`export SOPS_AGE_KEY_FILE=.sops/age.key`) and decrypt the secret for editing: `sops awx/sops-secrets/awx-admin.sops.yaml`.
-2. Generate a replacement password (for example with `python3 -c 'import secrets,string; print("".join(secrets.choice(string.ascii_letters + string.digits) for _ in range(24)))'`) and update the `stringData.password` field.
-3. Re-encrypt the manifest (`sops --encrypt --in-place awx/sops-secrets/awx-admin.sops.yaml`) and apply it to the cluster: `kubectl apply -f awx/sops-secrets/awx-admin.sops.yaml`.
-4. Synchronize the running AWX instance: `kubectl -n awx exec deployment/awx-task -- awx-manage changepassword admin '<new-password>'`, then bounce the AWX pods if the operator does not reconcile automatically.
+1. Export the matching Age private key so SOPS can decrypt locally (for example `export SOPS_AGE_KEY_FILE=$HOME/.config/sops/age/keys.txt`).
+2. Open the manifest with SOPS (`sops awx/sops-secrets/awx-admin.sops.yaml` or `sops data/postgres/sops-secrets/postgres-superuser.yaml`). SOPS handles the decrypt/edit/re-encrypt cycle automatically when the editor closes.
+3. Apply the updated manifest back to the cluster (`kubectl apply -f <path-to-secret>`).
 
-The README contains additional context on storing and auditing the regenerated credential.
+#### Rotate AWX admin credentials
+
+The AWX operator expects the `awx-admin` secret to exist before the instance comes online. When rotating the admin password, generate a new credential, update the `stringData.password` field in `awx/sops-secrets/awx-admin.sops.yaml`, apply the manifest, and then synchronize the running AWX instance: `kubectl -n awx exec deployment/awx-task -- awx-manage changepassword admin '<new-password>'`. Bounce the AWX pods if the operator does not reconcile automatically.
+
+#### Rotate Postgres superuser credentials
+
+The bootstrap Postgres chart consumes `data/postgres/sops-secrets/postgres-superuser.yaml` for the `pg-superuser` secret. When changing the password, ensure the `stringData.postgres-password` field and the `stringData.database-url` connection string stay in sync before applying the manifest.
 
 ### Refreshing pfSense bootstrap media
 
