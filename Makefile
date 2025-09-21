@@ -8,13 +8,16 @@ PF_VM_NAME ?= pfsense-uranus
 .PHONY: help
 help:
 	@echo "Targets:"
-	@echo "  up            - Preflight, render pf config, ensure VM exists, run ZTP"
-	@echo "  preflight     - Ensure pfSense VM is running & IPs sane"
-	@echo "  pf.install    - Ensure pfSense VM exists (virt-install)"
-	@echo "  pf.ztp        - Run pfSense bootstrap (installer optional if VM exists)"
-	@echo "  pf.config     - Render pfSense config ISO/assets"
-	@echo "  smoketest     - Run pfSense smoketest"
-	@echo "  check.env     - Show key environment values"
+	@echo "  up              - Run full bootstrap: pfSense + Kubernetes + status"
+	@echo "  preflight       - Ensure pfSense VM is running & IPs sane"
+	@echo "  pf.config       - Render pfSense config ISO/assets"
+	@echo "  pf.install      - Ensure pfSense VM exists (virt-install)"
+	@echo "  pf.ztp          - Run pfSense bootstrap (installer optional if VM exists)"
+	@echo "  pf.smoketest    - Run pfSense smoketest"
+	@echo "  k8s.up          - Prepare kubectl context for the homelab cluster"
+	@echo "  k8s.smoketest   - Validate Kubernetes readiness"
+	@echo "  status          - Emit current bootstrap status marker"
+	@echo "  check.env       - Show key environment values"
 
 .PHONY: check.env
 check.env:
@@ -45,11 +48,28 @@ pf.ztp:
 	@sudo ./pfsense/pf-bootstrap.sh --env-file "$(ENV_FILE)" --headless
 	@echo "pfSense ZTP done."
 
-.PHONY: smoketest
-smoketest:
+.PHONY: pf.smoketest
+pf.smoketest:
 	@chmod +x ./scripts/pf-smoketest.sh
 	@./scripts/pf-smoketest.sh --env-file "$(ENV_FILE)"
 
+.PHONY: k8s.up
+k8s.up:
+	@echo "Configuring Kubernetes context..."
+	@chmod +x ./scripts/k8s-up.sh
+	@./scripts/k8s-up.sh
+
+.PHONY: k8s.smoketest
+k8s.smoketest:
+	@echo "Running Kubernetes smoketest..."
+	@chmod +x ./scripts/k8s-smoketest.sh
+	@./scripts/k8s-smoketest.sh --env-file "$(ENV_FILE)"
+
+.PHONY: status
+status:
+	@chmod +x ./scripts/resume-state.sh
+	@./scripts/resume-state.sh --env-file "$(ENV_FILE)"
+
 .PHONY: up
-up: preflight pf.config pf.install pf.ztp
+up: preflight pf.config pf.install pf.ztp pf.smoketest k8s.up k8s.smoketest status
 	@echo "Homelab bootstrap complete."
