@@ -12,5 +12,8 @@ configMapGenerator:
       - values.yaml=../../../data/postgres/pg-values.yaml
 generatorOptions:
   disableNameSuffixHash: true
-patchesStrategicMerge:
-  - patches/pg-values-namespace.yaml
+patches:
+  - path: patches/pg-values-namespace.yaml
+    target:
+      kind: ConfigMap
+      name: pg-values

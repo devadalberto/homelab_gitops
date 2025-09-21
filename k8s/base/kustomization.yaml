@@ -8,9 +8,4 @@ resources:
   - ../observability
   - ../data/postgres
   - ../apps/awx
-  - ../apps/pihole
-  - ../apps/nextcloud
-  - ../apps/jellyfin
-  - ../apps/bitwarden
-  - ../apps/homepage
   - ../apps/django-multiproject
