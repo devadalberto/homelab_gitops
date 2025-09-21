@@ -715,6 +715,25 @@ main() {
   parse_args "$@"
   load_environment
 
+  : "${HELM_CACHE_HOME:=${XDG_CACHE_HOME:-${HOME}/.cache}/helm}"
+  export HELM_CACHE_HOME
+  local helm_repo_cache desired_uid desired_gid desired_owner current_owner
+  helm_repo_cache="${HELM_CACHE_HOME%/}/repository"
+  desired_uid=$(id -u)
+  desired_gid=$(id -g)
+  desired_owner="${desired_uid}:${desired_gid}"
+
+  homelab_maybe_reexec_for_privileged_paths HOMELAB_ESCALATED "${helm_repo_cache}"
+  run_cmd mkdir -p "${helm_repo_cache}"
+  if [[ ${DRY_RUN} == true ]]; then
+    log_info "[DRY-RUN] ensure ownership of ${helm_repo_cache} by ${desired_owner}"
+  else
+    current_owner=$(stat -c '%u:%g' "${helm_repo_cache}")
+    if [[ ${current_owner} != "${desired_owner}" ]]; then
+      run_cmd chown "${desired_owner}" "${helm_repo_cache}"
+    fi
+  fi
+
   if [[ -z ${ENV_FILE_PATH} ]]; then
     die ${EX_CONFIG} "Environment file is required. Use --env-file to specify one."
   fi
