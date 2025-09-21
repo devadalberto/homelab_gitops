@@ -80,18 +80,7 @@ up: preflight core-addons apps post-check
 
 preflight: pf.install
 	sudo ./pfsense/pf-config-gen.sh --env-file "$(ENV_FILE)"
-	installer_path="$$(awk -F= 'function sanitize(val) { gsub(/^[[:space:]]+|[[:space:]]+$$/, "", val); gsub(/^"|"$$/, "", val); gsub(/^\047|\047$$/, "", val); return val } /^[[:space:]]*PF_INSTALLER_SRC[[:space:]]*=/ { val=sanitize($$2); if (val != "") { print val; exit } } /^[[:space:]]*PF_SERIAL_INSTALLER_PATH[[:space:]]*=/ { val=sanitize($$2); if (val != "") { print val; exit } } /^[[:space:]]*PF_ISO_PATH[[:space:]]*=/ { val=sanitize($$2); if (val != "") { print val; exit } }' "$(ENV_FILE)")"; \
-	if [ -n "$$installer_path" ]; then \
-		if [ ! -f "$$installer_path" ] && [[ "$$installer_path" == *.gz ]]; then \
-			alt_path="$${installer_path%.gz}"; \
-			if [ -f "$$alt_path" ]; then \
-				installer_path="$$alt_path"; \
-			fi; \
-		fi; \
-		sudo ./pfsense/pf-bootstrap.sh --env-file "$(ENV_FILE)" --headless --installation-path "$$installer_path"; \
-	else \
-		sudo ./pfsense/pf-bootstrap.sh --env-file "$(ENV_FILE)" --headless; \
-	fi
+	@sudo ./pfsense/pf-bootstrap.sh --env-file "$(ENV_FILE)" --headless
 	pf_ztp_status=0; \
 	sudo ./scripts/pf-ztp.sh --env-file "$(ENV_FILE)" --vm-name "$(PF_VM_NAME)" --verbose --lenient || pf_ztp_status=$$?; \
 	if [ $$pf_ztp_status -ne 0 ]; then \
