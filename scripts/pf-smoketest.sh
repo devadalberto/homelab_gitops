@@ -29,22 +29,58 @@ readonly EX_OK=0
 readonly EX_USAGE=64
 readonly EX_DEPENDENCY=65
 readonly EX_RUNTIME=69
+readonly EX_CONFIG=78
 
-DEFAULT_VM_NAME="${PF_VM_NAME:-pfsense-uranus}"
-DEFAULT_GATEWAY="${PF_LAN_GATEWAY:-10.10.0.1}"
-DEFAULT_LAN_NETWORK="${PF_LAN_NETWORK:-10.10.0.0}"  # network portion for temporary address validation
-DEFAULT_LAN_PREFIX="${PF_LAN_PREFIX:-24}"
-DEFAULT_HTTP_URL="${PF_LAN_HTTP_URL:-https://${DEFAULT_GATEWAY}/}"
-DEFAULT_WAN_PROBE="${PF_SMOKETEST_TARGET:-1.1.1.1}"
-DEFAULT_HTTP_TARGET="${PF_SMOKETEST_HTTP_TARGET:-https://example.com/}"
-DEFAULT_NETNS="${PF_SMOKETEST_NETNS:-pf-smoketest}"
-DEFAULT_BRIDGE_CANDIDATE="${PF_LAN_BRIDGE:-}"  # may be empty; detection routine will evaluate
+DEFAULT_VM_NAME=""
+DEFAULT_GATEWAY=""
+DEFAULT_LAN_NETWORK=""
+DEFAULT_LAN_PREFIX=""
+DEFAULT_HTTP_URL=""
+DEFAULT_WAN_PROBE=""
+DEFAULT_HTTP_TARGET=""
+DEFAULT_NETNS=""
+DEFAULT_BRIDGE_CANDIDATE=""
 
-VM_NAME="${DEFAULT_VM_NAME}"
+initialize_defaults() {
+  DEFAULT_VM_NAME="${PF_VM_NAME:-pfsense-uranus}"
+  DEFAULT_GATEWAY="${PF_LAN_GATEWAY:-10.10.0.1}"
+  DEFAULT_LAN_NETWORK="${PF_LAN_NETWORK:-10.10.0.0}"  # network portion for temporary address validation
+  DEFAULT_LAN_PREFIX="${PF_LAN_PREFIX:-24}"
+  DEFAULT_HTTP_URL="${PF_LAN_HTTP_URL:-https://${DEFAULT_GATEWAY}/}"
+  DEFAULT_WAN_PROBE="${PF_SMOKETEST_TARGET:-1.1.1.1}"
+  DEFAULT_HTTP_TARGET="${PF_SMOKETEST_HTTP_TARGET:-https://example.com/}"
+  DEFAULT_NETNS="${PF_SMOKETEST_NETNS:-pf-smoketest}"
+  DEFAULT_BRIDGE_CANDIDATE="${PF_LAN_BRIDGE:-}"  # may be empty; detection routine will evaluate
+}
+
+VM_NAME_OVERRIDDEN=false
+ENV_FILE_PATH=""
+
+VM_NAME=""
 LAN_BRIDGE_OVERRIDE=""
 SKIP_NETNS=false
 SKIP_REACHABILITY=false
 LOG_LEVEL_OVERRIDE=""
+
+NETNS_NAME=""
+VETH_HOST=""
+VETH_NS=""
+TMP_DIR=""
+DHCP_REQUEST_CMD=()
+DHCP_RELEASE_CMD=()
+DHCP_RELEASE_REQUIRED=false
+
+refresh_runtime_settings() {
+  initialize_defaults
+  if [[ ${VM_NAME_OVERRIDDEN} == false ]]; then
+    VM_NAME="${DEFAULT_VM_NAME}"
+  fi
+  NETNS_NAME="${DEFAULT_NETNS}"
+  VETH_HOST="${NETNS_NAME}-host"
+  VETH_NS="${NETNS_NAME}-ns"
+}
+
+refresh_runtime_settings
 
 usage() {
   cat <<'USAGE'
@@ -56,6 +92,7 @@ LAN reachability probes, and a disposable network namespace DHCP/NAT test.
 Options:
   --vm-name NAME        Override the libvirt domain name (default: pfsense-uranus).
   --lan-bridge BRIDGE   Force the LAN bridge name instead of auto-detection.
+  --env-file PATH       Load environment variables from the provided file.
   --skip-netns          Skip the network namespace DHCP/NAT validation.
   --skip-reachability   Skip host reachability probes (not recommended).
   --log-level LEVEL     Set log verbosity (trace, debug, info, warn, error).
@@ -72,6 +109,7 @@ parse_args() {
           exit "${EX_USAGE}"
         fi
         VM_NAME="$2"
+        VM_NAME_OVERRIDDEN=true
         shift 2
         ;;
       --lan-bridge)
@@ -80,6 +118,14 @@ parse_args() {
           exit "${EX_USAGE}"
         fi
         LAN_BRIDGE_OVERRIDE="$2"
+        shift 2
+        ;;
+      --env-file)
+        if [[ $# -lt 2 ]]; then
+          usage >&2
+          exit "${EX_USAGE}"
+        fi
+        ENV_FILE_PATH="$2"
         shift 2
         ;;
       --skip-netns)
@@ -307,14 +353,6 @@ reachability_probes() {
   log_info "HTTPS probe to ${https_url} succeeded."
 }
 
-NETNS_NAME="${DEFAULT_NETNS}"
-VETH_HOST="${NETNS_NAME}-host"
-VETH_NS="${NETNS_NAME}-ns"
-TMP_DIR=""
-DHCP_REQUEST_CMD=()
-DHCP_RELEASE_CMD=()
-DHCP_RELEASE_REQUIRED=false
-
 cleanup_netns() {
   local status=$?
   if [[ -n ${TMP_DIR} && -d ${TMP_DIR} ]]; then
@@ -454,6 +492,20 @@ netns_dhcp_nat_validation() {
 
 main() {
   parse_args "$@"
+
+  if [[ -n ${ENV_FILE_PATH} ]]; then
+    if [[ ! -f ${ENV_FILE_PATH} ]]; then
+      die "${EX_CONFIG}" "Environment file '${ENV_FILE_PATH}' not found."
+    fi
+    if [[ ! -r ${ENV_FILE_PATH} ]]; then
+      die "${EX_CONFIG}" "Environment file '${ENV_FILE_PATH}' is not readable."
+    fi
+    if ! load_env "${ENV_FILE_PATH}"; then
+      die "${EX_CONFIG}" "Failed to load environment file '${ENV_FILE_PATH}'."
+    fi
+  fi
+
+  refresh_runtime_settings
 
   if [[ -n ${LOG_LEVEL_OVERRIDE} ]]; then
     log_set_level "${LOG_LEVEL_OVERRIDE}"
