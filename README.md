@@ -2,15 +2,15 @@
 
 Homelab GitOps automates a pfSense-backed Minikube environment, layering on networking add-ons such as MetalLB, cert-manager, and Traefik before deploying application stacks including PostgreSQL, Redis, Nextcloud, and Jellyfin through composable scripts.【F:scripts/uranus_homelab.sh†L211-L288】【F:scripts/uranus_homelab_one.sh†L214-L273】【F:scripts/uranus_homelab_apps.sh†L265-L356】
 
-## Single-command bootstrap
+## One-shot install
 
-Once the host is prepared and the environment file is populated, run the orchestration wrapper to execute the entire workflow in one pass:
+With the host dependencies satisfied and `.env` updated, invoke the aggregated Make target to drive the full bootstrap:
 
 ```bash
-./scripts/uranus_homelab.sh --env-file ./.env --assume-yes
+make up ENV_FILE=./.env
 ```
 
-The wrapper loads configuration overrides from the supplied `.env`, performs the shared preflight, provisions or reconfigures the pfSense VM (invoking the helper with `sudo`), recreates the Minikube profile, installs the networking add-ons, and deploys the application workloads. Optional flags such as `--delete-previous-environment`, `--check-only`, and `--context-preflight` let you tailor the run without editing the scripts.【F:scripts/uranus_homelab.sh†L37-L288】
+`make up` orchestrates the pfSense preflight, config regeneration, VM install, zero-touch provisioning, pfSense smoketest, Kubernetes context wiring, cluster smoketest, and status emission in order so you can move from bare host to running stack in a single command.【F:Makefile†L8-L75】 By default the pfSense helper reuses the `br0` bridge for both WAN and LAN unless you override `PF_LAN_BRIDGE`; if you set a different LAN bridge name, the automation will create and raise it automatically so the VM cabling stays consistent.【F:scripts/pf-vm-install.sh†L101-L145】
 
 ## Prerequisites
 
