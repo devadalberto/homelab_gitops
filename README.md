@@ -416,7 +416,7 @@ When bumping versions:
 2. Edit the Flux HelmReleases so the controller targets the same versions (for example, `k8s/addons/{metallb,traefik,cert-manager}/release.yaml`).
 3. Review scripts or manifests that reference those versions (such as the Makefile `db`/`obs` targets) to confirm they inherit the new values.
 4. Smoke test locally before merging:
-   - Recreate Minikube if necessary (`minikube delete -p uranus`).
+   - Recreate Minikube if necessary (`minikube delete -p "${LABZ_MINIKUBE_PROFILE:-uranus}"`).
    - Run `make k8s` to bring up the core addons with the pinned charts.
    - Execute `make db` and `make obs` to ensure the data and observability stacks install with the new chart versions.
    - Spot-check `helm list -A` and `kubectl get pods --all-namespaces` for healthy rollouts.
