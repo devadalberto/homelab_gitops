@@ -300,6 +300,29 @@ load_env() {
   eval "$prev_state"
 }
 
+metallb_render_ip_pool_manifest() {
+  local pool_name=${1:-homelab-pool}
+  local namespace=${2:-metallb-system}
+  local start=${METALLB_POOL_START:-}
+  local end=${METALLB_POOL_END:-}
+
+  if [[ -z ${start} || -z ${end} ]]; then
+    log_error "METALLB_POOL_START and METALLB_POOL_END must be defined to render a MetalLB IPAddressPool"
+    return 64
+  fi
+
+  cat <<EOF
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: ${pool_name}
+  namespace: ${namespace}
+spec:
+  addresses:
+    - ${start}-${end}
+EOF
+}
+
 homelab_resolve_existing_dir() {
   if [[ $# -ne 1 ]]; then
     log_error "Usage: homelab_resolve_existing_dir <path>"

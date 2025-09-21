@@ -139,6 +139,13 @@ state. Update `.env` as you make selections so both the scripts and the pfSense 
    - Reserve at least 5–10 contiguous IPs inside the LAN for load-balanced services (for example `10.10.0.240-10.10.0.250`).
    - Update `.env` with `LABZ_METALLB_RANGE`, `METALLB_POOL_START`, `METALLB_POOL_END`, and set `TRAEFIK_LOCAL_IP` to the first
      address in the range.
+   - Regenerate the GitOps manifest so Flux and the bootstrap scripts stay aligned:
+
+     ```bash
+     ./scripts/render_metallb_pool_manifest.sh --env-file ./.env
+     ```
+
+     Commit the updated `k8s/addons/metallb/ip-pool.yaml` alongside your `.env` changes.
    - The pfSense templates consume these values to pre-provision DNS overrides for Traefik, Grafana, Prometheus, Alertmanager,
      and AWX, so regenerate the config ISO any time the pool changes.
 

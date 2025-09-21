@@ -269,28 +269,23 @@ install_metallb() {
 }
 
 apply_metallb_pool() {
-  local manifest
-  manifest=$(cat <<EOM
-apiVersion: metallb.io/v1beta1
-kind: IPAddressPool
-metadata:
-  name: labz-pool
-  namespace: metallb-system
-spec:
-  addresses:
-    - ${LABZ_METALLB_RANGE}
----
+  local pool_manifest advertisement
+  if ! pool_manifest=$(metallb_render_ip_pool_manifest "homelab-pool" "metallb-system"); then
+    die ${EX_CONFIG} "Failed to render MetalLB IPAddressPool"
+  fi
+  advertisement=$(cat <<'EOM'
 apiVersion: metallb.io/v1beta1
 kind: L2Advertisement
 metadata:
-  name: labz-advertisement
+  name: homelab-l2
   namespace: metallb-system
 spec:
   ipAddressPools:
-    - labz-pool
+    - homelab-pool
 EOM
 )
-  kubectl_apply_manifest "${manifest}"
+  kubectl_apply_manifest "${pool_manifest}"
+  kubectl_apply_manifest "${advertisement}"
 }
 
 install_cert_manager() {
