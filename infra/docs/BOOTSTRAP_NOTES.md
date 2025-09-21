@@ -6,7 +6,7 @@
 2. Verify cluster:
    kubectl get nodes -o wide
 
-3. Flux install:
+3. Flux install (installs the CLI and the controllers in the cluster):
    * Option A - manual, pinned, and checksum verified:
 
      ```sh
@@ -24,17 +24,24 @@
 
      Verify with `flux version --client --short` and then run `flux check --pre`.
 
-   * Option B - automated script (performs the same verified install):
+   * Option B - automated script (performs the same verified install and ensures the target cluster path exists; override with `CLUSTER_PATH=...` if needed):
 
      ```sh
      ./flux/install.sh
      ```
 
-4. Flux bootstrap (example with GitHub):
-   flux bootstrap github \
-     --owner YOUR_GH_USER \
-     --repository homelab_gitops \
-     --branch main \
-     --path clusters/minikube
+4. Configure Flux to sync this repository path:
+   * Update `clusters/minikube/flux-system/gotk-sync.yaml` with your repository URL (adjust the sync path and/or the `CLUSTER_PATH` variable if you store manifests elsewhere).
+   * Apply the bootstrap manifests:
 
-5. Commit and push k8s manifests as you go; Flux will reconcile.
+     ```sh
+     kubectl apply -k clusters/minikube/flux-system
+     ```
+
+   * Confirm the sync objects once they are ready:
+
+     ```sh
+     flux get kustomizations
+     ```
+
+5. Commit and push Kubernetes manifests as you go; Flux will reconcile `clusters/minikube` automatically.

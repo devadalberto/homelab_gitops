@@ -3,6 +3,13 @@ set -euo pipefail
 
 FLUX_VERSION="2.3.0"
 INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+CLUSTER_PATH="${CLUSTER_PATH:-clusters/minikube}"
+if [[ "$CLUSTER_PATH" = /* ]]; then
+  CLUSTER_ABS_PATH="$CLUSTER_PATH"
+else
+  CLUSTER_ABS_PATH="$REPO_ROOT/$CLUSTER_PATH"
+fi
 
 run_with_sudo_if_needed() {
   if "$@"; then
@@ -87,4 +94,4 @@ fi
 
 kubectl create ns flux-system --dry-run=client -o yaml | kubectl apply -f -
 flux install -n flux-system || true
-mkdir -p "$(dirname "$0")/clusters/uranus"
+mkdir -p "$CLUSTER_ABS_PATH"
