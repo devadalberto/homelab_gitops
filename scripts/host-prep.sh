@@ -267,14 +267,26 @@ check_pf_lan_alignment() {
 
 check_pf_installer() {
   local fatal=${1:-true}
-  local path="${PF_SERIAL_INSTALLER_PATH:-}"
+  local path=""
+  local source_var=""
   local errors=0
 
+  if [[ -n ${PF_INSTALLER_SRC:-} ]]; then
+    path="${PF_INSTALLER_SRC}"
+    source_var="PF_INSTALLER_SRC"
+  elif [[ -n ${PF_SERIAL_INSTALLER_PATH:-} ]]; then
+    path="${PF_SERIAL_INSTALLER_PATH}"
+    source_var="PF_SERIAL_INSTALLER_PATH"
+  elif [[ -n ${PF_ISO_PATH:-} ]]; then
+    path="${PF_ISO_PATH}"
+    source_var="PF_ISO_PATH"
+  fi
+
   if [[ -z ${path} ]]; then
-    log_error "PF_SERIAL_INSTALLER_PATH is unset."
+    log_error "PF_INSTALLER_SRC is unset and no legacy PF_SERIAL_INSTALLER_PATH/PF_ISO_PATH fallback provided."
     errors=1
   elif [[ ! -f ${path} ]]; then
-    log_error "pfSense serial installer not found at ${path}."
+    log_error "pfSense installer not found at ${path} (${source_var:-unset})."
     errors=1
   else
     case "${path}" in
@@ -284,22 +296,24 @@ check_pf_installer() {
         errors=1
         ;;
     esac
-    local lower_path="${path,,}"
-    if [[ ${lower_path} != *serial* ]]; then
-      log_error "Installer at ${path} does not appear to be the serial build required for headless installs. Download the serial image or set PF_HEADLESS=false and provide PF_ISO_PATH for the VGA build."
-      errors=1
+    if [[ ${source_var} != "PF_ISO_PATH" ]]; then
+      local lower_path="${path,,}"
+      if [[ ${lower_path} != *serial* ]]; then
+        log_error "Installer at ${path} does not appear to be the serial build required for headless installs. Download the serial image or set PF_HEADLESS=false and provide PF_ISO_PATH for the VGA build."
+        errors=1
+      fi
     fi
   fi
 
   if (( errors != 0 )); then
-    log_info "Download the pfSense CE serial installer from https://www.pfsense.org/download/ and update PF_SERIAL_INSTALLER_PATH in .env."
+    log_info "Download the pfSense CE serial installer from https://www.pfsense.org/download/ and update PF_INSTALLER_SRC in .env (legacy PF_SERIAL_INSTALLER_PATH/PF_ISO_PATH remain supported)."
     if [[ ${fatal} == true ]]; then
-      die ${EX_CONFIG} "pfSense serial installer not ready"
+      die ${EX_CONFIG} "pfSense installer not ready"
     fi
     return 1
   fi
 
-  log_info "pfSense serial installer detected at ${path}"
+  log_info "pfSense installer (${source_var:-PF_INSTALLER_SRC}) detected at ${path}"
   return 0
 }
 
@@ -365,14 +379,27 @@ context_preflight() {
     log_info "PF_LAN_LINK uses '${RESOLVED_PF_LAN_LINK_KIND}' and will not trigger automatic bridge creation."
   fi
 
-  if [[ -n ${PF_SERIAL_INSTALLER_PATH:-} ]]; then
-    if [[ -f ${PF_SERIAL_INSTALLER_PATH} ]]; then
-      log_info "pfSense serial installer path: ${PF_SERIAL_INSTALLER_PATH}"
+  local installer_display=""
+  local installer_label=""
+  if [[ -n ${PF_INSTALLER_SRC:-} ]]; then
+    installer_display="${PF_INSTALLER_SRC}"
+    installer_label="PF_INSTALLER_SRC"
+  elif [[ -n ${PF_SERIAL_INSTALLER_PATH:-} ]]; then
+    installer_display="${PF_SERIAL_INSTALLER_PATH}"
+    installer_label="PF_SERIAL_INSTALLER_PATH"
+  elif [[ -n ${PF_ISO_PATH:-} ]]; then
+    installer_display="${PF_ISO_PATH}"
+    installer_label="PF_ISO_PATH"
+  fi
+
+  if [[ -n ${installer_display} ]]; then
+    if [[ -f ${installer_display} ]]; then
+      log_info "pfSense installer (${installer_label}) path: ${installer_display}"
     else
-      log_warn "pfSense serial installer not found at ${PF_SERIAL_INSTALLER_PATH}"
+      log_warn "pfSense installer (${installer_label}) not found at ${installer_display}"
     fi
   else
-    log_warn "PF_SERIAL_INSTALLER_PATH is unset; set it to the downloaded netgate-installer-amd64-serial archive."
+    log_warn "PF_INSTALLER_SRC is unset; set it to the downloaded netgate installer (legacy PF_SERIAL_INSTALLER_PATH/PF_ISO_PATH remain supported)."
   fi
 }
 

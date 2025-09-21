@@ -8,12 +8,12 @@ Welcome to the documentation portal for the Uranus homelab GitOps stack. This si
 git clone https://github.com/devadalberto/homelab_gitops.git
 cd homelab_gitops
 cp .env.example .env
-# Edit passwords, ranges, mount paths, and set PF_SERIAL_INSTALLER_PATH to the downloaded pfSense serial installer
+# Edit passwords, ranges, mount paths, and set PF_INSTALLER_SRC to the downloaded pfSense installer (legacy PF_SERIAL_INSTALLER_PATH/PF_ISO_PATH remain fallbacks)
 make up
 ```
 
-`.env.example` defaults to the serial image workflow. Override `PF_SERIAL_INSTALLER_PATH` with your local download location (or
-set `PF_ISO_PATH` instead if you must bootstrap from the VGA build) before running `make up`.
+`.env.example` defaults to the serial image workflow. Update `PF_INSTALLER_SRC` with your local download location so the automation can stage the media automatically before you run `make up`.
+Legacy `PF_SERIAL_INSTALLER_PATH`/`PF_ISO_PATH` variables remain supported for backwards compatibility (use `PF_ISO_PATH` when opting into the VGA build).
 
 The `make up` target first runs `scripts/preflight_and_bootstrap.sh` in preflight mode so host packages, kernel modules, and firewall rules are ready before Minikube is rebuilt. It then hands control to the combined bootstrap workflow in `scripts/uranus_homelab.sh` for cluster bring-up and application deployment.
 
@@ -49,7 +49,7 @@ virsh shutdown ${VM_NAME}    # skip if the VM has never been started
 ./pfsense/pf-bootstrap.sh    # reattach the refreshed ISO; rerun after edits to .env
 ```
 
-`pf-bootstrap.sh` swaps the ISO automatically for shut-off domains. If the VM is running, stop it first or run the `virsh change-media ${VM_NAME} sdb ${WORK_ROOT}/pfsense/config/pfSense-config.iso --insert --force --config` command manually after the shutdown completes. The helper re-reads `.env` on each invocation, so confirm `PF_SERIAL_INSTALLER_PATH` still references the serial installer download (or export `PF_ISO_PATH` when bootstrapping the VGA image) before triggering a refresh.
+`pf-bootstrap.sh` swaps the ISO automatically for shut-off domains. If the VM is running, stop it first or run the `virsh change-media ${VM_NAME} sdb ${WORK_ROOT}/pfsense/config/pfSense-config.iso --insert --force --config` command manually after the shutdown completes. The helper re-reads `.env` on each invocation, so confirm `PF_INSTALLER_SRC` still references the installer download before triggering a refresh. Legacy `PF_SERIAL_INSTALLER_PATH`/`PF_ISO_PATH` entries are still honored when present (`PF_ISO_PATH` remains the VGA build toggle).
 
 ## Environment Variables and Mapping
 
