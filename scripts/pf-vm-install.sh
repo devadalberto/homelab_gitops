@@ -215,9 +215,14 @@ prepare_installer() {
   info "Using installer source: ${PF_INSTALLER_SRC}"
   if [[ "${src}" == *.gz ]]; then
     tmp="$(mktemp)"
-    gunzip -c "${src}" > "${tmp}"
-    sync_file "${tmp}" "${dest}" "Installer"
-    rm -f "${tmp}"
+    (
+      trap 'rm -f "${tmp}"' EXIT
+      info "Decompressing installer archive to ${dest}"
+      gunzip -c "${src}" > "${tmp}"
+      sudo install -d "$(dirname "${dest}")"
+      sudo rm -f "${dest}"
+      sudo install -m 0644 "${tmp}" "${dest}"
+    )
   else
     sync_file "${src}" "${dest}" "Installer"
   fi
