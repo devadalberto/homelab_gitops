@@ -20,6 +20,9 @@ else
   fi
 fi
 
+sudo mkdir -p /opt/homelab/pfsense/config
+sudo chown "$(id -u)":"$(id -g)" /opt/homelab/pfsense/config || true
+
 readonly EX_OK=0
 readonly EX_USAGE=64
 # shellcheck disable=SC2034
