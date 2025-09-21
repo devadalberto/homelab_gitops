@@ -10,6 +10,7 @@ warn()  { log "[WARN] $*"; }
 # -------- args & env --------
 ENV_FILE=""
 PF_INSTALLER_SRC="${PF_INSTALLER_SRC:-}"
+PF_WAN_BRIDGE="${PF_WAN_BRIDGE:-}"
 PF_LAN_BRIDGE="${PF_LAN_BRIDGE:-}"
 PF_VM_NAME="${PF_VM_NAME:-pfsense-uranus}"
 PF_OSINFO="${PF_OSINFO:-freebsd14.2}"
@@ -34,15 +35,18 @@ if [[ -n "${ENV_FILE}" && -f "${ENV_FILE}" ]]; then
   source "${ENV_FILE}"
 fi
 
+PF_WAN_BRIDGE="${PF_WAN_BRIDGE:-br0}"
+
 export XDG_CACHE_HOME=/root/.cache
 
 need() { command -v "$1" >/dev/null 2>&1 || die "Missing dependency: $1"; }
 need sudo; need virsh; need virt-install; need qemu-img; need gzip; need install; need ip; need awk; need grep; need sed; need ls
 
-# -------- pick bridge --------
-detect_bridge() {
-  if [[ -n "${PF_LAN_BRIDGE}" ]]; then
-    echo "${PF_LAN_BRIDGE}"; return 0
+# -------- pick bridges --------
+detect_lan_bridge() {
+  local configured="${PF_LAN_BRIDGE:-}"
+  if [[ -n "${configured}" ]]; then
+    echo "${configured}"; return 0
   fi
   if ip -br link 2>/dev/null | awk '$2=="UP"{print $1}' | grep -qx "br0"; then
     echo "br0"; return 0
@@ -61,10 +65,71 @@ detect_bridge() {
   if ip -br link 2>/dev/null | awk '{print $1}' | grep -qx "br0"; then
     echo "br0"; return 0
   fi
-  die "No suitable bridge found. Bring up br0 or set PF_LAN_BRIDGE."
+  die "No suitable LAN bridge found. Bring up br0 or set PF_LAN_BRIDGE."
 }
-BRIDGE="$(detect_bridge)"
-ok "Using bridge: ${BRIDGE}"
+
+require_bridge() {
+  local bridge="$1" label="$2"
+  if [[ -z "${bridge}" ]]; then
+    die "${label} bridge is empty"
+  fi
+  if ! ip -br link 2>/dev/null | awk '{print $1}' | grep -Fxq "${bridge}"; then
+    die "${label} bridge '${bridge}' not found. Set PF_${label}_BRIDGE or create it."
+  fi
+}
+
+PF_LAN_BRIDGE="$(detect_lan_bridge)"
+require_bridge "${PF_WAN_BRIDGE}" "WAN"
+require_bridge "${PF_LAN_BRIDGE}" "LAN"
+
+ok "Using WAN bridge: ${PF_WAN_BRIDGE}"
+ok "Using LAN bridge: ${PF_LAN_BRIDGE}"
+
+domain_has_bridge() {
+  local domain="$1" bridge="$2"
+  sudo virsh domiflist "${domain}" 2>/dev/null \
+    | awk -v needle="${bridge}" 'NR>2 && NF>=3 && $3==needle {exit 0} END{exit 1}'
+}
+
+domain_is_live() {
+  local domain="$1" state=""
+  state="$(sudo virsh domstate "${domain}" 2>/dev/null | tr -d '\r')"
+  state="${state%% *}"
+  case "${state}" in
+    running|idle|blocked|paused) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+attach_bridge_if_missing() {
+  local domain="$1" bridge="$2" label="$3"
+  if domain_has_bridge "${domain}" "${bridge}"; then
+    ok "${label} bridge ${bridge} already attached to ${domain}"
+    return 0
+  fi
+  info "Attaching ${label} bridge ${bridge} to ${domain}"
+  local args=(
+    sudo virsh attach-interface
+    --domain "${domain}"
+    --type bridge
+    --source "${bridge}"
+    --model virtio
+    --config
+  )
+  if domain_is_live "${domain}"; then
+    args+=(--live)
+  fi
+  "${args[@]}"
+  ok "Attached ${label} bridge ${bridge} to ${domain}"
+}
+
+verify_bridge_present() {
+  local domain="$1" bridge="$2" label="$3"
+  if domain_has_bridge "${domain}" "${bridge}"; then
+    return 0
+  fi
+  die "${label} bridge '${bridge}' is not attached to ${domain}"
+}
 
 # -------- locate installer --------
 # Accept both serial and non-serial names, .img.gz or .img, and search common dirs
@@ -134,39 +199,48 @@ else
   ok "Reusing qcow2 ${PF_QCOW2_PATH}"
 fi
 
-# -------- skip if domain exists --------
+# -------- ensure domain --------
 if sudo virsh dominfo "${PF_VM_NAME}" >/dev/null 2>&1; then
-  ok "Domain ${PF_VM_NAME} already exists; skipping create"
-  exit 0
+  ok "Domain ${PF_VM_NAME} already exists; ensuring bridge configuration"
+else
+  # -------- osinfo handling --------
+  OSINFO_ARG="--osinfo ${PF_OSINFO}"
+  if ! virt-install --osinfo list | awk '{print $1}' | grep -qx "${PF_OSINFO}"; then
+    warn "OSINFO ${PF_OSINFO} not present; using detect=on,require=off"
+    OSINFO_ARG="--osinfo detect=on,require=off"
+  fi
+
+  # -------- create VM --------
+  info "Creating domain ${PF_VM_NAME} (serial-only, virtio, WAN=${PF_WAN_BRIDGE}, LAN=${PF_LAN_BRIDGE})"
+  set -x
+  sudo virt-install \
+    --connect qemu:///system \
+    --name "${PF_VM_NAME}" \
+    --memory 4096 \
+    --vcpus 2 \
+    --cpu host \
+    ${OSINFO_ARG} \
+    --import \
+    --boot hd,menu=on,useserial=on \
+    --graphics none \
+    --console pty,target_type=serial \
+    --disk "path=${PF_INSTALLER_DEST},format=raw,readonly=on,boot.order=1" \
+    --disk "path=${PF_QCOW2_PATH},format=qcow2,boot.order=2" \
+    --network "bridge=${PF_WAN_BRIDGE},model=virtio" \
+    --network "bridge=${PF_LAN_BRIDGE},model=virtio"
+  set +x
+
+  ok "Domain ${PF_VM_NAME} created. Finish install over serial, then detach installer:"
+  echo "  sudo virsh detach-disk ${PF_VM_NAME} ${PF_INSTALLER_DEST} --config --persistent || true"
+  echo "  sudo virsh start ${PF_VM_NAME} || true"
+  echo "  sudo virsh console ${PF_VM_NAME}"
 fi
 
-# -------- osinfo handling --------
-OSINFO_ARG="--osinfo ${PF_OSINFO}"
-if ! virt-install --osinfo list | awk '{print $1}' | grep -qx "${PF_OSINFO}"; then
-  warn "OSINFO ${PF_OSINFO} not present; using detect=on,require=off"
-  OSINFO_ARG="--osinfo detect=on,require=off"
-fi
+attach_bridge_if_missing "${PF_VM_NAME}" "${PF_WAN_BRIDGE}" "WAN"
+attach_bridge_if_missing "${PF_VM_NAME}" "${PF_LAN_BRIDGE}" "LAN"
 
-# -------- create VM --------
-info "Creating domain ${PF_VM_NAME} (serial-only, virtio, bridge=${BRIDGE})"
-set -x
-sudo virt-install \
-  --connect qemu:///system \
-  --name "${PF_VM_NAME}" \
-  --memory 4096 \
-  --vcpus 2 \
-  --cpu host \
-  ${OSINFO_ARG} \
-  --import \
-  --boot hd,menu=on,useserial=on \
-  --graphics none \
-  --console pty,target_type=serial \
-  --disk "path=${PF_INSTALLER_DEST},format=raw,readonly=on,boot.order=1" \
-  --disk "path=${PF_QCOW2_PATH},format=qcow2,boot.order=2" \
-  --network "bridge=${BRIDGE},model=virtio"
-set +x
+verify_bridge_present "${PF_VM_NAME}" "${PF_WAN_BRIDGE}" "WAN"
+verify_bridge_present "${PF_VM_NAME}" "${PF_LAN_BRIDGE}" "LAN"
 
-ok "Domain ${PF_VM_NAME} created. Finish install over serial, then detach installer:"
-echo "  sudo virsh detach-disk ${PF_VM_NAME} ${PF_INSTALLER_DEST} --config --persistent || true"
-echo "  sudo virsh start ${PF_VM_NAME} || true"
-echo "  sudo virsh console ${PF_VM_NAME}"
+info "Current interfaces for ${PF_VM_NAME}:"
+sudo virsh domiflist "${PF_VM_NAME}"
