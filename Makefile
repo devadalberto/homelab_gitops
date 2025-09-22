@@ -6,7 +6,7 @@ ENV_FILE ?= ./.env
 PF_VM_NAME ?= pfsense-uranus
 BATS ?= tests/vendor/bats-core/bin/bats
 
-.PHONY: help
+.PHONY: help docs
 help:
 	@echo "Targets:"
 	@echo "  test            - Run repository test suite"
@@ -24,6 +24,12 @@ help:
 	@echo "  k8s.smoketest   - Validate Kubernetes readiness"
 	@echo "  status          - Emit current bootstrap status marker"
 	@echo "  check.env       - Show key environment values"
+	@echo "  docs            - Build the MkDocs documentation site"
+
+.PHONY: docs
+docs:
+	@echo "Building documentation with MkDocs..."
+	@mkdocs build
 
 .PHONY: check.env
 check.env:
