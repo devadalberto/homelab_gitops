@@ -38,6 +38,7 @@ make up ENV_FILE=./.env
      ```
      【F:.env.example†L24-L33】【F:scripts/render_metallb_pool_manifest.sh†L1-L70】
    * **Application credentials and limits** (`LABZ_POSTGRES_DB`, `LABZ_POSTGRES_USER`, `LABZ_POSTGRES_PASSWORD`, `LABZ_REDIS_PASSWORD`, `LABZ_PHP_UPLOAD_LIMIT`).【F:.env.example†L35-L40】
+   * **Nextcloud GitOps secrets** live under `apps/nextcloud/sops-secrets/`. Decrypt each manifest with `sops` to set the admin account (`nextcloud-admin`), Redis password (`nextcloud-redis`), and PostgreSQL connection details (`nextcloud-database`) so Flux can render the HelmRelease with the proper values.【F:apps/nextcloud/sops-secrets/admin-secret.yaml†L1-L24】【F:apps/nextcloud/sops-secrets/redis-secret.yaml†L1-L18】【F:apps/nextcloud/sops-secrets/database-secret.yaml†L1-L24】
    * **pfSense and infrastructure parameters** (WAN NIC/mode, VM name, bridge hints, QCOW2 size, installer paths, cluster subdomain, Traefik VIP, and flags such as `PF_HEADLESS`).【F:.env.example†L42-L68】
 
 ## Useful targets

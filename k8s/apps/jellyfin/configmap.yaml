@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: jellyfin-config
+data:
+  TZ: Etc/UTC
+  JELLYFIN_MEDIA_PATH: /media
+  JELLYFIN_PublishedServerUrl: https://media.labz.home.arpa
