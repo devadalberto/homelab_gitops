@@ -4,10 +4,11 @@ SHELL := /bin/bash
 
 ENV_FILE ?= ./.env
 NET_CREATE ?=
+BATS ?= ./tests/vendor/bats-core/bin/bats
 
 export ENV_FILE
 
-.PHONY: help doctor pf.preflight pf.config pf.ztp k8s.bootstrap status clean up ci
+.PHONY: help doctor pf.preflight pf.config pf.ztp k8s.bootstrap status clean up ci test
 
 help:
 	@printf "Homelab GitOps automation\n"
@@ -60,4 +61,7 @@ clean:
 up: doctor pf.preflight pf.config pf.ztp k8s.bootstrap status
 	@echo "Homelab bootstrap workflow complete."
 
-ci: up
+test:
+	@$(BATS) tests
+
+ci: test
