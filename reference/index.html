@@ -458,6 +458,15 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#manage-nextcloud-credentials" class="md-nav__link">
+    <span class="md-ellipsis">
+      Manage Nextcloud Credentials
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -752,6 +761,20 @@
 <p>Bounce the AWX pods if the operator does not reconcile automatically.</p>
 <h4 id="rotate-postgres-superuser-credentials">Rotate Postgres Superuser Credentials<a class="headerlink" href="#rotate-postgres-superuser-credentials" title="Permanent link">&para;</a></h4>
 <p>The bootstrap Postgres chart consumes <code>data/postgres/sops-secrets/postgres-superuser.yaml</code> for the <code>pg-superuser</code> secret. When changing the password, ensure the <code>stringData.postgres-password</code> field and the <code>stringData.database-url</code> connection string stay in sync before applying the manifest.</p>
+<h4 id="manage-nextcloud-credentials">Manage Nextcloud Credentials<a class="headerlink" href="#manage-nextcloud-credentials" title="Permanent link">&para;</a></h4>
+<p>Flux deploys Nextcloud with the Bitnami chart using three SOPS-encrypted secrets stored under <code>apps/nextcloud/sops-secrets/</code>:</p>
+<ul>
+<li><code>nextcloud-admin</code> maps to the Helm values <code>nextcloudUsername</code>, <code>nextcloudPassword</code>, and <code>nextcloudEmail</code> for the initial UI administrator account.【F:apps/nextcloud/sops-secrets/admin-secret.yaml†L1-L24】【F:k8s/apps/nextcloud/helmrelease.yaml†L55-L71】</li>
+<li><code>nextcloud-redis</code> provides the external cache password consumed by <code>externalCache.password</code>.【F:apps/nextcloud/sops-secrets/redis-secret.yaml†L1-L18】【F:k8s/apps/nextcloud/helmrelease.yaml†L72-L76】</li>
+<li><code>nextcloud-database</code> carries the PostgreSQL DSN plus discrete host, port, database, username, and password values that feed the chart's <code>externalDatabase</code> block and populate the <code>DATABASE_URL</code> environment variable exposed to the pod.【F:apps/nextcloud/sops-secrets/database-secret.yaml†L1-L24】【F:k8s/apps/nextcloud/helmrelease.yaml†L77-L104】</li>
+</ul>
+<p>Update the credentials by decrypting the manifests with <code>sops</code>, editing the <code>stringData</code> fields, and applying the files back to the cluster:</p>
+<div class="highlight"><pre><span></span><code>sops<span class="w"> </span>apps/nextcloud/sops-secrets/admin-secret.yaml
+sops<span class="w"> </span>apps/nextcloud/sops-secrets/redis-secret.yaml
+sops<span class="w"> </span>apps/nextcloud/sops-secrets/database-secret.yaml
+kubectl<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span>apps/nextcloud/sops-secrets/
+</code></pre></div>
+<p>Keep the <code>dsn</code> string synchronized with the individual host/port/username/password entries so the HelmRelease renders consistent values. Adjust the ingress host, TLS mapping, and upload limit in <code>k8s/apps/nextcloud/helmrelease.yaml</code> if your lab uses a different FQDN or quota than the defaults committed to Git.【F:k8s/apps/nextcloud/helmrelease.yaml†L25-L54】</p>
 <h3 id="grafana-admin-credential-management">Grafana Admin Credential Management<a class="headerlink" href="#grafana-admin-credential-management" title="Permanent link">&para;</a></h3>
 <p>Grafana is deployed through the <code>kube-prometheus-stack</code> chart. The admin credentials are stored in the SOPS-encrypted manifest at <code>observability/sops-secrets/grafana-admin.yaml</code>.</p>
 <h4 id="prerequisites">Prerequisites<a class="headerlink" href="#prerequisites" title="Permanent link">&para;</a></h4>
