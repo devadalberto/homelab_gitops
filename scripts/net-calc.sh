@@ -12,8 +12,8 @@ if [[ -f "${COMMON_LIB}" ]]; then
 else
   log_trace() { :; }
   log_debug() { printf '[DEBUG] %s\n' "$*" >&2; }
-  log_info()  { printf '[ INFO] %s\n' "$*" >&2; }
-  log_warn()  { printf '[ WARN] %s\n' "$*" >&2; }
+  log_info() { printf '[ INFO] %s\n' "$*" >&2; }
+  log_warn() { printf '[ WARN] %s\n' "$*" >&2; }
   log_error() { printf '[ERROR] %s\n' "$*" >&2; }
   die() {
     local status=1
@@ -89,56 +89,56 @@ CHECK_AVAILABILITY=true
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    -e|--env-file)
-      if [[ $# -lt 2 ]]; then
-        die ${EX_USAGE} "Missing value for $1"
-      fi
-      ENV_FILE="$2"
-      shift 2
-      ;;
-    --lan-cidr)
-      if [[ $# -lt 2 ]]; then
-        die ${EX_USAGE} "Missing value for $1"
-      fi
-      LAN_CIDR_OVERRIDE="$2"
-      shift 2
-      ;;
-    --lan-addr)
-      if [[ $# -lt 2 ]]; then
-        die ${EX_USAGE} "Missing value for $1"
-      fi
-      LAN_ADDR_OVERRIDE="$2"
-      shift 2
-      ;;
-    --start)
-      if [[ $# -lt 2 ]]; then
-        die ${EX_USAGE} "Missing value for $1"
-      fi
-      START_OVERRIDE="$2"
-      shift 2
-      ;;
-    --end)
-      if [[ $# -lt 2 ]]; then
-        die ${EX_USAGE} "Missing value for $1"
-      fi
-      END_OVERRIDE="$2"
-      shift 2
-      ;;
-    --skip-availability|--no-availability)
-      CHECK_AVAILABILITY=false
-      shift
-      ;;
-    -h|--help)
-      usage
-      exit 0
-      ;;
-    --)
-      shift
-      break
-      ;;
-    *)
-      die ${EX_USAGE} "Unknown option: $1"
-      ;;
+  -e | --env-file)
+    if [[ $# -lt 2 ]]; then
+      die ${EX_USAGE} "Missing value for $1"
+    fi
+    ENV_FILE="$2"
+    shift 2
+    ;;
+  --lan-cidr)
+    if [[ $# -lt 2 ]]; then
+      die ${EX_USAGE} "Missing value for $1"
+    fi
+    LAN_CIDR_OVERRIDE="$2"
+    shift 2
+    ;;
+  --lan-addr)
+    if [[ $# -lt 2 ]]; then
+      die ${EX_USAGE} "Missing value for $1"
+    fi
+    LAN_ADDR_OVERRIDE="$2"
+    shift 2
+    ;;
+  --start)
+    if [[ $# -lt 2 ]]; then
+      die ${EX_USAGE} "Missing value for $1"
+    fi
+    START_OVERRIDE="$2"
+    shift 2
+    ;;
+  --end)
+    if [[ $# -lt 2 ]]; then
+      die ${EX_USAGE} "Missing value for $1"
+    fi
+    END_OVERRIDE="$2"
+    shift 2
+    ;;
+  --skip-availability | --no-availability)
+    CHECK_AVAILABILITY=false
+    shift
+    ;;
+  -h | --help)
+    usage
+    exit 0
+    ;;
+  --)
+    shift
+    break
+    ;;
+  *)
+    die ${EX_USAGE} "Unknown option: $1"
+    ;;
   esac
 done
 
@@ -179,12 +179,13 @@ if [[ ${CHECK_AVAILABILITY} == false ]]; then
   NETCALC_CHECK="0"
 fi
 
-calc_output=$(NETCALC_LAN_CIDR="${LAN_CIDR}" \
-  NETCALC_LAN_ADDR="${LAN_ADDR}" \
-  NETCALC_START="${START_INPUT}" \
-  NETCALC_END="${END_INPUT}" \
-  NETCALC_CHECK_AVAILABILITY="${NETCALC_CHECK}" \
-  python3 <<'PY'
+calc_output=$(
+  NETCALC_LAN_CIDR="${LAN_CIDR}" \
+    NETCALC_LAN_ADDR="${LAN_ADDR}" \
+    NETCALC_START="${START_INPUT}" \
+    NETCALC_END="${END_INPUT}" \
+    NETCALC_CHECK_AVAILABILITY="${NETCALC_CHECK}" \
+    python3 <<'PY'
 import ipaddress
 import os
 import shutil
@@ -453,18 +454,18 @@ NETCALC_ORIGINAL_END=""
 
 while IFS='=' read -r key value; do
   case "${key}" in
-    METALLB_POOL_START) METALLB_POOL_START="${value}" ;;
-    METALLB_POOL_END)   METALLB_POOL_END="${value}" ;;
-    LABZ_METALLB_RANGE) LABZ_METALLB_RANGE="${value}" ;;
-    NETCALC_SOURCE)     NETCALC_SOURCE="${value}" ;;
-    NETCALC_REASON)     NETCALC_REASON="${value}" ;;
-    NETCALC_FALLBACK)   NETCALC_FALLBACK="${value}" ;;
-    NETCALC_WARNINGS)   NETCALC_WARNINGS="${value}" ;;
-    NETCALC_CONFLICTS)  NETCALC_CONFLICTS="${value}" ;;
-    NETCALC_ORIGINAL_START) NETCALC_ORIGINAL_START="${value}" ;;
-    NETCALC_ORIGINAL_END)   NETCALC_ORIGINAL_END="${value}" ;;
-    "" ) ;;
-    *) log_debug "Ignoring unknown output key ${key}" ;;
+  METALLB_POOL_START) METALLB_POOL_START="${value}" ;;
+  METALLB_POOL_END) METALLB_POOL_END="${value}" ;;
+  LABZ_METALLB_RANGE) LABZ_METALLB_RANGE="${value}" ;;
+  NETCALC_SOURCE) NETCALC_SOURCE="${value}" ;;
+  NETCALC_REASON) NETCALC_REASON="${value}" ;;
+  NETCALC_FALLBACK) NETCALC_FALLBACK="${value}" ;;
+  NETCALC_WARNINGS) NETCALC_WARNINGS="${value}" ;;
+  NETCALC_CONFLICTS) NETCALC_CONFLICTS="${value}" ;;
+  NETCALC_ORIGINAL_START) NETCALC_ORIGINAL_START="${value}" ;;
+  NETCALC_ORIGINAL_END) NETCALC_ORIGINAL_END="${value}" ;;
+  "") ;;
+  *) log_debug "Ignoring unknown output key ${key}" ;;
   esac
 done <<<"${calc_output}"
 
@@ -482,26 +483,36 @@ if [[ ${NETCALC_SOURCE} == "provided" ]]; then
   log_info "MetalLB pool ${range_display} is valid within ${LAN_CIDR}"
 else
   case "${NETCALC_REASON}" in
-    missing_both)
-      log_info "MetalLB pool undefined; selected ${range_display} within ${LAN_CIDR}" ;;
-    missing_start)
-      log_info "METALLB_POOL_START missing; selected ${range_display}" ;;
-    missing_end)
-      log_info "METALLB_POOL_END missing; selected ${range_display}" ;;
-    invalid_start)
-      log_warn "METALLB_POOL_START (${NETCALC_ORIGINAL_START}) is invalid; using ${range_display}" ;;
-    invalid_end)
-      log_warn "METALLB_POOL_END (${NETCALC_ORIGINAL_END}) is invalid; using ${range_display}" ;;
-    outside_cidr)
-      log_warn "Provided MetalLB pool ${NETCALC_ORIGINAL_START}-${NETCALC_ORIGINAL_END} is outside ${LAN_CIDR}; using ${range_display}" ;;
-    start_reserved)
-      log_warn "MetalLB start ${NETCALC_ORIGINAL_START} is reserved; using ${range_display}" ;;
-    end_reserved)
-      log_warn "MetalLB end ${NETCALC_ORIGINAL_END} is reserved; using ${range_display}" ;;
-    reversed)
-      log_warn "MetalLB pool start/end reversed; using ${range_display}" ;;
-    *)
-      log_info "Selected MetalLB pool ${range_display} within ${LAN_CIDR}" ;;
+  missing_both)
+    log_info "MetalLB pool undefined; selected ${range_display} within ${LAN_CIDR}"
+    ;;
+  missing_start)
+    log_info "METALLB_POOL_START missing; selected ${range_display}"
+    ;;
+  missing_end)
+    log_info "METALLB_POOL_END missing; selected ${range_display}"
+    ;;
+  invalid_start)
+    log_warn "METALLB_POOL_START (${NETCALC_ORIGINAL_START}) is invalid; using ${range_display}"
+    ;;
+  invalid_end)
+    log_warn "METALLB_POOL_END (${NETCALC_ORIGINAL_END}) is invalid; using ${range_display}"
+    ;;
+  outside_cidr)
+    log_warn "Provided MetalLB pool ${NETCALC_ORIGINAL_START}-${NETCALC_ORIGINAL_END} is outside ${LAN_CIDR}; using ${range_display}"
+    ;;
+  start_reserved)
+    log_warn "MetalLB start ${NETCALC_ORIGINAL_START} is reserved; using ${range_display}"
+    ;;
+  end_reserved)
+    log_warn "MetalLB end ${NETCALC_ORIGINAL_END} is reserved; using ${range_display}"
+    ;;
+  reversed)
+    log_warn "MetalLB pool start/end reversed; using ${range_display}"
+    ;;
+  *)
+    log_info "Selected MetalLB pool ${range_display} within ${LAN_CIDR}"
+    ;;
   esac
   if [[ ${NETCALC_FALLBACK} == "1" ]]; then
     log_warn "All MetalLB candidates were busy; falling back to ${range_display}"
@@ -522,25 +533,25 @@ if [[ -n ${NETCALC_WARNINGS} ]]; then
   IFS=',' read -r -a _netcalc_warnings <<<"${NETCALC_WARNINGS}"
   for warning in "${_netcalc_warnings[@]}"; do
     case "${warning}" in
-      missing_ping)
-        log_warn "ping command not found; availability checks may be incomplete"
-        ;;
-      missing_ip)
-        log_warn "ip command not found; neighbor table checks skipped"
-        ;;
-      ping_exec_error)
-        log_warn "ping command failed during pool evaluation"
-        ;;
-      ip_cmd_failed)
-        log_warn "ip neigh command failed during pool evaluation"
-        ;;
-      no_availability_checks)
-        log_warn "Unable to verify whether candidate pools are in use"
-        ;;
-      "") ;;
-      *)
-        log_warn "MetalLB pool warning: ${warning}"
-        ;;
+    missing_ping)
+      log_warn "ping command not found; availability checks may be incomplete"
+      ;;
+    missing_ip)
+      log_warn "ip command not found; neighbor table checks skipped"
+      ;;
+    ping_exec_error)
+      log_warn "ping command failed during pool evaluation"
+      ;;
+    ip_cmd_failed)
+      log_warn "ip neigh command failed during pool evaluation"
+      ;;
+    no_availability_checks)
+      log_warn "Unable to verify whether candidate pools are in use"
+      ;;
+    "") ;;
+    *)
+      log_warn "MetalLB pool warning: ${warning}"
+      ;;
     esac
   done
 fi

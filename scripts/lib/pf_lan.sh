@@ -37,8 +37,8 @@ _pf_lan_log() {
 }
 
 _pf_lan_log_debug() { _pf_lan_log debug "$@"; }
-_pf_lan_log_info()  { _pf_lan_log info "$@"; }
-_pf_lan_log_warn()  { _pf_lan_log warn "$@"; }
+_pf_lan_log_info() { _pf_lan_log info "$@"; }
+_pf_lan_log_warn() { _pf_lan_log warn "$@"; }
 
 _pf_lan_exec_ip() {
   "${_pf_lan_ip_cmd[@]}" "$@"
@@ -155,7 +155,7 @@ pf_lan_temp_addr_ensure() {
       if [[ -z ${python_tmp} ]]; then
         _pf_lan_log_warn "Unable to create temporary file for IPv4 evaluation; continuing with temporary assignment"
       else
-        if python3 - "${network}" "${prefix}" "${existing_cidrs[@]}" >"${python_tmp}" <<'PY'
+        if python3 - "${network}" "${prefix}" "${existing_cidrs[@]}" >"${python_tmp}" <<'PY'; then
 import ipaddress
 import sys
 
@@ -195,7 +195,6 @@ if combined:
 
 sys.exit(1)
 PY
-        then
           python_status=0
         else
           python_status=$?

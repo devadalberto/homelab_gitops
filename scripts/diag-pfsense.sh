@@ -52,23 +52,23 @@ detect_lan_bridge() {
       name=${link}
     fi
     case ${kind} in
-      network)
-        local resolved=""
-        if resolved=$(pf_lan_resolve_network_bridge "${name}"); then
-          candidates+=("${resolved}")
-          reasons+=("PF_LAN_LINK network:${name}")
-        else
-          printf 'WARNING: Unable to resolve PF_LAN_LINK network:%s to host bridge\n' "${name}" >&2
-        fi
-        ;;
-      bridge|tap)
-        candidates+=("${name}")
-        reasons+=("PF_LAN_LINK ${kind}:${name}")
-        ;;
-      *)
-        candidates+=("${name}")
-        reasons+=("PF_LAN_LINK ${kind}:${name}")
-        ;;
+    network)
+      local resolved=""
+      if resolved=$(pf_lan_resolve_network_bridge "${name}"); then
+        candidates+=("${resolved}")
+        reasons+=("PF_LAN_LINK network:${name}")
+      else
+        printf 'WARNING: Unable to resolve PF_LAN_LINK network:%s to host bridge\n' "${name}" >&2
+      fi
+      ;;
+    bridge | tap)
+      candidates+=("${name}")
+      reasons+=("PF_LAN_LINK ${kind}:${name}")
+      ;;
+    *)
+      candidates+=("${name}")
+      reasons+=("PF_LAN_LINK ${kind}:${name}")
+      ;;
     esac
   fi
 
@@ -121,12 +121,17 @@ if command -v ip >/dev/null 2>&1; then
   bridge_summary=$(ip -br a)
 fi
 
-echo "=== domiflist ==="; sudo virsh domiflist "$VM" || true
-echo; echo "=== domblklist ==="; sudo virsh domblklist "$VM" || true
-echo; echo "=== dumpxml (interfaces/disks/controllers) ==="
+echo "=== domiflist ==="
+sudo virsh domiflist "$VM" || true
+echo
+echo "=== domblklist ==="
+sudo virsh domblklist "$VM" || true
+echo
+echo "=== dumpxml (interfaces/disks/controllers) ==="
 sudo virsh dumpxml "$VM" | sed -n 's/^[[:space:]]*//; /<interface\|<disk\|<controller/p' || true
 
-echo; echo "=== bridges (host) ==="
+echo
+echo "=== bridges (host) ==="
 if [[ -n ${bridge_summary} ]]; then
   printf '%s\n' "${bridge_summary}" | grep -E 'virbr|br0' || true
   if [[ -n ${LAN_BRIDGE} ]]; then
@@ -141,7 +146,8 @@ if [[ -n ${LAN_BRIDGE} ]]; then
   echo "# Selected LAN bridge: ${LAN_BRIDGE} (${LAN_BRIDGE_SOURCE})"
 fi
 
-echo; echo "=== probe 10.10.0.1 and ${FALLBACK_IP} ==="
+echo
+echo "=== probe 10.10.0.1 and ${FALLBACK_IP} ==="
 ping -c1 -W1 10.10.0.1 || true
 curl -kIs --connect-timeout 5 "https://10.10.0.1/" || true
 
@@ -164,7 +170,8 @@ if [[ ${fallback_ping_success} == true ]]; then
 fi
 
 tcpdump_iface="${LAN_BRIDGE:-${DEFAULT_LAN_BRIDGE}}"
-echo; echo "=== brief tcpdump on ${tcpdump_iface} (arp/icmp) ==="
+echo
+echo "=== brief tcpdump on ${tcpdump_iface} (arp/icmp) ==="
 if interface_exists "${tcpdump_iface}"; then
   sudo timeout 8 tcpdump -nni "${tcpdump_iface}" "arp or icmp" || true
 fi

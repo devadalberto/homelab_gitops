@@ -48,28 +48,28 @@ SKIP_IP_VALIDATION="false"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    -e|--env-file)
-      if [[ $# -lt 2 ]]; then
-        die "Missing value for $1"
-      fi
-      REQUESTED_ENV_FILE="$2"
-      shift 2
-      ;;
-    --skip-ip-validation)
-      SKIP_IP_VALIDATION="true"
-      shift
-      ;;
-    -h|--help)
-      usage
-      exit 0
-      ;;
-    --)
-      shift
-      break
-      ;;
-    *)
-      die "Unknown argument: $1"
-      ;;
+  -e | --env-file)
+    if [[ $# -lt 2 ]]; then
+      die "Missing value for $1"
+    fi
+    REQUESTED_ENV_FILE="$2"
+    shift 2
+    ;;
+  --skip-ip-validation)
+    SKIP_IP_VALIDATION="true"
+    shift
+    ;;
+  -h | --help)
+    usage
+    exit 0
+    ;;
+  --)
+    shift
+    break
+    ;;
+  *)
+    die "Unknown argument: $1"
+    ;;
   esac
 done
 
@@ -147,7 +147,7 @@ enumerate_bridges() {
   while IFS= read -r line; do
     [[ -z "${line}" ]] && continue
     printf '  - %s\n' "${line}"
-  done <<< "${output}"
+  done <<<"${output}"
 }
 
 require_env_var() {
@@ -259,11 +259,10 @@ check_pf_installer() {
   fi
 
   case "${installer}" in
-    *.img|*.img.gz)
-      ;;
-    *)
-      die "PF_SERIAL_INSTALLER_PATH '${installer}' must point to a .img or .img.gz archive"
-      ;;
+  *.img | *.img.gz) ;;
+  *)
+    die "PF_SERIAL_INSTALLER_PATH '${installer}' must point to a .img or .img.gz archive"
+    ;;
   esac
 
   ok "Found pfSense serial installer at ${installer}"
@@ -282,14 +281,14 @@ validate_ips() {
 
   info "Validating LAN and service IPs against ${LAN_CIDR}"
   if LAN_CIDR="${LAN_CIDR}" \
-     LAN_GW_IP="${LAN_GW_IP}" \
-     LAN_DHCP_FROM="${LAN_DHCP_FROM}" \
-     LAN_DHCP_TO="${LAN_DHCP_TO}" \
-     TRAEFIK_LOCAL_IP="${TRAEFIK_LOCAL_IP}" \
-     LABZ_METALLB_RANGE="${LABZ_METALLB_RANGE}" \
-     METALLB_POOL_START="${METALLB_POOL_START}" \
-     METALLB_POOL_END="${METALLB_POOL_END}" \
-     python3 - <<'PY'
+    LAN_GW_IP="${LAN_GW_IP}" \
+    LAN_DHCP_FROM="${LAN_DHCP_FROM}" \
+    LAN_DHCP_TO="${LAN_DHCP_TO}" \
+    TRAEFIK_LOCAL_IP="${TRAEFIK_LOCAL_IP}" \
+    LABZ_METALLB_RANGE="${LABZ_METALLB_RANGE}" \
+    METALLB_POOL_START="${METALLB_POOL_START}" \
+    METALLB_POOL_END="${METALLB_POOL_END}" \
+    python3 - <<'PY'; then
 import ipaddress
 import os
 import sys
@@ -365,7 +364,6 @@ if errors:
         print(line, file=sys.stderr)
     raise SystemExit(1)
 PY
-  then
     ok "LAN addressing and VIP ranges validated"
   else
     die "LAN/IP validation failed"
@@ -407,33 +405,33 @@ align_metallb_pool() {
   else
     local message="MetalLB pool adjusted to ${range}; update METALLB_POOL_START/METALLB_POOL_END"
     case "${NETCALC_REASON:-}" in
-      missing_both)
-        message="MetalLB pool not defined; recommended ${range}"
-        ;;
-      missing_start)
-        message="METALLB_POOL_START not set; recommended ${range}"
-        ;;
-      missing_end)
-        message="METALLB_POOL_END not set; recommended ${range}"
-        ;;
-      invalid_start)
-        message="METALLB_POOL_START '${NETCALC_ORIGINAL_START}' invalid; recommended ${range}"
-        ;;
-      invalid_end)
-        message="METALLB_POOL_END '${NETCALC_ORIGINAL_END}' invalid; recommended ${range}"
-        ;;
-      outside_cidr)
-        message="MetalLB pool ${NETCALC_ORIGINAL_START}-${NETCALC_ORIGINAL_END} outside ${LAN_CIDR}; recommended ${range}"
-        ;;
-      start_reserved)
-        message="MetalLB start ${NETCALC_ORIGINAL_START} is reserved; recommended ${range}"
-        ;;
-      end_reserved)
-        message="MetalLB end ${NETCALC_ORIGINAL_END} is reserved; recommended ${range}"
-        ;;
-      reversed)
-        message="MetalLB pool start/end reversed; recommended ${range}"
-        ;;
+    missing_both)
+      message="MetalLB pool not defined; recommended ${range}"
+      ;;
+    missing_start)
+      message="METALLB_POOL_START not set; recommended ${range}"
+      ;;
+    missing_end)
+      message="METALLB_POOL_END not set; recommended ${range}"
+      ;;
+    invalid_start)
+      message="METALLB_POOL_START '${NETCALC_ORIGINAL_START}' invalid; recommended ${range}"
+      ;;
+    invalid_end)
+      message="METALLB_POOL_END '${NETCALC_ORIGINAL_END}' invalid; recommended ${range}"
+      ;;
+    outside_cidr)
+      message="MetalLB pool ${NETCALC_ORIGINAL_START}-${NETCALC_ORIGINAL_END} outside ${LAN_CIDR}; recommended ${range}"
+      ;;
+    start_reserved)
+      message="MetalLB start ${NETCALC_ORIGINAL_START} is reserved; recommended ${range}"
+      ;;
+    end_reserved)
+      message="MetalLB end ${NETCALC_ORIGINAL_END} is reserved; recommended ${range}"
+      ;;
+    reversed)
+      message="MetalLB pool start/end reversed; recommended ${range}"
+      ;;
     esac
     warn "${message}"
     info "Update METALLB_POOL_START=${METALLB_POOL_START} and METALLB_POOL_END=${METALLB_POOL_END} in your environment"
@@ -447,26 +445,25 @@ align_metallb_pool() {
     IFS=',' read -r -a netcalc_warnings <<<"${NETCALC_WARNINGS}"
     for token in "${netcalc_warnings[@]}"; do
       case "${token}" in
-        missing_ping)
-          warn "ping command not available; pool availability checks skipped"
-          ;;
-        missing_ip)
-          warn "ip command not available; neighbor checks skipped"
-          ;;
-        ping_exec_error)
-          warn "ping failed while evaluating MetalLB pool"
-          ;;
-        ip_cmd_failed)
-          warn "ip neigh failed while evaluating MetalLB pool"
-          ;;
-        no_availability_checks)
-          warn "Unable to confirm MetalLB pool availability"
-          ;;
-        "")
-          ;;
-        *)
-          warn "MetalLB helper warning: ${token}"
-          ;;
+      missing_ping)
+        warn "ping command not available; pool availability checks skipped"
+        ;;
+      missing_ip)
+        warn "ip command not available; neighbor checks skipped"
+        ;;
+      ping_exec_error)
+        warn "ping failed while evaluating MetalLB pool"
+        ;;
+      ip_cmd_failed)
+        warn "ip neigh failed while evaluating MetalLB pool"
+        ;;
+      no_availability_checks)
+        warn "Unable to confirm MetalLB pool availability"
+        ;;
+      "") ;;
+      *)
+        warn "MetalLB helper warning: ${token}"
+        ;;
       esac
     done
   fi

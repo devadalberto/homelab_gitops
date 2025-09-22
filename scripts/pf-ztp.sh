@@ -230,7 +230,7 @@ setup_logging() {
     }
   fi
 
-  if [[ -w ${log_dir} || ( -e ${LOG_FILE} && -w ${LOG_FILE} ) ]]; then
+  if [[ -w ${log_dir} || (-e ${LOG_FILE} && -w ${LOG_FILE}) ]]; then
     exec > >(tee -a "${LOG_FILE}")
     exec 2>&1
     log_info "Logging to ${LOG_FILE}"
@@ -242,67 +242,67 @@ setup_logging() {
 parse_args() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --env-file)
-        if [[ $# -lt 2 ]]; then
-          usage
-          die ${EX_PREFLIGHT} "--env-file requires a path"
-        fi
-        ENV_FILE="$2"
-        shift 2
-        ;;
-      --vm-name)
-        if [[ $# -lt 2 ]]; then
-          usage
-          die ${EX_PREFLIGHT} "--vm-name requires a value"
-        fi
-        VM_NAME_ARG="$2"
-        shift 2
-        ;;
-      --force-e1000)
-        FORCE_E1000=true
-        shift
-        ;;
-      --force)
-        FORCE_REBUILD=true
-        shift
-        ;;
-      --dry-run)
-        DRY_RUN=true
-        shift
-        ;;
-      --check-only)
-        CHECK_ONLY=true
-        DRY_RUN=true
-        shift
-        ;;
-      --verbose)
-        VERBOSE=true
-        shift
-        ;;
-      --lenient)
-        LENIENT=true
-        shift
-        ;;
-      --rollback)
-        ROLLBACK=true
-        shift
-        ;;
-      -h|--help)
+    --env-file)
+      if [[ $# -lt 2 ]]; then
         usage
-        exit ${EX_SUCCESS}
-        ;;
-      --)
-        shift
-        break
-        ;;
-      -* )
+        die ${EX_PREFLIGHT} "--env-file requires a path"
+      fi
+      ENV_FILE="$2"
+      shift 2
+      ;;
+    --vm-name)
+      if [[ $# -lt 2 ]]; then
         usage
-        die ${EX_PREFLIGHT} "Unknown option: $1"
-        ;;
-      * )
-        usage
-        die ${EX_PREFLIGHT} "Unexpected positional argument: $1"
-        ;;
+        die ${EX_PREFLIGHT} "--vm-name requires a value"
+      fi
+      VM_NAME_ARG="$2"
+      shift 2
+      ;;
+    --force-e1000)
+      FORCE_E1000=true
+      shift
+      ;;
+    --force)
+      FORCE_REBUILD=true
+      shift
+      ;;
+    --dry-run)
+      DRY_RUN=true
+      shift
+      ;;
+    --check-only)
+      CHECK_ONLY=true
+      DRY_RUN=true
+      shift
+      ;;
+    --verbose)
+      VERBOSE=true
+      shift
+      ;;
+    --lenient)
+      LENIENT=true
+      shift
+      ;;
+    --rollback)
+      ROLLBACK=true
+      shift
+      ;;
+    -h | --help)
+      usage
+      exit ${EX_SUCCESS}
+      ;;
+    --)
+      shift
+      break
+      ;;
+    -*)
+      usage
+      die ${EX_PREFLIGHT} "Unknown option: $1"
+      ;;
+    *)
+      usage
+      die ${EX_PREFLIGHT} "Unexpected positional argument: $1"
+      ;;
     esac
   done
 
@@ -383,7 +383,8 @@ ensure_required_env() {
 
 compute_lan_settings() {
   local python_output
-  python_output=$(python3 - <<'PY'
+  python_output=$(
+    python3 - <<'PY'
 import ipaddress
 import os
 import sys
@@ -542,10 +543,10 @@ prepare_installer_media() {
   INSTALLER_TARGET_BUS="virtio"
 
   case "${INSTALLER_IMAGE_PATH}" in
-    *.iso)
-      INSTALLER_DEVICE_TYPE="cdrom"
-      INSTALLER_TARGET_BUS="sata"
-      ;;
+  *.iso)
+    INSTALLER_DEVICE_TYPE="cdrom"
+    INSTALLER_TARGET_BUS="sata"
+    ;;
   esac
 
   log_info "Installer prepared at ${INSTALLER_IMAGE_PATH}"
@@ -900,7 +901,8 @@ fetch_domain_info() {
     die ${EX_PREFLIGHT} "Failed to dump domain XML for ${VM_NAME}"
   fi
   DOMAIN_XML_PATH="${domain_tmp}"
-  DOMAIN_INFO_JSON=$(python3 - "${domain_tmp}" "${USB_IMAGE}" <<'PY'
+  DOMAIN_INFO_JSON=$(
+    python3 - "${domain_tmp}" "${USB_IMAGE}" <<'PY'
 import json
 import sys
 import xml.etree.ElementTree as ET
@@ -1106,7 +1108,8 @@ update_config_xml() {
   fi
 
   local result
-  result=$(python3 - "${CONFIG_XML}" "${LAN_GW_IP}" "${LAN_PREFIX}" "${DHCP_FROM}" "${DHCP_TO}" "${mode}" <<'PY'
+  result=$(
+    python3 - "${CONFIG_XML}" "${LAN_GW_IP}" "${LAN_PREFIX}" "${DHCP_FROM}" "${DHCP_TO}" "${mode}" <<'PY'
 import os
 import sys
 import xml.etree.ElementTree as ET
@@ -1214,24 +1217,24 @@ PY
 
   while IFS='=' read -r key value; do
     case "${key}" in
-      changed)
-        changed_flag=${value}
-        ;;
-      status)
-        status_value=${value}
-        ;;
-      error)
-        error_value=${value}
-        ;;
-      ipaddr)
-        ip_action=${value}
-        ;;
-      dhcp_from)
-        dhcp_from_action=${value}
-        ;;
-      dhcp_to)
-        dhcp_to_action=${value}
-        ;;
+    changed)
+      changed_flag=${value}
+      ;;
+    status)
+      status_value=${value}
+      ;;
+    error)
+      error_value=${value}
+      ;;
+    ipaddr)
+      ip_action=${value}
+      ;;
+    dhcp_from)
+      dhcp_from_action=${value}
+      ;;
+    dhcp_to)
+      dhcp_to_action=${value}
+      ;;
     esac
   done <<<"${result}"
 
@@ -1605,22 +1608,22 @@ inspect_interfaces() {
     fi
 
     case "${target}" in
-      vnet0)
-        if [[ -n ${PF_WAN_BRIDGE} && -n ${source} && ${source} != "${PF_WAN_BRIDGE}" ]]; then
-          log_warn "Interface ${target} linked to ${source:-unknown}; expected ${PF_WAN_BRIDGE}"
-        fi
-        if [[ -z ${detected_wan_source} && -n ${source} ]]; then
-          detected_wan_source=${source}
-          detected_wan_kind=${kind}
-        fi
-        ;;
-      vnet1)
-        if [[ -z ${detected_lan_source} && -n ${source} ]]; then
-          detected_lan_source=${source}
-          detected_lan_kind=${kind}
-          detected_lan_idx=${idx}
-        fi
-        ;;
+    vnet0)
+      if [[ -n ${PF_WAN_BRIDGE} && -n ${source} && ${source} != "${PF_WAN_BRIDGE}" ]]; then
+        log_warn "Interface ${target} linked to ${source:-unknown}; expected ${PF_WAN_BRIDGE}"
+      fi
+      if [[ -z ${detected_wan_source} && -n ${source} ]]; then
+        detected_wan_source=${source}
+        detected_wan_kind=${kind}
+      fi
+      ;;
+    vnet1)
+      if [[ -z ${detected_lan_source} && -n ${source} ]]; then
+        detected_lan_source=${source}
+        detected_lan_kind=${kind}
+        detected_lan_idx=${idx}
+      fi
+      ;;
     esac
 
     local force="${FORCE_E1000}"

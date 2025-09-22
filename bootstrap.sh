@@ -6,7 +6,7 @@ export BOOT_STATE="/root/.uranus_bootstrap_state"
 # shellcheck disable=SC1091
 [[ -f "$DIR/.env" ]] && source "$DIR/.env" || source "$DIR/.env.example"
 
-log(){ printf '[%s] %s\n' "$(date +'%F %T')" "$*"; }
+log() { printf '[%s] %s\n' "$(date +'%F %T')" "$*"; }
 
 # 1) Host prep (skip docker if docker-ce present)
 "$DIR/scripts/host-prep.sh"

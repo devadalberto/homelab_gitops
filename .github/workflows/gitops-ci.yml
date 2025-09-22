@@ -209,20 +209,20 @@ jobs:
             rel=${dir#./}
             safe_name=$(echo "$rel" | tr '/._' '-' | tr '[:upper:]' '[:lower:]')
             tmp_file=$(mktemp)
-            cat <<EOT > "$tmp_file"
-apiVersion: kustomize.toolkit.fluxcd.io/v1
-kind: Kustomization
-metadata:
-  name: ${safe_name}
-  namespace: flux-system
-spec:
-  interval: 10m
-  path: ./${rel}
-  prune: false
-  sourceRef:
-    kind: GitRepository
-    name: placeholder
-EOT
+            {
+              printf 'apiVersion: kustomize.toolkit.fluxcd.io/v1\n'
+              printf 'kind: Kustomization\n'
+              printf 'metadata:\n'
+              printf '  name: %s\n' "${safe_name}"
+              printf '  namespace: flux-system\n'
+              printf 'spec:\n'
+              printf '  interval: 10m\n'
+              printf '  path: ./%s\n' "${rel}"
+              printf '  prune: false\n'
+              printf '  sourceRef:\n'
+              printf '    kind: GitRepository\n'
+              printf '    name: placeholder\n'
+            } >"$tmp_file"
             echo "Flux building ${rel}"
             flux build kustomization "${safe_name}" \
               --namespace=flux-system \
@@ -240,38 +240,41 @@ EOT
       - name: Server-side dry-run validation
         run: |
           set -euo pipefail
-          python3 <<'PY'
-import pathlib
-import subprocess
-import sys
-
-import yaml
-
-manifest_dir = pathlib.Path('rendered-manifests/kustomize')
-failures = []
-for manifest_file in sorted(manifest_dir.glob('*.yaml')):
-    with manifest_file.open('r', encoding='utf-8') as fh:
-        docs = list(yaml.safe_load_all(fh))
-    for index, doc in enumerate(docs, start=1):
-        if not doc:
-            continue
-        payload = yaml.safe_dump(doc, sort_keys=False).encode()
-        proc = subprocess.run(
-            ["kubectl", "apply", "--dry-run=server", "-f", "-"],
-            input=payload,
-            capture_output=True,
-            check=False,
-        )
-        if proc.returncode != 0:
-            stderr = proc.stderr.decode()
-            if "no matches for kind" in stderr or "could not find the requested resource" in stderr:
-                print(f"Skipping {manifest_file} document {index}: {stderr.strip()}")
-                continue
-            print(f"kubectl dry-run failed for {manifest_file} document {index}:\n{stderr}")
-            failures.append((manifest_file, index, stderr))
-if failures:
-    sys.exit(1)
-PY
+          tmp_py=$(mktemp)
+          {
+            printf 'import pathlib\n'
+            printf 'import subprocess\n'
+            printf 'import sys\n'
+            printf '\n'
+            printf 'import yaml\n'
+            printf '\n'
+            printf "manifest_dir = pathlib.Path('rendered-manifests/kustomize')\n"
+            printf 'failures = []\n'
+            printf "for manifest_file in sorted(manifest_dir.glob('*.yaml')):\n"
+            printf "    with manifest_file.open('r', encoding='utf-8') as fh:\n"
+            printf '        docs = list(yaml.safe_load_all(fh))\n'
+            printf '    for index, doc in enumerate(docs, start=1):\n'
+            printf '        if not doc:\n'
+            printf '            continue\n'
+            printf '        payload = yaml.safe_dump(doc, sort_keys=False).encode()\n'
+            printf '        proc = subprocess.run(\n'
+            printf '            ["kubectl", "apply", "--dry-run=server", "-f", "-"],\n'
+            printf '            input=payload,\n'
+            printf '            capture_output=True,\n'
+            printf '            check=False,\n'
+            printf '        )\n'
+            printf '        if proc.returncode != 0:\n'
+            printf '            stderr = proc.stderr.decode()\n'
+            printf '            if "no matches for kind" in stderr or "could not find the requested resource" in stderr:\n'
+            printf '                print(f"Skipping {manifest_file} document {index}: {stderr.strip()}")\n'
+            printf '                continue\n'
+            printf '            print(f"kubectl dry-run failed for {manifest_file} document {index}:\\n{stderr}")\n'
+            printf '            failures.append((manifest_file, index, stderr))\n'
+            printf 'if failures:\n'
+            printf '    sys.exit(1)\n'
+          } >"$tmp_py"
+          python3 "$tmp_py"
+          rm -f "$tmp_py"
 
       - name: Helm lint
         run: |

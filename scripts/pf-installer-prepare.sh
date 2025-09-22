@@ -2,7 +2,10 @@
 set -euo pipefail
 
 log() { printf "%s %s\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >&2; }
-die() { log "[ERROR] $*"; exit 1; }
+die() {
+  log "[ERROR] $*"
+  exit 1
+}
 info() { log "[INFO] $*"; }
 warn() { log "[WARN] $*"; }
 
@@ -29,26 +32,26 @@ OVERRIDE_DEST=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --env-file)
-      ENV_FILE="${2:-}"
-      shift 2 || die "--env-file requires a path"
-      ;;
-    --source)
-      OVERRIDE_SOURCE="${2:-}"
-      shift 2 || die "--source requires a path"
-      ;;
-    --dest)
-      OVERRIDE_DEST="${2:-}"
-      shift 2 || die "--dest requires a path"
-      ;;
-    -h|--help)
-      usage
-      exit 0
-      ;;
-    *)
-      usage
-      die "Unknown argument: $1"
-      ;;
+  --env-file)
+    ENV_FILE="${2:-}"
+    shift 2 || die "--env-file requires a path"
+    ;;
+  --source)
+    OVERRIDE_SOURCE="${2:-}"
+    shift 2 || die "--source requires a path"
+    ;;
+  --dest)
+    OVERRIDE_DEST="${2:-}"
+    shift 2 || die "--dest requires a path"
+    ;;
+  -h | --help)
+    usage
+    exit 0
+    ;;
+  *)
+    usage
+    die "Unknown argument: $1"
+    ;;
   esac
 done
 
@@ -147,19 +150,21 @@ prepare_plain() {
 }
 
 case "${INSTALLER_SRC_ABS}" in
-  *.img.gz)
-    prepare_gzip "${INSTALLER_SRC_ABS}" "${DEST_HINT:-${DEFAULT_DEST}}"
-    ;;
-  *.img)
-    prepare_plain "${INSTALLER_SRC_ABS}" "${DEST_HINT}" ;;
-  *.iso.gz)
-    prepare_gzip "${INSTALLER_SRC_ABS}" "${DEST_HINT:-${DEFAULT_DEST%.img}.iso}"
-    ;;
-  *.iso)
-    prepare_plain "${INSTALLER_SRC_ABS}" "${DEST_HINT}" ;;
-  *)
-    die "Unsupported installer type for ${INSTALLER_SRC_ABS} (expect .img/.img.gz or .iso/.iso.gz)"
-    ;;
+*.img.gz)
+  prepare_gzip "${INSTALLER_SRC_ABS}" "${DEST_HINT:-${DEFAULT_DEST}}"
+  ;;
+*.img)
+  prepare_plain "${INSTALLER_SRC_ABS}" "${DEST_HINT}"
+  ;;
+*.iso.gz)
+  prepare_gzip "${INSTALLER_SRC_ABS}" "${DEST_HINT:-${DEFAULT_DEST%.img}.iso}"
+  ;;
+*.iso)
+  prepare_plain "${INSTALLER_SRC_ABS}" "${DEST_HINT}"
+  ;;
+*)
+  die "Unsupported installer type for ${INSTALLER_SRC_ABS} (expect .img/.img.gz or .iso/.iso.gz)"
+  ;;
 esac
 
 if [[ -z ${final_path} ]]; then
