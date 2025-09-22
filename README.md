@@ -1,21 +1,40 @@
 # Homelab GitOps
 
-Homelab GitOps automates a pfSense-backed Minikube environment, layering on networking add-ons such as MetalLB, cert-manager, and Traefik before deploying application stacks including PostgreSQL, Redis, Nextcloud, and Jellyfin through composable scripts.【F:scripts/uranus_homelab.sh†L211-L288】【F:scripts/uranus_homelab_one.sh†L214-L273】【F:scripts/uranus_homelab_apps.sh†L265-L356】
+[![GitOps CI](https://github.com/devadalberto/homelab_gitops/actions/workflows/gitops-ci.yml/badge.svg)](https://github.com/devadalberto/homelab_gitops/actions/workflows/gitops-ci.yml)
+[![Documentation](https://github.com/devadalberto/homelab_gitops/actions/workflows/docs.yml/badge.svg)](https://github.com/devadalberto/homelab_gitops/actions/workflows/docs.yml)
 
-## One-shot install
+Homelab GitOps automates a pfSense-backed Minikube environment by chaining host preflight checks, pfSense zero-touch provisioning, and Kubernetes bootstrap before layering networking add-ons such as MetalLB, cert-manager, and Traefik alongside application stacks including PostgreSQL, Redis, Nextcloud, and Jellyfin through composable scripts.【F:scripts/uranus_homelab.sh†L204-L272】【F:scripts/uranus_homelab_one.sh†L214-L273】【F:scripts/uranus_homelab_apps.sh†L265-L356】
 
-With the host dependencies satisfied and `.env` updated, invoke the aggregated Make target to drive the full bootstrap:
+## Quickstart
 
-```bash
-make up ENV_FILE=./.env
-```
+1. Copy the sample environment file and edit it with your site-specific values:
 
-`make up` orchestrates the pfSense preflight, config regeneration, VM install, zero-touch provisioning, pfSense smoketest, Kubernetes context wiring, cluster smoketest, and status emission in order so you can move from bare host to running stack in a single command.【F:Makefile†L8-L75】 By default the pfSense helper reuses the `br0` bridge for both WAN and LAN unless you override `PF_LAN_BRIDGE`; if you set a different LAN bridge name, the automation will create and raise it automatically so the VM cabling stays consistent.【F:scripts/pf-vm-install.sh†L101-L145】
+   ```bash
+   cp .env.example .env
+   ```
+
+2. Prepare the host tooling and networking prerequisites:
+
+   ```bash
+   ./scripts/host-prep.sh --env-file ./.env
+   ```
+
+   The host preparation routine installs virtualization dependencies, configures libvirt bridges, and validates Docker, Kubernetes CLIs, Helm, Minikube, and SOPS before handing off to the pfSense workflow.【F:scripts/host-prep.sh†L36-L599】
+
+3. Download the pfSense CE **serial** installer and point `PF_INSTALLER_SRC` at the archive so validation succeeds; the automation expects the serial build so the pfSense VM can boot headlessly via its console.【F:.env.example†L53-L68】【F:scripts/host-prep.sh†L268-L316】【F:scripts/pf-vm-install.sh†L165-L196】【F:scripts/pf-vm-install.sh†L265-L295】
+
+4. Launch the consolidated pipeline:
+
+   ```bash
+   ./scripts/uranus_homelab.sh --env-file ./.env --assume-yes
+   ```
+
+   The wrapper first runs the preflight and installer alignment (`scripts/preflight_and_bootstrap.sh`), then executes pfSense zero-touch provisioning, the Minikube bootstrap, networking add-ons, and application deployment sequentially. By default the pfSense helper reuses the `br0` bridge for both WAN and LAN unless you override `PF_LAN_BRIDGE`; if you pick a different LAN bridge, the automation raises it automatically so the VM cabling stays consistent.【F:scripts/uranus_homelab.sh†L204-L272】【F:scripts/pf-vm-install.sh†L101-L145】
 
 ## Prerequisites
 
 * Prepare an Ubuntu host (or derivative) with virtualization, libvirt, Docker, Kubernetes CLIs, and other tooling by running `./scripts/host-prep.sh --env-file ./.env`. The script installs the required APT packages, ensures Docker, kubectl, Helm, Minikube, and SOPS are available, wires up libvirt, and can create the pfSense LAN bridge if it is missing.【F:scripts/host-prep.sh†L36-L599】
-* Download the pfSense CE **serial** installer in advance and point `PF_INSTALLER_SRC` (or legacy fallbacks) at the archive so validation passes during preflight.【F:.env.example†L53-L68】【F:scripts/host-prep.sh†L268-L316】
+* Download the pfSense CE **serial** installer in advance and point `PF_INSTALLER_SRC` at the archive so validation passes during preflight; the helper flags non-serial images so the headless workflow stays aligned with the VM's serial console.【F:.env.example†L53-L68】【F:scripts/host-prep.sh†L268-L316】【F:scripts/pf-vm-install.sh†L265-L295】
 * Keep the pfSense LAN bridge settings (`PF_LAN_BRIDGE`/`PF_LAN_LINK`) aligned with the actual host interface names; the host-prep routine checks the values and can create the bridge automatically when it is absent.【F:scripts/host-prep.sh†L207-L264】【F:scripts/host-prep.sh†L576-L599】
 
 ## Configuration
