@@ -1,0 +1,42 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pihole-helm-values
+  namespace: flux-system
+data:
+  values.yaml: |
+    admin:
+      existingSecret: pihole-admin
+      passwordKey: password
+    DNS1: "1.1.1.1"
+    DNS2: "1.0.0.1"
+    serviceDns:
+      type: LoadBalancer
+      externalTrafficPolicy: Local
+      loadBalancerIP: "10.10.0.245"
+      annotations:
+        metallb.universe.tf/address-pool: homelab-pool
+        metallb.universe.tf/allow-shared-ip: pihole
+    serviceDhcp:
+      enabled: false
+    serviceWeb:
+      type: LoadBalancer
+      loadBalancerIP: "10.10.0.245"
+      externalTrafficPolicy: Local
+      annotations:
+        metallb.universe.tf/address-pool: homelab-pool
+        metallb.universe.tf/allow-shared-ip: pihole
+      https:
+        enabled: false
+    virtualHost: pihole.labz.home.arpa
+    extraEnvVars:
+      FTLCONF_dns_listeningMode: "all"
+      TZ:
+        valueFrom:
+          configMapKeyRef:
+            name: pihole-environment
+            key: TZ
+    podAnnotations:
+      prometheus.io/scrape: "true"
+      prometheus.io/port: "9617"
+      prometheus.io/path: /metrics

@@ -1,3 +1,9 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-resources: []
+resources:
+  - namespace.yaml
+  - helmrepository.yaml
+  - pihole-environment-configmap.yaml
+  - pihole-values-configmap.yaml
+  - ../../apps/pihole/sops-secrets/admin-secret.yaml
+  - helmrelease.yaml
