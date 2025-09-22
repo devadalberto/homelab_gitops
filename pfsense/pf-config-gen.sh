@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 set -euo pipefail
-IFS=$'\n\t'
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -8,576 +7,336 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 # shellcheck source=scripts/common-env.sh
 source "${REPO_ROOT}/scripts/common-env.sh"
 
-ensure_dirs "${HOMELAB_PFSENSE_CONFIG_DIR}"
-if command -v sudo >/dev/null 2>&1; then
-  sudo chown "$(id -u)":"$(id -g)" "${HOMELAB_PFSENSE_CONFIG_DIR}" || true
-else
-  chown "$(id -u)":"$(id -g)" "${HOMELAB_PFSENSE_CONFIG_DIR}" || true
-fi
-
-readonly EX_OK=0
-readonly EX_USAGE=64
-# shellcheck disable=SC2034
-readonly EX_UNAVAILABLE=69
-readonly EX_SOFTWARE=70
-readonly EX_CONFIG=78
-# shellcheck disable=SC2034
-readonly EX_NOTREADY=4
-
-# shellcheck disable=SC2034
-ORIGINAL_ARGS=("$@")
-
-DRY_RUN=false
 ENV_FILE=""
-OUTPUT_DIR_OVERRIDE=""
-TEMPLATE_OVERRIDE=""
-
-WORK_ROOT_DEFAULT="${HOMELAB_ROOT}"
-ISO_LABEL="pfSense_config"
 
 usage() {
   cat <<'USAGE'
-Usage: pf-config-gen.sh [OPTIONS]
+Usage: pf-config-gen.sh [--env-file PATH]
 
-Generate the pfSense configuration ISO from templates and environment values.
-
-Options:
-  --env-file PATH        Load environment overrides from PATH.
-  --output-dir PATH      Write rendered assets under PATH instead of ${WORK_ROOT}/pfsense/config.
-  --template PATH        Render PATH instead of the default config.xml template.
-  --dry-run              Log the actions without writing files or creating the ISO.
-  -h, --help             Show this help message.
-
-Exit codes:
-  0  Success.
-  4  Environment not ready for ISO regeneration (e.g., missing prerequisites).
-  64 Usage error (invalid CLI arguments).
-  69 Missing required dependencies (install xorriso/genisoimage/mkisofs, gzip, virt-install).
-  70 Internal failure while rendering the template or packaging the ISO.
-  78 Missing configuration (environment variables or templates).
+Render the minimal pfSense config.xml, generate the pfSense_config ISO, and
+refresh the ECL FAT USB image under /opt/homelab/pfsense/config.
 USAGE
-}
-
-format_command() {
-  local formatted=""
-  local arg
-  for arg in "$@"; do
-    if [[ -z ${formatted} ]]; then
-      formatted=$(printf '%q' "$arg")
-    else
-      formatted+=" $(printf '%q' "$arg")"
-    fi
-  done
-  printf '%s' "$formatted"
-}
-
-run_cmd() {
-  if [[ ${DRY_RUN} == true ]]; then
-    log_info "[DRY-RUN] $(format_command "$@")"
-    return 0
-  fi
-  log_debug "Executing: $(format_command "$@")"
-  "$@"
 }
 
 parse_args() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --env-file)
+      --env-file|-e)
         if [[ $# -lt 2 ]]; then
-          usage
           die ${EX_USAGE} "--env-file requires a path argument"
         fi
         ENV_FILE="$2"
         shift 2
         ;;
-      --output-dir)
-        if [[ $# -lt 2 ]]; then
-          usage
-          die ${EX_USAGE} "--output-dir requires a path argument"
-        fi
-        OUTPUT_DIR_OVERRIDE="$2"
-        shift 2
-        ;;
-      --template)
-        if [[ $# -lt 2 ]]; then
-          usage
-          die ${EX_USAGE} "--template requires a path argument"
-        fi
-        TEMPLATE_OVERRIDE="$2"
-        shift 2
-        ;;
-      --dry-run)
-        DRY_RUN=true
+      --env-file=*|-e=*)
+        ENV_FILE="${1#*=}"
         shift
         ;;
       -h|--help)
         usage
         exit ${EX_OK}
         ;;
-      --)
-        shift
-        break
-        ;;
-      -* )
-        usage
+      *)
         die ${EX_USAGE} "Unknown option: $1"
-        ;;
-      * )
-        usage
-        die ${EX_USAGE} "Unexpected positional argument: $1"
         ;;
     esac
   done
 }
 
-cleanup_temp_dir() {
-  local dir=$1
-  if [[ -z ${dir} ]]; then
-    return
-  fi
-  if [[ -d ${dir} ]]; then
-    rm -rf -- "${dir:?}"
-  fi
-}
-
-check_dependencies() {
-  local missing=()
-  local -a iso_found=()
-  local candidate
-
-  for candidate in genisoimage mkisofs xorrisofs xorriso; do
-    if command -v "${candidate}" >/dev/null 2>&1; then
-      iso_found+=("${candidate}")
-    fi
-  done
-
-  if (( ${#iso_found[@]} == 0 )); then
-    missing+=("genisoimage|mkisofs|xorrisofs|xorriso")
+load_environment() {
+  if [[ -n ${ENV_FILE} ]]; then
+    load_env --env-file "${ENV_FILE}" --required || \
+      die ${EX_CONFIG} "Environment file not found: ${ENV_FILE}"
   else
-    log_debug "Available ISO creation tools: ${iso_found[*]}"
-  fi
-
-  if ! need gzip &>/dev/null; then
-    missing+=(gzip)
-  fi
-
-  if ! need virt-install &>/dev/null; then
-    missing+=(virt-install)
-  fi
-
-  if (( ${#missing[@]} > 0 )); then
-    log_error "Missing required dependencies: ${missing[*]}"
-    log_info "Install them via: sudo apt-get install xorriso genisoimage mkisofs gzip virt-install"
-    die 3
+    load_env --silent || true
   fi
 }
 
-ensure_required_env() {
-  local required=(
-    LAB_DOMAIN_BASE
-    LAB_CLUSTER_SUB
-    LAN_PREFIX_LEN
-    CIDR_BITS
-    LAN_GW_IP
-    LAN_DHCP_FROM
-    LAN_DHCP_TO
-    DHCP_FROM
-    DHCP_TO
-    METALLB_POOL_START
-    TRAEFIK_LOCAL_IP
-  )
-  local missing=()
-  local var
-  for var in "${required[@]}"; do
-    if [[ -z ${!var:-} ]]; then
-      missing+=("${var}")
-    fi
-  done
-
-  if (( ${#missing[@]} > 0 )); then
-    die ${EX_CONFIG} "Missing required environment variables: ${missing[*]}"
-  fi
-}
-
-generate_virtual_ips() {
-  if [[ -z ${METALLB_POOL_START:-} ]]; then
-    die ${EX_CONFIG} "METALLB_POOL_START must be defined to derive VIP addresses"
-  fi
-
-  local python_output
-  python_output=$(python3 - "$METALLB_POOL_START" <<'PY'
-import ipaddress
-import sys
-
-start = ipaddress.ip_address(sys.argv[1])
-vip = {
-    "VIP_APP": str(start),
-    "VIP_GRAFANA": str(start + 1),
-    "VIP_PROM": str(start + 2),
-    "VIP_ALERT": str(start + 3),
-    "VIP_AWX": str(start + 4),
-}
-for key, value in vip.items():
-    print(f"{key}={value}")
-PY
-  )
-
-  if [[ -z ${python_output} ]]; then
-    die ${EX_SOFTWARE} "Failed to calculate virtual IP assignments"
-  fi
-
-  eval "${python_output}"
-}
-
-derive_lan_network_settings() {
-  local python_output
-
-  if ! python_output=$(python3 <<'PY'
-import ipaddress
-import os
-import sys
-
-lan_cidr = os.environ.get("LAN_CIDR", "10.10.0.0/24")
-gw_ip_raw = os.environ.get("LAN_GW_IP", "10.10.0.1").strip()
-dhcp_from_raw = os.environ.get("DHCP_FROM") or os.environ.get("LAN_DHCP_FROM", "")
-dhcp_to_raw = os.environ.get("DHCP_TO") or os.environ.get("LAN_DHCP_TO", "")
-
-try:
-    network = ipaddress.ip_network(lan_cidr, strict=False)
-except ValueError as exc:
-    print(exc, file=sys.stderr)
-    sys.exit(1)
-
-if network.version != 4:
-    print("LAN_CIDR must be IPv4", file=sys.stderr)
-    sys.exit(1)
-
-hosts = list(network.hosts())
-if not hosts:
-    print(f"LAN_CIDR {network.with_prefixlen} does not provide usable host addresses", file=sys.stderr)
-    sys.exit(1)
-
-def parse_host(label, value, allow_empty=False):
-    if not value:
-        if allow_empty:
-            return None
-        print(f"{label} is required", file=sys.stderr)
-        sys.exit(1)
-    try:
-        candidate = ipaddress.ip_address(value)
-    except ValueError as exc:
-        print(f"{label} invalid: {exc}", file=sys.stderr)
-        sys.exit(1)
-    if candidate.version != 4:
-        print(f"{label} must be IPv4", file=sys.stderr)
-        sys.exit(1)
-    if candidate not in network:
-        print(f"{label}={value} is not contained within {network.with_prefixlen}", file=sys.stderr)
-        sys.exit(1)
-    if candidate == network.network_address or candidate == network.broadcast_address:
-        print(f"{label}={value} cannot equal the network or broadcast address", file=sys.stderr)
-        sys.exit(1)
-    return candidate
-
-gateway = parse_host("LAN_GW_IP", gw_ip_raw)
-
-def default_range_start():
-    candidate = network.network_address + 99
-    if candidate <= network.network_address:
-        candidate = hosts[0]
-    if candidate >= network.broadcast_address:
-        candidate = hosts[-1]
-    return candidate
-
-def default_range_end():
-    candidate = network.network_address + 199
-    if candidate <= network.network_address:
-        candidate = hosts[0]
-    if candidate >= network.broadcast_address:
-        candidate = hosts[-1]
-    return candidate
-
-dhcp_from = parse_host("DHCP_FROM", dhcp_from_raw, allow_empty=True)
-dhcp_to = parse_host("DHCP_TO", dhcp_to_raw, allow_empty=True)
-
-if dhcp_from is None:
-    dhcp_from = default_range_start()
-if dhcp_to is None:
-    dhcp_to = default_range_end()
-
-if dhcp_from > dhcp_to:
-    print(f"DHCP_FROM ({dhcp_from}) cannot exceed DHCP_TO ({dhcp_to})", file=sys.stderr)
-    sys.exit(1)
-
-def emit(name, value):
-    value_str = str(value)
-    escaped = value_str.replace("'", "'\"'\"'")
-    print(f"export {name}='{escaped}'")
-
-emit("LAN_CIDR", network.with_prefixlen)
-emit("LAN_NETWORK", network.network_address)
-emit("LAN_PREFIX_LEN", network.prefixlen)
-emit("CIDR_BITS", network.prefixlen)
-emit("LAN_GW_IP", gateway)
-emit("LAN_DHCP_FROM", dhcp_from)
-emit("LAN_DHCP_TO", dhcp_to)
-emit("DHCP_FROM", dhcp_from)
-emit("DHCP_TO", dhcp_to)
-emit("LAN_NETMASK", network.netmask)
-PY
-  ); then
-    die ${EX_CONFIG} "Failed to derive LAN network settings from ${LAN_CIDR:-10.10.0.0/24}"
-  fi
-
-  eval "${python_output}"
-
-  log_debug "Derived LAN network=${LAN_NETWORK}/${LAN_PREFIX_LEN} gateway=${LAN_GW_IP} DHCP=${DHCP_FROM}-${DHCP_TO}"
-}
-
-render_config_template() {
-  local output_path=$1
-  local template_path=$2
-
-  if [[ ! -f ${template_path} ]]; then
-    die ${EX_CONFIG} "Template not found: ${template_path}"
-  fi
-
-  if [[ ${DRY_RUN} == true ]]; then
-    log_info "[DRY-RUN] Would render pfSense config to ${output_path}"
+calculate_prefix_len() {
+  if [[ -n ${LAN_PREFIX_LEN:-} ]]; then
     return
   fi
-
-  local tmp_file
-  tmp_file=$(mktemp "${output_path}.XXXXXX")
-
-  python3 - "${template_path}" "${tmp_file}" <<'PY'
-import os
-import sys
-
-tpl_path, out_path = sys.argv[1], sys.argv[2]
-with open(tpl_path, "r", encoding="utf-8") as fp:
-    tpl = fp.read()
-
-env = os.environ
-for key in [
-    "LAB_DOMAIN_BASE",
-    "LAB_CLUSTER_SUB",
-    "LAN_PREFIX_LEN",
-    "CIDR_BITS",
-    "LAN_GW_IP",
-    "LAN_DHCP_FROM",
-    "LAN_DHCP_TO",
-    "DHCP_FROM",
-    "DHCP_TO",
-    "METALLB_POOL_START",
-    "TRAEFIK_LOCAL_IP",
-    "VIP_GRAFANA",
-    "VIP_PROM",
-    "VIP_ALERT",
-    "VIP_AWX",
-]:
-    tpl = tpl.replace("{{ " + key + " }}", env.get(key, ""))
-
-with open(out_path, "w", encoding="utf-8") as fp:
-    fp.write(tpl)
-PY
-
-  run_cmd mv "${tmp_file}" "${output_path}"
-  run_cmd chown root:root "${output_path}"
-  run_cmd chmod 0644 "${output_path}"
+  if [[ -n ${CIDR_BITS:-} ]]; then
+    LAN_PREFIX_LEN="${CIDR_BITS}"
+    return
+  fi
+  if [[ -n ${LAN_CIDR:-} && ${LAN_CIDR} == */* ]]; then
+    LAN_PREFIX_LEN="${LAN_CIDR##*/}"
+    return
+  fi
+  LAN_PREFIX_LEN=24
 }
 
-prepare_iso_root() {
+resolve_defaults() {
+  : "${PF_CONFIG_VERSION:=23.09}"
+  : "${PF_CONFIG_HOSTNAME:=uranus-pfsense}"
+  : "${PF_WAN_INTERFACE:=vtnet0}"
+  : "${PF_LAN_INTERFACE:=vtnet1}"
+  : "${LAB_DOMAIN_BASE:=labz.home.arpa}"
+  : "${LAB_CLUSTER_SUB:=lab-minikube.${LAB_DOMAIN_BASE}}"
+  : "${LAN_GW_IP:=10.10.0.1}"
+  : "${LAN_DHCP_FROM:=10.10.0.100}"
+  : "${LAN_DHCP_TO:=10.10.0.200}"
+  : "${DHCP_FROM:=${LAN_DHCP_FROM}}"
+  : "${DHCP_TO:=${LAN_DHCP_TO}}"
+  : "${METALLB_POOL_START:=10.10.0.240}"
+  : "${TRAEFIK_LOCAL_IP:=10.10.0.240}"
+  calculate_prefix_len
+  : "${CIDR_BITS:=${LAN_PREFIX_LEN}}"
+}
+
+render_config() {
+  local dest=$1
+  local tmp
+  tmp=$(mktemp "${dest}.XXXXXX")
+
+  cat >"${tmp}" <<EOF_CONFIG
+<?xml version="1.0"?>
+<pfsense>
+  <version>${PF_CONFIG_VERSION}</version>
+  <system>
+    <hostname>${PF_CONFIG_HOSTNAME}</hostname>
+    <domain>${LAB_DOMAIN_BASE}</domain>
+    <dnsserver>1.1.1.1</dnsserver>
+    <dnsserver>9.9.9.9</dnsserver>
+    <dnsallowoverride>yes</dnsallowoverride>
+    <timezone>UTC</timezone>
+    <webgui>
+      <protocol>https</protocol>
+    </webgui>
+    <ssh>
+      <enable>enabled</enable>
+      <port>22</port>
+    </ssh>
+  </system>
+  <interfaces>
+    <lan>
+      <if>${PF_LAN_INTERFACE}</if>
+      <ipaddr>${LAN_GW_IP}</ipaddr>
+      <subnet>${CIDR_BITS}</subnet>
+      <ipaddrv6>track6</ipaddrv6>
+      <descr>LAN</descr>
+    </lan>
+    <wan>
+      <if>${PF_WAN_INTERFACE}</if>
+      <ipaddr>dhcp</ipaddr>
+      <descr>WAN</descr>
+    </wan>
+  </interfaces>
+
+  <dhcpd>
+    <lan>
+      <enable>1</enable>
+      <range>
+        <from>${DHCP_FROM}</from>
+        <to>${DHCP_TO}</to>
+      </range>
+      <defaultleasetime>7200</defaultleasetime>
+      <maxleasetime>86400</maxleasetime>
+    </lan>
+  </dhcpd>
+
+  <unbound>
+    <enable>1</enable>
+    <active_interface>lan</active_interface>
+    <dnssec>1</dnssec>
+    <hideidentity>1</hideidentity>
+    <hideversion>1</hideversion>
+    <host_domain_type>both</host_domain_type>
+    <hosts>
+      <host>
+        <host>traefik</host>
+        <domain>local</domain>
+        <ip>${TRAEFIK_LOCAL_IP}</ip>
+        <descr>Traefik via home LAN</descr>
+      </host>
+      <host>
+        <host>app</host>
+        <domain>${LAB_CLUSTER_SUB}</domain>
+        <ip>${METALLB_POOL_START}</ip>
+        <descr>Lab application VIP</descr>
+      </host>
+    </hosts>
+  </unbound>
+
+  <nat>
+    <outbound>
+      <mode>automatic</mode>
+    </outbound>
+  </nat>
+
+  <filter>
+    <rule>
+      <type>pass</type>
+      <interface>lan</interface>
+      <ipprotocol>inet</ipprotocol>
+      <descr>Allow LAN to any</descr>
+      <src>
+        <network>lan</network>
+      </src>
+      <dst>
+        <any/>
+      </dst>
+      <protocol>any</protocol>
+      <disabled/>
+    </rule>
+  </filter>
+</pfsense>
+EOF_CONFIG
+
+  chmod 0644 "${tmp}"
+  mv "${tmp}" "${dest}"
+}
+
+find_iso_command() {
+  if command -v genisoimage >/dev/null 2>&1; then
+    ISO_CMD=(genisoimage -quiet)
+    ISO_TOOL_LABEL="genisoimage"
+    return 0
+  fi
+  if command -v mkisofs >/dev/null 2>&1; then
+    ISO_CMD=(mkisofs -quiet)
+    ISO_TOOL_LABEL="mkisofs"
+    return 0
+  fi
+  if command -v xorriso >/dev/null 2>&1; then
+    ISO_CMD=(xorriso -as mkisofs)
+    ISO_TOOL_LABEL="xorriso"
+    return 0
+  fi
+  return 1
+}
+
+create_iso() {
   local config_path=$1
-  local staging_dir
+  local iso_path=$2
+  local staging
+  staging=$(mktemp -d)
+  local iso_tmp="${iso_path}.tmp"
 
-  staging_dir=$(mktemp -d)
-  if [[ ${DRY_RUN} == true ]]; then
-    log_info "[DRY-RUN] Would stage ISO contents in ${staging_dir}"
-    rmdir "${staging_dir}"
-    printf '%s\n' ""
-    return
+  cleanup() {
+    rm -rf "${staging}" >/dev/null 2>&1 || true
+    rm -f "${iso_tmp}" >/dev/null 2>&1 || true
+  }
+  trap cleanup RETURN
+
+  cp "${config_path}" "${staging}/config.xml"
+  mkdir -p "${staging}/conf"
+  cp "${config_path}" "${staging}/conf/config.xml"
+
+  if ! find_iso_command; then
+    die ${EX_UNAVAILABLE} "Install genisoimage, mkisofs, or xorriso to build the config ISO"
   fi
 
-  mkdir -p "${staging_dir}/conf"
-  run_cmd cp "${config_path}" "${staging_dir}/config.xml"
-  run_cmd cp "${config_path}" "${staging_dir}/conf/config.xml"
-  printf '%s\n' "${staging_dir}"
+  log_info "Creating pfSense config ISO with ${ISO_TOOL_LABEL}"
+  "${ISO_CMD[@]}" -V "pfSense_config" -o "${iso_tmp}" -J -r "${staging}"
+  chmod 0644 "${iso_tmp}"
+  mv "${iso_tmp}" "${iso_path}"
+
+  trap - RETURN
+  cleanup
 }
 
-mkiso() {
-  local src_dir=$1
-  local output_path=$2
-  local -a candidates=(
-    "genisoimage"
-    "mkisofs"
-    "xorrisofs"
-    "xorriso -as mkisofs"
-  )
-  local candidate
-  local -a cmd=()
-  local attempted=0
-  local status=1
+create_usb_image() {
+  local config_path=$1
+  local usb_path=$2
+  local usb_tmp="${usb_path}.tmp"
+  local mount_dir=""
+  local need_umount=0
 
-  for candidate in "${candidates[@]}"; do
-    IFS=' ' read -r -a cmd <<<"${candidate}"
-    if ! command -v "${cmd[0]}" >/dev/null 2>&1; then
-      log_debug "ISO helper ${candidate} not available"
-      continue
+  cleanup_usb() {
+    if ((need_umount)); then
+      if ((EUID != 0)) && command -v sudo >/dev/null 2>&1; then
+        sudo umount "${mount_dir}" >/dev/null 2>&1 || true
+      else
+        umount "${mount_dir}" >/dev/null 2>&1 || true
+      fi
     fi
-
-    attempted=1
-    local -a iso_cmd=("${cmd[@]}")
-    if [[ ${cmd[0]} != "xorriso" ]]; then
-      iso_cmd+=(-quiet)
+    if [[ -n ${mount_dir} ]]; then
+      rmdir "${mount_dir}" >/dev/null 2>&1 || true
+      mount_dir=""
     fi
-    iso_cmd+=(-V "${ISO_LABEL}" -o "${output_path}" -J -r "${src_dir}")
+    rm -f "${usb_tmp}" >/dev/null 2>&1 || true
+  }
+  trap cleanup_usb RETURN
 
-    if run_cmd "${iso_cmd[@]}"; then
-      log_debug "ISO creation succeeded with ${candidate}"
-      return 0
-    fi
-
-    status=$?
-    log_warn "ISO creation via ${candidate} failed with exit ${status}"
-  done
-
-  if (( attempted == 0 )); then
-    log_error "None of the ISO creation tools (genisoimage, mkisofs, xorrisofs, xorriso) are available"
-    return ${EX_UNAVAILABLE}
-  fi
-
-  log_error "All available ISO creation tools failed to build the ISO"
-  return ${status}
-}
-
-refresh_iso_links() {
-  local iso_dir=$1
-  local iso_dir_abs=$2
-  local iso_name=$3
-  local iso_path_abs=$4
-
-  local latest_link="${iso_dir}/pfSense-config-latest.iso"
-  local legacy_link="${iso_dir}/pfSense-config.iso"
-  run_cmd ln -sfn "${iso_name}" "${latest_link}"
-  run_cmd ln -sfn "${iso_name}" "${legacy_link}"
-
-  local canonical_dir="${WORK_ROOT_DEFAULT}/pfsense/config"
-  local canonical_target="${iso_path_abs}"
-
-  if [[ ${iso_dir_abs} == "${canonical_dir}" ]]; then
-    canonical_target="${iso_name}"
+  local mkfs_cmd
+  if command -v mkfs.vfat >/dev/null 2>&1; then
+    mkfs_cmd="mkfs.vfat"
+  elif command -v mkfs.fat >/dev/null 2>&1; then
+    mkfs_cmd="mkfs.fat"
   else
-    run_cmd mkdir -p "${canonical_dir}"
+    die ${EX_UNAVAILABLE} "Install mkfs.vfat or mkfs.fat to build the ECL USB image"
   fi
 
-  run_cmd ln -sfn "${canonical_target}" "${canonical_dir}/pfSense-config-latest.iso"
-  run_cmd ln -sfn "${canonical_target}" "${canonical_dir}/pfSense-config.iso"
-}
+  truncate -s 0 "${usb_tmp}" 2>/dev/null || true
+  truncate -s 8M "${usb_tmp}"
+  "${mkfs_cmd}" -F 32 -n "ECLCFG" "${usb_tmp}" >/dev/null
 
-package_iso() {
-  local staging_dir=$1
-  local iso_dir=$2
-  local timestamp=$3
-  local iso_name="pfSense-config-${timestamp}.iso"
-  local iso_path="${iso_dir}/${iso_name}"
-  local iso_dir_abs=""
-  local iso_path_abs=""
-  local tmp_iso
-
-  if [[ ${DRY_RUN} == true ]]; then
-    log_info "[DRY-RUN] Would package ISO at ${iso_path}"
-    return
+  mount_dir=$(mktemp -d)
+  local mount_cmd=(mount -o loop "${usb_tmp}" "${mount_dir}")
+  local umount_cmd=(umount "${mount_dir}")
+  if ((EUID != 0)); then
+    if command -v sudo >/dev/null 2>&1; then
+      mount_cmd=(sudo mount -o loop "${usb_tmp}" "${mount_dir}")
+      umount_cmd=(sudo umount "${mount_dir}")
+    else
+      die ${EX_UNAVAILABLE} "Root privileges are required to mount ${usb_tmp}"
+    fi
   fi
 
-  if ! iso_dir_abs=$(cd -- "${iso_dir}" && pwd); then
-    die ${EX_SOFTWARE} "Unable to resolve absolute path for ${iso_dir}"
+  if "${mount_cmd[@]}" >/dev/null 2>&1; then
+    need_umount=1
+
+    mkdir -p "${mount_dir}/config"
+    cp "${config_path}" "${mount_dir}/config/config.xml"
+    sync
+
+    "${umount_cmd[@]}"
+    need_umount=0
+    rmdir "${mount_dir}"
+    mount_dir=""
+  else
+    rmdir "${mount_dir}" >/dev/null 2>&1 || true
+    mount_dir=""
+
+    if command -v mcopy >/dev/null 2>&1 && command -v mmd >/dev/null 2>&1; then
+      log_info "Loopback mount unavailable; using mtools to populate USB image"
+      mmd -i "${usb_tmp}" ::config >/dev/null 2>&1 || true
+      mcopy -i "${usb_tmp}" "${config_path}" ::config/config.xml >/dev/null
+    else
+      die ${EX_UNAVAILABLE} "Loopback mount unavailable and mtools not installed"
+    fi
   fi
-  iso_path_abs="${iso_dir_abs}/${iso_name}"
 
-  tmp_iso=$(mktemp "${iso_path}.XXXXXX")
-  local mkiso_status=0
-  if ! mkiso "${staging_dir}" "${tmp_iso}"; then
-    mkiso_status=$?
-    rm -f -- "${tmp_iso}"
-    die ${mkiso_status} "Failed to create ISO image"
-  fi
+  chmod 0644 "${usb_tmp}"
+  mv "${usb_tmp}" "${usb_path}"
 
-  if [[ ! -s ${tmp_iso} ]]; then
-    rm -f -- "${tmp_iso}"
-    die ${EX_SOFTWARE} "Generated ISO ${tmp_iso} is empty"
-  fi
-
-  run_cmd mv "${tmp_iso}" "${iso_path}"
-
-  refresh_iso_links "${iso_dir}" "${iso_dir_abs}" "${iso_name}" "${iso_path_abs}"
-
-  log_info "Packaged pfSense config ISO at ${iso_path}"
+  trap - RETURN
+  cleanup_usb
 }
 
 main() {
   parse_args "$@"
-  if ! load_env "${ENV_FILE}"; then
-    if [[ -n ${ENV_FILE} ]]; then
-      die ${EX_CONFIG} "Environment file not found: ${ENV_FILE}"
-    fi
-    log_warn "No environment file found; relying on existing shell variables."
-  fi
+  load_environment
+  resolve_defaults
 
-  : "${WORK_ROOT:=${WORK_ROOT_DEFAULT}}"
-  derive_lan_network_settings
-  local output_dir
-  if [[ -n ${OUTPUT_DIR_OVERRIDE} ]]; then
-    output_dir="${OUTPUT_DIR_OVERRIDE}"
-  else
-    output_dir="${WORK_ROOT}/pfsense/config"
-  fi
+  ensure_dirs "${HOMELAB_PFSENSE_CONFIG_DIR}"
 
-  local template_path
-  if [[ -n ${TEMPLATE_OVERRIDE} ]]; then
-    template_path="${TEMPLATE_OVERRIDE}"
-  else
-    template_path="${SCRIPT_DIR}/templates/config.xml.j2"
-  fi
+  local config_path="${HOMELAB_PFSENSE_CONFIG_DIR}/config.xml"
+  local iso_path="${HOMELAB_PFSENSE_CONFIG_DIR}/pfSense-config.iso"
+  local usb_path="${HOMELAB_PFSENSE_CONFIG_DIR}/pfSense-ecl-usb.img"
 
-  homelab_maybe_reexec_for_privileged_paths PF_CONFIG_GEN_SUDO_GUARD "${output_dir}" "${WORK_ROOT}"
+  render_config "${config_path}"
+  log_info "Wrote pfSense config.xml to ${config_path}"
 
-  check_dependencies
-  ensure_required_env
-  generate_virtual_ips
+  create_iso "${config_path}" "${iso_path}"
+  log_info "Created pfSense config ISO at ${iso_path}"
 
-  if [[ ${DRY_RUN} == false ]]; then
-    run_cmd mkdir -p "${output_dir}"
-  else
-    log_info "[DRY-RUN] Would ensure ${output_dir} exists"
-  fi
+  create_usb_image "${config_path}" "${usb_path}"
+  log_info "Created pfSense ECL USB image at ${usb_path}"
 
-  local config_path="${output_dir}/config.xml"
-  render_config_template "${config_path}" "${template_path}"
-  log_info "Rendered pfSense config at ${config_path}"
-
-  local staging_dir=""
-  if [[ ${DRY_RUN} == false ]]; then
-    staging_dir=$(prepare_iso_root "${config_path}")
-    trap 'cleanup_temp_dir "${staging_dir}"' EXIT
-  else
-    prepare_iso_root "${config_path}" >/dev/null
-  fi
-
-  local timestamp
-  timestamp=$(date +%Y%m%d%H%M%S)
-  package_iso "${staging_dir}" "${output_dir}" "${timestamp}"
-
-  if [[ ${DRY_RUN} == false ]]; then
-    cleanup_temp_dir "${staging_dir}"
-    staging_dir=""
-    trap - EXIT
-  fi
-
-  if [[ ${DRY_RUN} == true ]]; then
-    log_info "Dry-run complete. No files were modified."
-  fi
+  log_info "pfSense configuration assets ready under ${HOMELAB_PFSENSE_CONFIG_DIR}"
 }
 
 main "$@"
