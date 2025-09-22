@@ -8,7 +8,7 @@ BATS ?= ./tests/vendor/bats-core/bin/bats
 
 export ENV_FILE
 
-.PHONY: help doctor pf.preflight pf.config pf.ztp k8s.bootstrap status clean up ci test
+.PHONY: help doctor net.ensure pf.preflight pf.config pf.ztp k8s.bootstrap status clean up ci
 
 help:
 	@printf "Homelab GitOps automation\n"
@@ -18,8 +18,9 @@ help:
 	@printf "  NET_CREATE=1      Allow pf.preflight to define missing libvirt networks.\n\n"
 	@printf "Targets:\n"
 	@printf "  help             Show this help message.\n"
-	@printf "  doctor           Run host diagnostics for the homelab environment.\n"
-	@printf "  pf.preflight     Verify pfSense prerequisites and libvirt networking.\n"
+        @printf "  doctor           Run host diagnostics for the homelab environment.\n"
+        @printf "  net.ensure       Validate or create the pfSense WAN/LAN bridges.\n"
+        @printf "  pf.preflight     Verify pfSense prerequisites and libvirt networking.\n"
 	@printf "  pf.config        Render pfSense configuration assets.\n"
 	@printf "  pf.ztp           Execute pfSense zero-touch provisioning.\n"
 	@printf "  k8s.bootstrap    Bootstrap the Kubernetes cluster and addons.\n"
@@ -33,10 +34,14 @@ doctor:
 	@echo "Running homelab doctor..."
 	@./scripts/doctor.sh --env-file "$(ENV_FILE)"
 
+net.ensure:
+        @echo "Ensuring pfSense host networking..."
+        @NET_CREATE="$(NET_CREATE)" ./scripts/net-ensure.sh --env-file "$(ENV_FILE)"
+
 pf.preflight:
-	@echo "Running pfSense preflight checks..."
-	@NET_CREATE="$(NET_CREATE)" ./scripts/net-ensure.sh --env-file "$(ENV_FILE)"
-	@./scripts/pf-preflight.sh --env-file "$(ENV_FILE)"
+        @echo "Running pfSense preflight checks..."
+        @NET_CREATE="$(NET_CREATE)" ./scripts/net-ensure.sh --env-file "$(ENV_FILE)"
+        @./scripts/pf-preflight.sh --env-file "$(ENV_FILE)"
 
 pf.config:
 	@echo "Generating pfSense configuration assets..."
@@ -55,10 +60,10 @@ status:
 	@./scripts/status.sh --env-file "$(ENV_FILE)"
 
 clean:
-	@echo "Cleaning generated pfSense artifacts..."
-	@./scripts/clean.sh --env-file "$(ENV_FILE)"
+        @./scripts/clean.sh --env-file "$(ENV_FILE)"
 
-up: doctor pf.preflight pf.config pf.ztp k8s.bootstrap status
+
+up: doctor net.ensure pf.preflight pf.config pf.ztp k8s.bootstrap status
 	@echo "Homelab bootstrap workflow complete."
 
 test:
