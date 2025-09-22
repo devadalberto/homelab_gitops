@@ -1090,4 +1090,6 @@ main() {
   log_info "Preflight and bootstrap completed"
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main "$@"
+fi
