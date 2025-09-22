@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &>/dev/null && pwd )"
+REPO_ROOT="$( cd -- "${SCRIPT_DIR}/.." && pwd )"
+# shellcheck source=lib/load-env.sh
+source "${SCRIPT_DIR}/lib/load-env.sh"
+load_env "$@"
+
 usage() {
   cat <<'USAGE'
 Usage: pf-preflight.sh [OPTIONS]
@@ -39,22 +45,10 @@ ok() {
   log OK "$*"
 }
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-DEFAULT_ENV_FILE="${REPO_ROOT}/.env"
-
-REQUESTED_ENV_FILE=""
 SKIP_IP_VALIDATION="false"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-  -e | --env-file)
-    if [[ $# -lt 2 ]]; then
-      die "Missing value for $1"
-    fi
-    REQUESTED_ENV_FILE="$2"
-    shift 2
-    ;;
   --skip-ip-validation)
     SKIP_IP_VALIDATION="true"
     shift
@@ -73,25 +67,12 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ -z "${REQUESTED_ENV_FILE}" ]]; then
-  if [[ -n "${ENV_FILE:-}" ]]; then
-    REQUESTED_ENV_FILE="${ENV_FILE}"
-  elif [[ -f "${DEFAULT_ENV_FILE}" ]]; then
-    REQUESTED_ENV_FILE="${DEFAULT_ENV_FILE}"
-  fi
-fi
-
-if [[ -n "${REQUESTED_ENV_FILE}" ]]; then
-  if [[ ! -f "${REQUESTED_ENV_FILE}" ]]; then
-    die "Environment file '${REQUESTED_ENV_FILE}' not found"
-  fi
-  info "Loading environment from ${REQUESTED_ENV_FILE}"
-  set -a
-  # shellcheck disable=SC1090
-  source "${REQUESTED_ENV_FILE}"
-  set +a
+if [[ -n "${HOMELAB_ENV_FILE:-}" ]]; then
+  info "Environment overrides loaded from ${HOMELAB_ENV_FILE}"
+  ENV_SOURCE_LABEL="${HOMELAB_ENV_FILE}"
 else
   info "No environment file provided; using existing environment"
+  ENV_SOURCE_LABEL="your environment"
 fi
 
 require_cmd() {
@@ -124,12 +105,6 @@ LEGACY_PF_INSTALLER_SRC="${PF_INSTALLER_SRC:-}"
 LEGACY_PF_BRIDGE_INTERFACE="${PF_BRIDGE_INTERFACE:-}"
 LEGACY_DHCP_FROM="${DHCP_FROM:-}"
 LEGACY_DHCP_TO="${DHCP_TO:-}"
-
-if [[ -n "${REQUESTED_ENV_FILE}" ]]; then
-  ENV_SOURCE_LABEL="${REQUESTED_ENV_FILE}"
-else
-  ENV_SOURCE_LABEL="your environment"
-fi
 
 enumerate_bridges() {
   if ! command -v ip >/dev/null 2>&1; then

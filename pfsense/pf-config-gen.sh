@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
-IFS=$'\n\t'
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+SCRIPT_DIR="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &>/dev/null && pwd )"
+REPO_ROOT="$( cd -- "${SCRIPT_DIR}/.." && pwd )"
+# shellcheck source=../scripts/lib/load-env.sh
+source "${REPO_ROOT}/scripts/lib/load-env.sh"
+load_env "$@"
+IFS=$'\n\t'
 
 COMMON_LIB="${REPO_ROOT}/scripts/lib/common.sh"
 if [[ -f "${COMMON_LIB}" ]]; then
@@ -36,7 +39,6 @@ readonly EX_NOTREADY=4
 ORIGINAL_ARGS=("$@")
 
 DRY_RUN=false
-ENV_FILE=""
 OUTPUT_DIR_OVERRIDE=""
 TEMPLATE_OVERRIDE=""
 
@@ -91,14 +93,6 @@ run_cmd() {
 parse_args() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --env-file)
-        if [[ $# -lt 2 ]]; then
-          usage
-          die ${EX_USAGE} "--env-file requires a path argument"
-        fi
-        ENV_FILE="$2"
-        shift 2
-        ;;
       --output-dir)
         if [[ $# -lt 2 ]]; then
           usage
@@ -147,29 +141,6 @@ cleanup_temp_dir() {
   if [[ -d ${dir} ]]; then
     rm -rf -- "${dir:?}"
   fi
-}
-
-load_environment() {
-  local candidates=()
-  if [[ -n ${ENV_FILE} ]]; then
-    candidates=("${ENV_FILE}")
-  else
-    candidates=(
-      "${REPO_ROOT}/.env"
-      "${REPO_ROOT}/.env.example"
-    )
-  fi
-
-  local candidate
-  for candidate in "${candidates[@]}"; do
-    if [[ -f ${candidate} ]]; then
-      log_info "Loading environment from ${candidate}"
-      load_env "${candidate}" || die ${EX_CONFIG} "Failed to load environment from ${candidate}"
-      return
-    fi
-  done
-
-  log_warn "No environment file found; relying on existing shell variables."
 }
 
 check_dependencies() {
@@ -549,7 +520,11 @@ package_iso() {
 
 main() {
   parse_args "$@"
-  load_environment
+  if [[ -n ${HOMELAB_ENV_FILE:-} ]]; then
+    log_info "Environment overrides loaded from ${HOMELAB_ENV_FILE}"
+  else
+    log_warn "No environment file found; relying on existing shell variables."
+  fi
 
   : "${WORK_ROOT:=${WORK_ROOT_DEFAULT}}"
   derive_lan_network_settings

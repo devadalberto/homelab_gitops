@@ -2,8 +2,11 @@
 set -Eeuo pipefail
 umask 077
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+SCRIPT_DIR="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &>/dev/null && pwd )"
+REPO_ROOT="$( cd -- "${SCRIPT_DIR}/.." && pwd )"
+# shellcheck source=lib/load-env.sh
+source "${SCRIPT_DIR}/lib/load-env.sh"
+load_env "$@"
 
 COMMON_LIB="${REPO_ROOT}/scripts/lib/common.sh"
 if [[ -f "${COMMON_LIB}" ]]; then
@@ -49,7 +52,6 @@ INSTALLER_TARGET_BUS="virtio"
 CONFIG_ISO_PATH=""
 CONFIG_ISO_TARGET="sdy"
 
-ENV_FILE=""
 VM_NAME=""
 VM_NAME_ARG=""
 FORCE_E1000=false
@@ -242,14 +244,6 @@ setup_logging() {
 parse_args() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
-    --env-file)
-      if [[ $# -lt 2 ]]; then
-        usage
-        die ${EX_PREFLIGHT} "--env-file requires a path"
-      fi
-      ENV_FILE="$2"
-      shift 2
-      ;;
     --vm-name)
       if [[ $# -lt 2 ]]; then
         usage
@@ -314,54 +308,12 @@ parse_args() {
   fi
 }
 
-source_cli_env_file() {
-  local env_path=$1
-
-  if [[ -z ${env_path} ]]; then
-    return
-  fi
-
-  if [[ ! -f ${env_path} ]]; then
-    log_warn "Environment file ${env_path} not found; continuing without sourcing"
-    return
-  fi
-
-  log_debug "Sourcing CLI environment overrides from ${env_path}"
-  set +u
-  set -a
-  # shellcheck disable=SC1090
-  source "${env_path}"
-  set +a
-  set -u
-}
-
 load_env_file() {
-  local candidates=()
-  if [[ -n ${ENV_FILE} ]]; then
-    candidates=("${ENV_FILE}")
+  if [[ -n ${HOMELAB_ENV_FILE:-} ]]; then
+    log_info "Environment overrides loaded from ${HOMELAB_ENV_FILE}"
   else
-    candidates=(
-      "${REPO_ROOT}/.env"
-      "${PWD}/.env"
-      "/opt/homelab/.env"
-    )
+    log_warn "No environment file found; continuing with shell environment"
   fi
-
-  local candidate
-  for candidate in "${candidates[@]}"; do
-    if [[ -f ${candidate} ]]; then
-      log_info "Loading environment from ${candidate}"
-      set +u
-      set -a
-      # shellcheck disable=SC1090
-      source "${candidate}"
-      set +a
-      set -u
-      return
-    fi
-  done
-
-  log_warn "No environment file found; continuing with shell environment"
 }
 
 ensure_required_env() {
@@ -516,8 +468,8 @@ prepare_installer_media() {
   fi
 
   local -a prepare_cmd=("${helper}")
-  if [[ -n ${ENV_FILE:-} ]]; then
-    prepare_cmd+=("--env-file" "${ENV_FILE}")
+  if [[ -n ${HOMELAB_ENV_FILE:-} ]]; then
+    prepare_cmd+=("--env-file" "${HOMELAB_ENV_FILE}")
   fi
 
   local prepared
@@ -2003,8 +1955,6 @@ print_summary() {
 
 main() {
   parse_args "$@"
-
-  source_cli_env_file "${ENV_FILE}"
 
   if [[ ${VERBOSE} == true ]]; then
     log_set_level debug || true

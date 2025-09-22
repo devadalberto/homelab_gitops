@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ENV_FILE=""
+SCRIPT_DIR="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &>/dev/null && pwd )"
+# shellcheck source=lib/load-env.sh
+source "${SCRIPT_DIR}/lib/load-env.sh"
+load_env "$@"
 
 usage() {
   cat <<'USAGE'
@@ -15,23 +18,13 @@ USAGE
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-  -e | --env-file)
-    shift
-    if [[ $# -eq 0 ]]; then
-      echo "error: --env-file requires a path argument" >&2
-      usage
-      exit 1
-    fi
-    ENV_FILE="$1"
-    shift
-    ;;
-  --env-file=*)
-    ENV_FILE="${1#*=}"
-    shift
-    ;;
   -h | --help)
     usage
     exit 0
+    ;;
+  --)
+    shift
+    break
     ;;
   *)
     echo "error: unknown argument: $1" >&2
@@ -40,22 +33,6 @@ while [[ $# -gt 0 ]]; do
     ;;
   esac
 done
-
-load_env_file() {
-  if [[ -z "$ENV_FILE" ]]; then
-    return
-  fi
-
-  if [[ ! -f "$ENV_FILE" ]]; then
-    echo "error: env file not found: $ENV_FILE" >&2
-    exit 1
-  fi
-
-  set -a
-  # shellcheck disable=SC1090
-  source "$ENV_FILE"
-  set +a
-}
 
 print_section() {
   local title="$1"
@@ -102,8 +79,8 @@ print_header() {
 print_env_summary() {
   print_section "Environment configuration"
 
-  if [[ -n "$ENV_FILE" ]]; then
-    print_key_value "Environment file:" "$ENV_FILE"
+  if [[ -n "${HOMELAB_ENV_FILE:-}" ]]; then
+    print_key_value "Environment file:" "${HOMELAB_ENV_FILE}"
   else
     print_key_value "Environment file:" "(none)"
   fi
@@ -192,7 +169,6 @@ TIPS
 }
 
 main() {
-  load_env_file
   print_header
   print_env_summary
   print_virsh_summary
