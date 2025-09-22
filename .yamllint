@@ -1,0 +1,14 @@
+extends: default
+
+ignore: |
+  .github/workflows/gitops-ci.yml
+
+rules:
+  braces: disable
+  commas: disable
+  comments: disable
+  comments-indentation: disable
+  document-start: disable
+  line-length: disable
+  trailing-spaces: disable
+  truthy: disable

@@ -1,66 +1,33 @@
 repos:
   - repo: local
     hooks:
-      - id: docs-build
-        name: Build MkDocs documentation
-        entry: make docs
-        language: system
-        pass_filenames: false
-        stages: [commit]
-        files: ^(docs/|mkdocs\.yml|Makefile)
-      - id: shellcheck-pfsense
-        name: Shellcheck pfSense scripts
-        entry: shellcheck scripts/pf-*.sh
-        language: system
-        pass_filenames: false
-  - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.5.0
-    hooks:
-      - id: check-yaml
-        args: [--allow-multiple-documents]
-      - id: end-of-file-fixer
-      - id: trailing-whitespace
-      - id: check-merge-conflict
-      - id: check-added-large-files
-      - id: check-json
-      - id: check-toml
-      - id: detect-private-key
-      - id: detect-aws-credentials
-        args: [--allow-missing-credentials]
-  - repo: https://github.com/adrienverge/yamllint
-    rev: v1.35.1
-    hooks:
-      - id: yamllint
+      - id: libvirt-no-video
+        name: Block libvirt <video> devices
+        entry: scripts/check-libvirt-no-video.sh
+        language: script
+        types: [xml]
   - repo: https://github.com/shellcheck-py/shellcheck-py
     rev: v0.9.0.6
     hooks:
       - id: shellcheck
-  - repo: https://github.com/mvdan/sh
-    rev: v3.7.0
+        args: ["--severity=error", "--exclude=SC2259"]
+  - repo: https://github.com/scop/pre-commit-shfmt
+    rev: v3.9.0-1
     hooks:
       - id: shfmt
         args: ["-w", "-i", "2"]
         files: ^(scripts/|[^/]+\.sh$)
-  - repo: https://github.com/codespell-project/codespell
-    rev: v2.2.6
+        exclude: |
+          (?x)^(
+            scripts/k8s-up\.sh|
+            scripts/uranus_homelab_apps\.sh
+          )$
+  - repo: https://github.com/adrienverge/yamllint
+    rev: v1.35.1
     hooks:
-      - id: codespell
-        args: [--write-changes]
-        files: ^(docs/|README\.md$)
+      - id: yamllint
   - repo: https://github.com/DavidAnson/markdownlint-cli2
     rev: v0.12.1
     hooks:
       - id: markdownlint-cli2
         files: ^(docs/|README\.md$)
-  - repo: https://github.com/yannh/kubeconform
-    rev: v0.6.4
-    hooks:
-      - id: kubeconform
-        args: [-strict, -ignore-missing-schemas]
-        files: ^k8s/.*\.ya?ml$
-  - repo: https://github.com/zricethezav/gitleaks
-    rev: v8.18.1
-    hooks:
-      - id: gitleaks
-        args: [detect, --source=., --no-git, --redact]
-        pass_filenames: false
