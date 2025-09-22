@@ -459,7 +459,13 @@ mkiso() {
     fi
 
     attempted=1
-    if run_cmd "${cmd[@]}" -quiet -V "${ISO_LABEL}" -o "${output_path}" -J -r "${src_dir}"; then
+    local -a iso_cmd=("${cmd[@]}")
+    if [[ ${cmd[0]} != "xorriso" ]]; then
+      iso_cmd+=(-quiet)
+    fi
+    iso_cmd+=(-V "${ISO_LABEL}" -o "${output_path}" -J -r "${src_dir}")
+
+    if run_cmd "${iso_cmd[@]}"; then
       log_debug "ISO creation succeeded with ${candidate}"
       return 0
     fi
