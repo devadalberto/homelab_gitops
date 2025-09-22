@@ -8,11 +8,9 @@ copyright: "Copyright \u00a9 {year} devadalberto"
 
 nav:
   - Overview: index.md
-  - Architecture: architecture.md
-  - Automation: automation.md
-  - Observability Operations: observability.md
-  - Documentation Workflow: docs-workflow.md
-  - Changelog: CHANGELOG.md
+  - Workflow: workflow.md
+  - Troubleshooting: troubleshooting.md
+  - Reference: reference.md
 
 theme:
   name: material
