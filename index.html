@@ -434,11 +434,11 @@
 <div class="highlight"><pre><span></span><code>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/devadalberto/homelab_gitops.git
 <span class="nb">cd</span><span class="w"> </span>homelab_gitops
 cp<span class="w"> </span>.env.example<span class="w"> </span>.env
-<span class="c1"># Edit passwords, ranges, mount paths, and set PF_INSTALLER_SRC to the downloaded pfSense installer</span>
+<span class="c1"># Edit pfSense bridges, LAN settings, and point PF_SERIAL_INSTALLER_PATH at the Netgate installer</span>
 make<span class="w"> </span>up
 </code></pre></div>
-<p><code>.env.example</code> defaults to the serial image workflow. Update <code>PF_INSTALLER_SRC</code> with your local download location so the automation can stage the media automatically before you run <code>make up</code>. Legacy <code>PF_SERIAL_INSTALLER_PATH</code>/<code>PF_ISO_PATH</code> variables remain supported for backwards compatibility (use <code>PF_ISO_PATH</code> when opting into the VGA build).</p>
-<p>The <code>make up</code> target first runs <code>scripts/preflight_and_bootstrap.sh</code> in preflight mode so host packages, kernel modules, and firewall rules are ready before Minikube is rebuilt. It then hands control to the combined bootstrap workflow in <code>scripts/uranus_homelab.sh</code> for cluster bring-up and application deployment.</p>
+<p><code>.env.example</code> now highlights only the required pfSense settings (VM name, WAN mode, bridges, installer path, and LAN ranges) so you can focus on the zero-touch workflow. Optional variables for ingress hosts, applications, and chart versions can still live in a private <code>.env</code>.</p>
+<p>The <code>make up</code> target walks the staged automation targets in order—<code>doctor</code>, <code>net.ensure</code>, <code>pf.preflight</code>, <code>pf.config</code>, <code>pf.ztp</code>, <code>k8s.bootstrap</code>, and <code>status</code>—to validate host dependencies, render pfSense assets, provision the VM, and stand up Kubernetes with a single command.【F:Makefile†L8-L63】</p>
 <p>If you chose <code>br0</code>, the host will reboot once, then resume automatically:
 - pfSense VM defined with the <code>pfSense_config</code> ISO attached so first boot auto-imports <code>/opt/homelab/pfsense/config/config.xml</code>.
 - <code>make up</code> orchestrates Minikube, MetalLB, Traefik, cert-manager, Postgres, backups, AWX, Observability, Django, and Flux end-to-end.</p>

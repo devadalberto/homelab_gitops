@@ -943,7 +943,7 @@ sudo<span class="w"> </span>./scripts/pf-ztp.sh<span class="w"> </span>--env-fil
 <h2 id="backup-disaster-recovery">Backup &amp; Disaster Recovery<a class="headerlink" href="#backup-disaster-recovery" title="Permanent link">&para;</a></h2>
 <ul>
 <li>PostgreSQL backups are scheduled by the CronJob in <code>data/postgres/backup-cron.yaml</code>.</li>
-<li>HostPath directories are prepared by <code>scripts/uranus_homelab.sh</code>, which can optionally wipe and recreate volumes for a clean re-provisioning.</li>
+<li>HostPath directories are prepared during the Kubernetes bootstrap helper (<code>scripts/k8s-up.sh</code>), which ensures application data paths exist before workloads deploy.【F:scripts/k8s-up.sh†L625-L704】</li>
 <li>To restore, re-run the bootstrap scripts (<code>make up</code>) and re-apply the saved secrets using Flux or manual <code>kubectl</code> commands.</li>
 </ul>
 <h2 id="extending-the-platform">Extending the Platform<a class="headerlink" href="#extending-the-platform" title="Permanent link">&para;</a></h2>
@@ -972,7 +972,7 @@ sudo<span class="w"> </span>./scripts/pf-ztp.sh<span class="w"> </span>--env-fil
 <h3 id="2025-09-17t080000000000z">2025-09-17T08:00:00.000000Z<a class="headerlink" href="#2025-09-17t080000000000z" title="Permanent link">&para;</a></h3>
 <ul>
 <li>Pin Flux-managed chart versions to the builds exercised in automation: MetalLB 0.14.5, cert-manager 1.15.3, and Traefik 26.0.0.</li>
-<li>Document the Helm chart upgrade workflow (bump <code>k8s/addons/*/release.yaml</code>, stage with <code>make up</code>/<code>scripts/uranus_homelab_one.sh</code>, then update docs) to keep production in lockstep with staging.</li>
+<li>Document the Helm chart upgrade workflow (bump <code>k8s/addons/*/release.yaml</code>, stage with <code>make k8s.bootstrap</code>, then update docs) to keep production in lockstep with staging.【F:Makefile†L46-L58】</li>
 <li>Wire Flux <code>dependsOn</code> for Traefik so upgrades wait on MetalLB and cert-manager health, surfacing dependency issues earlier.</li>
 </ul>
 <h3 id="2025-09-10t044738065634z">2025-09-10T04:47:38.065634Z<a class="headerlink" href="#2025-09-10t044738065634z" title="Permanent link">&para;</a></h3>
