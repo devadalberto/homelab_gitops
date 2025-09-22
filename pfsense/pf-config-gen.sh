@@ -36,7 +36,10 @@ fi
 
 if [[ "$USE_GENISO" == "1" ]]; then
   if command -v genisoimage >/dev/null 2>&1; then
-    sudo genisoimage -quiet -V "$LABEL" -o "$ISO" "$BASE/config.xml" >/dev/null
+    if ! sudo genisoimage -quiet -V "$LABEL" -o "$ISO" "$BASE/config.xml" >/dev/null 2>&1; then
+      echo "[FATAL] genisoimage fallback failed" >&2
+      exit 32
+    fi
   else
     echo "[FATAL] Neither xorriso nor genisoimage available" >&2
     exit 31
