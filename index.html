@@ -14,7 +14,7 @@
       
       
       
-        <link rel="next" href="architecture/">
+        <link rel="next" href="workflow/">
       
       
       <link rel="icon" href="assets/images/favicon.png">
@@ -310,105 +310,21 @@
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Day-1 Quickstart">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#manage-encrypted-application-secrets" class="md-nav__link">
-    <span class="md-ellipsis">
-      Manage encrypted application secrets
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Manage encrypted application secrets">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#rotate-awx-admin-credentials" class="md-nav__link">
-    <span class="md-ellipsis">
-      Rotate AWX admin credentials
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#rotate-postgres-superuser-credentials" class="md-nav__link">
-    <span class="md-ellipsis">
-      Rotate Postgres superuser credentials
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#refreshing-pfsense-bootstrap-media" class="md-nav__link">
-    <span class="md-ellipsis">
-      Refreshing pfSense bootstrap media
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
 </li>
       
         <li class="md-nav__item">
-  <a href="#environment-variables-and-mapping" class="md-nav__link">
+  <a href="#platform-highlights" class="md-nav__link">
     <span class="md-ellipsis">
-      Environment Variables and Mapping
+      Platform Highlights
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#internal-ca" class="md-nav__link">
+  <a href="#where-to-go-next" class="md-nav__link">
     <span class="md-ellipsis">
-      Internal CA
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#traefik-dashboard" class="md-nav__link">
-    <span class="md-ellipsis">
-      Traefik Dashboard
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#enabling-nat-examples" class="md-nav__link">
-    <span class="md-ellipsis">
-      Enabling NAT Examples
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#troubleshooting" class="md-nav__link">
-    <span class="md-ellipsis">
-      Troubleshooting
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#working-on-the-docs" class="md-nav__link">
-    <span class="md-ellipsis">
-      Working on the Docs
+      Where to Go Next
     </span>
   </a>
   
@@ -429,12 +345,12 @@
   
   
     <li class="md-nav__item">
-      <a href="architecture/" class="md-nav__link">
+      <a href="workflow/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
-    Architecture
+    Workflow
     
   </span>
   
@@ -451,12 +367,12 @@
   
   
     <li class="md-nav__item">
-      <a href="automation/" class="md-nav__link">
+      <a href="troubleshooting/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
-    Automation
+    Troubleshooting
     
   </span>
   
@@ -473,56 +389,12 @@
   
   
     <li class="md-nav__item">
-      <a href="observability/" class="md-nav__link">
+      <a href="reference/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
-    Observability Operations
-    
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="docs-workflow/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    Documentation Workflow
-    
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="CHANGELOG/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    Changelog
+    Reference
     
   </span>
   
@@ -557,118 +429,34 @@
 
 
 <h1 id="homelab-gitops-uranus">Homelab GitOps — Uranus<a class="headerlink" href="#homelab-gitops-uranus" title="Permanent link">&para;</a></h1>
-<p>Welcome to the documentation portal for the Uranus homelab GitOps stack. This site is generated with <a href="https://squidfunk.github.io/mkdocs-material/">MkDocs Material</a> and is intended to provide both Day-1 bootstrap guidance and deeper architectural notes for future contributors.</p>
+<p>Welcome to the documentation portal for the Uranus homelab GitOps stack. The site is generated with <a href="https://squidfunk.github.io/mkdocs-material/">MkDocs Material</a> and captures the automation, platform layout, and operational practices that keep the environment reproducible.</p>
 <h2 id="day-1-quickstart">Day-1 Quickstart<a class="headerlink" href="#day-1-quickstart" title="Permanent link">&para;</a></h2>
 <div class="highlight"><pre><span></span><code>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/devadalberto/homelab_gitops.git
 <span class="nb">cd</span><span class="w"> </span>homelab_gitops
 cp<span class="w"> </span>.env.example<span class="w"> </span>.env
-<span class="c1"># Edit passwords, ranges, mount paths, and set PF_INSTALLER_SRC to the downloaded pfSense installer (legacy PF_SERIAL_INSTALLER_PATH/PF_ISO_PATH remain fallbacks)</span>
+<span class="c1"># Edit passwords, ranges, mount paths, and set PF_INSTALLER_SRC to the downloaded pfSense installer</span>
 make<span class="w"> </span>up
 </code></pre></div>
-<p><code>.env.example</code> defaults to the serial image workflow. Update <code>PF_INSTALLER_SRC</code> with your local download location so the automation can stage the media automatically before you run <code>make up</code>.
-Legacy <code>PF_SERIAL_INSTALLER_PATH</code>/<code>PF_ISO_PATH</code> variables remain supported for backwards compatibility (use <code>PF_ISO_PATH</code> when opting into the VGA build).</p>
+<p><code>.env.example</code> defaults to the serial image workflow. Update <code>PF_INSTALLER_SRC</code> with your local download location so the automation can stage the media automatically before you run <code>make up</code>. Legacy <code>PF_SERIAL_INSTALLER_PATH</code>/<code>PF_ISO_PATH</code> variables remain supported for backwards compatibility (use <code>PF_ISO_PATH</code> when opting into the VGA build).</p>
 <p>The <code>make up</code> target first runs <code>scripts/preflight_and_bootstrap.sh</code> in preflight mode so host packages, kernel modules, and firewall rules are ready before Minikube is rebuilt. It then hands control to the combined bootstrap workflow in <code>scripts/uranus_homelab.sh</code> for cluster bring-up and application deployment.</p>
 <p>If you chose <code>br0</code>, the host will reboot once, then resume automatically:
 - pfSense VM defined with the <code>pfSense_config</code> ISO attached so first boot auto-imports <code>/opt/homelab/pfsense/config/config.xml</code>.
 - <code>make up</code> orchestrates Minikube, MetalLB, Traefik, cert-manager, Postgres, backups, AWX, Observability, Django, and Flux end-to-end.</p>
-<p>A deeper walk-through of every subsystem, bootstrap dependency, and GitOps controller can be found in the <a href="architecture/">Architecture</a> guide. That page also includes Mermaid sequence/state diagrams that are rendered as part of the documentation build.</p>
-<h3 id="manage-encrypted-application-secrets">Manage encrypted application secrets<a class="headerlink" href="#manage-encrypted-application-secrets" title="Permanent link">&para;</a></h3>
-<p>Both the AWX admin and Postgres superuser Kubernetes Secrets live in this repository as <a href="https://github.com/getsops/sops">SOPS</a> manifests and are encrypted for the Age recipient defined in <code>.sops/.sops.yaml</code>. To edit either secret:</p>
-<ol>
-<li>Export the matching Age private key so SOPS can decrypt locally (for example <code>export SOPS_AGE_KEY_FILE=$HOME/.config/sops/age/keys.txt</code>).</li>
-<li>Open the manifest with SOPS (<code>sops awx/sops-secrets/awx-admin.sops.yaml</code> or <code>sops data/postgres/sops-secrets/postgres-superuser.yaml</code>). SOPS handles the decrypt/edit/re-encrypt cycle automatically when the editor closes.</li>
-<li>Apply the updated manifest back to the cluster (<code>kubectl apply -f &lt;path-to-secret&gt;</code>).</li>
-</ol>
-<h4 id="rotate-awx-admin-credentials">Rotate AWX admin credentials<a class="headerlink" href="#rotate-awx-admin-credentials" title="Permanent link">&para;</a></h4>
-<p>The AWX operator expects the <code>awx-admin</code> secret to exist before the instance comes online. When rotating the admin password, generate a new credential, update the <code>stringData.password</code> field in <code>awx/sops-secrets/awx-admin.sops.yaml</code>, apply the manifest, and then synchronize the running AWX instance: <code>kubectl -n awx exec deployment/awx-task -- awx-manage changepassword admin '&lt;new-password&gt;'</code>. Bounce the AWX pods if the operator does not reconcile automatically.</p>
-<h4 id="rotate-postgres-superuser-credentials">Rotate Postgres superuser credentials<a class="headerlink" href="#rotate-postgres-superuser-credentials" title="Permanent link">&para;</a></h4>
-<p>The bootstrap Postgres chart consumes <code>data/postgres/sops-secrets/postgres-superuser.yaml</code> for the <code>pg-superuser</code> secret. When changing the password, ensure the <code>stringData.postgres-password</code> field and the <code>stringData.database-url</code> connection string stay in sync before applying the manifest.</p>
-<h3 id="refreshing-pfsense-bootstrap-media">Refreshing pfSense bootstrap media<a class="headerlink" href="#refreshing-pfsense-bootstrap-media" title="Permanent link">&para;</a></h3>
-<p>pfSense reads configuration overrides from the secondary CD-ROM labelled <code>pfSense_config</code> during its first boot. The ISO lives at <code>${WORK_ROOT}/pfsense/config/pfSense-config.iso</code> (defaults to <code>/opt/homelab/pfsense/config/pfSense-config.iso</code>). When lab addressing or credentials change, regenerate and reattach the media before starting the VM:</p>
-<div class="highlight"><pre><span></span><code>./pfsense/pf-config-gen.sh<span class="w">   </span><span class="c1"># rebuild config.xml and the pfSense_config ISO (requires genisoimage or mkisofs)</span>
-virsh<span class="w"> </span>shutdown<span class="w"> </span><span class="si">${</span><span class="nv">VM_NAME</span><span class="si">}</span><span class="w">    </span><span class="c1"># skip if the VM has never been started</span>
-sudo<span class="w"> </span>./scripts/pf-ztp.sh<span class="w"> </span>--env-file<span class="w"> </span>./.env
-</code></pre></div>
-<p><code>pf-ztp.sh</code> now swaps both the installer disk and config ISO, inserting media live when possible. If the VM is running and libvirt refuses a hot change, stop it first or run <code>virsh change-media ${VM_NAME} sdy ${WORK_ROOT}/pfsense/config/pfSense-config.iso --insert --force --config</code> manually after the shutdown completes. The helper re-reads <code>.env</code> on each invocation, so confirm <code>PF_INSTALLER_SRC</code> still references the installer download before triggering a refresh. Legacy <code>PF_SERIAL_INSTALLER_PATH</code>/<code>PF_ISO_PATH</code> entries are still honored when present (<code>PF_ISO_PATH</code> remains the VGA build toggle).</p>
-<h2 id="environment-variables-and-mapping">Environment Variables and Mapping<a class="headerlink" href="#environment-variables-and-mapping" title="Permanent link">&para;</a></h2>
-<table>
-<thead>
-<tr>
-<th>Existing var</th>
-<th>Canonical var</th>
-<th>Used by</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>LAB_DOMAIN_BASE</code></td>
-<td><code>LABZ_DOMAIN</code></td>
-<td>Ingress/hosts</td>
-</tr>
-<tr>
-<td><code>LAB_CLUSTER_SUB</code></td>
-<td>(keep as-is)</td>
-<td>Cluster FQDNs (misc)</td>
-</tr>
-<tr>
-<td><code>METALLB_POOL_START/END</code></td>
-<td><code>LABZ_METALLB_RANGE</code></td>
-<td>MetalLB AddressPool</td>
-</tr>
-<tr>
-<td><code>TRAEFIK_LOCAL_IP</code></td>
-<td>(derive from VIP)</td>
-<td>Docs only</td>
-</tr>
-<tr>
-<td><code>PG_BACKUP_HOSTPATH</code></td>
-<td><code>LABZ_MOUNT_BACKUPS</code></td>
-<td>Backups</td>
-</tr>
-<tr>
-<td><code>/srv/*</code> mounts</td>
-<td><code>LABZ_MOUNT_*</code></td>
-<td>hostPath PVs</td>
-</tr>
-</tbody>
-</table>
-<p>After updating the MetalLB fields in <code>.env</code>, regenerate the Flux manifest so the
-GitOps path and bootstrap helpers agree on the pool range:</p>
-<div class="highlight"><pre><span></span><code>./scripts/render_metallb_pool_manifest.sh<span class="w"> </span>--env-file<span class="w"> </span>./.env
-</code></pre></div>
-<h2 id="internal-ca">Internal CA<a class="headerlink" href="#internal-ca" title="Permanent link">&para;</a></h2>
-<p>Export root CA to trust on clients:</p>
-<div class="highlight"><pre><span></span><code>kubectl<span class="w"> </span>-n<span class="w"> </span>cert-manager<span class="w"> </span>get<span class="w"> </span>secret<span class="w"> </span>labz-root-ca-secret<span class="w"> </span>-o<span class="w"> </span><span class="nv">jsonpath</span><span class="o">=</span><span class="s1">&#39;{.data.ca\.crt}&#39;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>base64<span class="w"> </span>-d<span class="w"> </span>&gt;<span class="w"> </span>labz-root-ca.crt
-</code></pre></div>
-<h2 id="traefik-dashboard">Traefik Dashboard<a class="headerlink" href="#traefik-dashboard" title="Permanent link">&para;</a></h2>
-<p>The Traefik dashboard is published at <a href="https://traefik.labz.home.arpa/dashboard/">https://traefik.labz.home.arpa/dashboard/</a> behind the <code>websecure</code> entry point. The route terminates TLS with the <code>traefik-dashboard-tls</code> certificate issued by <code>labz-ca-issuer</code>, so install the internal root CA on any workstation before browsing.</p>
-<p>Basic authentication protects the dashboard. Use the following credentials when prompted:</p>
-<table>
-<thead>
-<tr>
-<th>Username</th>
-<th>Password</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>ops</code></td>
-<td><code>xOps!Traefik2024</code></td>
-</tr>
-</tbody>
-</table>
-<h2 id="enabling-nat-examples">Enabling NAT Examples<a class="headerlink" href="#enabling-nat-examples" title="Permanent link">&para;</a></h2>
-<p>pfSense GUI → <strong>Firewall</strong> → <strong>NAT</strong> → <strong>Port Forward</strong> → edit example → uncheck <strong>Disable</strong> → <strong>Save</strong> → <strong>Apply</strong>. Then navigate to <strong>Firewall</strong> → <strong>Rules</strong> → <strong>WAN</strong> → enable the matching pass rule if present.</p>
-<h2 id="troubleshooting">Troubleshooting<a class="headerlink" href="#troubleshooting" title="Permanent link">&para;</a></h2>
+<p>A deeper walk-through of every subsystem, bootstrap dependency, and GitOps controller lives in the <a href="reference/">Reference</a> guide. That page also includes Mermaid sequence/state diagrams that are rendered as part of the documentation build.</p>
+<h2 id="platform-highlights">Platform Highlights<a class="headerlink" href="#platform-highlights" title="Permanent link">&para;</a></h2>
+<p><img alt="Homelab component overview" src="diagrams/homelab-overview.svg" /></p>
 <ul>
-<li>MetalLB not advertising? Ensure pfSense LAN is <code>10.10.0.0/24</code> and does not overlap with WAN ranges.</li>
-<li>Traefik returning <code>404</code>? Check the Ingress class <code>traefik</code> and confirm certificate secrets exist.</li>
-<li>AWX pending? Wait for operator rollout; check <code>kubectl -n awx get pods</code> for image pulls and migrations.</li>
-<li>Need remote access to troubleshoot without exposing services? Follow the <a href="../README.md#wireguard-remote-access-host-only">WireGuard Remote Access (Host-Only)</a> steps in the README.</li>
+<li><strong>Network &amp; Edge</strong> — pfSense CE provides DHCP/DNS/NAT for the homelab VLAN, MetalLB advertises the <code>10.10.0.0/24</code> LoadBalancer range, and Traefik terminates TLS with certificates issued by cert-manager.</li>
+<li><strong>Cluster Runtime</strong> — Minikube forms the Kubernetes control plane while Flux continuously reconciles manifests and Helm releases stored in this repository.</li>
+<li><strong>Stateful Services</strong> — Bitnami PostgreSQL runs in the <code>data</code> namespace with nightly WAL backups pushed to the hostPath defined in <code>.env</code>.</li>
+<li><strong>User-Facing Applications</strong> — AWX, the Django multiproject demo, and the kube-prometheus-stack observability suite are delivered through the same GitOps pipeline.</li>
 </ul>
-<h2 id="working-on-the-docs">Working on the Docs<a class="headerlink" href="#working-on-the-docs" title="Permanent link">&para;</a></h2>
-<p>Use <code>make docs-serve</code> to preview the site locally. This command regenerates all Mermaid diagrams before starting the MkDocs dev server. The <a href="../Makefile"><code>docs</code></a> target runs the same pipeline non-interactively, which is also executed inside CI prior to publishing to GitHub Pages.</p>
-<p>Refer to the <a href="docs-workflow/">Documentation Workflow</a> page for dependency installation tips, Mermaid authoring guidelines, and CI/CD behavior.</p>
+<h2 id="where-to-go-next">Where to Go Next<a class="headerlink" href="#where-to-go-next" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Follow the <a href="workflow/">Workflow</a> guide for GitOps reconciliation details, automation entry points, and documentation tooling expectations.</li>
+<li>Consult the <a href="troubleshooting/">Troubleshooting</a> runbooks when bootstrap or day-2 operations need deeper investigation.</li>
+<li>Use the <a href="reference/">Reference</a> for credentials management, pfSense refresh procedures, backup policies, and the project changelog.</li>
+</ul>
 
 
 
@@ -699,13 +487,13 @@ GitOps path and bootstrap helpers agree on the pool range:</p>
         
         
           
-          <a href="architecture/" class="md-footer__link md-footer__link--next" aria-label="Next: Architecture">
+          <a href="workflow/" class="md-footer__link md-footer__link--next" aria-label="Next: Workflow">
             <div class="md-footer__title">
               <span class="md-footer__direction">
                 Next
               </span>
               <div class="md-ellipsis">
-                Architecture
+                Workflow
               </div>
             </div>
             <div class="md-footer__button md-icon">

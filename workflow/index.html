@@ -6,12 +6,12 @@
 <meta charset="utf-8"/>
 <meta content="width=device-width,initial-scale=1" name="viewport"/>
 <meta content="Uranus homelab GitOps reference implementation" name="description"/>
-<link href="https://devadalberto.github.io/homelab_gitops/docs-workflow/" rel="canonical"/>
-<link href="../observability/" rel="prev"/>
-<link href="../CHANGELOG/" rel="next"/>
+<link href="https://devadalberto.github.io/homelab_gitops/workflow/" rel="canonical"/>
+<link href=".." rel="prev"/>
+<link href="../troubleshooting/" rel="next"/>
 <link href="../assets/images/favicon.png" rel="icon"/>
 <meta content="mkdocs-1.6.1, mkdocs-material-9.6.20" name="generator"/>
-<title>Documentation Workflow - Homelab GitOps</title>
+<title>Workflow - Homelab GitOps</title>
 <link href="../assets/stylesheets/main.e53b48f4.min.css" rel="stylesheet"/>
 <link href="../assets/stylesheets/palette.06af60db.min.css" rel="stylesheet"/>
 <link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
@@ -24,7 +24,7 @@
 <input autocomplete="off" class="md-toggle" data-md-toggle="search" id="__search" type="checkbox"/>
 <label class="md-overlay" for="__drawer"></label>
 <div data-md-component="skip">
-<a class="md-skip" href="#documentation-workflow">
+<a class="md-skip" href="#workflow">
           Skip to content
         </a>
 </div>
@@ -48,7 +48,7 @@
 <div class="md-header__topic" data-md-component="header-topic">
 <span class="md-ellipsis">
             
-              Documentation Workflow
+              Workflow
             
           </span>
 </div>
@@ -136,42 +136,18 @@
   </span>
 </a>
 </li>
-<li class="md-nav__item">
-<a class="md-nav__link" href="../architecture/">
-<span class="md-ellipsis">
-    Architecture
-    
-  </span>
-</a>
-</li>
-<li class="md-nav__item">
-<a class="md-nav__link" href="../automation/">
-<span class="md-ellipsis">
-    Automation
-    
-  </span>
-</a>
-</li>
-<li class="md-nav__item">
-<a class="md-nav__link" href="../observability/">
-<span class="md-ellipsis">
-    Observability Operations
-    
-  </span>
-</a>
-</li>
 <li class="md-nav__item md-nav__item--active">
 <input class="md-nav__toggle md-toggle" id="__toc" type="checkbox"/>
 <label class="md-nav__link md-nav__link--active" for="__toc">
 <span class="md-ellipsis">
-    Documentation Workflow
+    Workflow
     
   </span>
 <span class="md-nav__icon md-icon"></span>
 </label>
 <a class="md-nav__link md-nav__link--active" href="./">
 <span class="md-ellipsis">
-    Documentation Workflow
+    Workflow
     
   </span>
 </a>
@@ -181,6 +157,28 @@
       Table of contents
     </label>
 <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix="">
+<li class="md-nav__item">
+<a class="md-nav__link" href="#gitops-control-loop">
+<span class="md-ellipsis">
+      GitOps Control Loop
+    </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#application-automation">
+<span class="md-ellipsis">
+      Application Automation
+    </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#documentation-workflow">
+<span class="md-ellipsis">
+      Documentation Workflow
+    </span>
+</a>
+<nav aria-label="Documentation Workflow" class="md-nav">
+<ul class="md-nav__list">
 <li class="md-nav__item">
 <a class="md-nav__link" href="#dependencies">
 <span class="md-ellipsis">
@@ -223,10 +221,21 @@
 </ul>
 </nav>
 </li>
+</ul>
+</nav>
+</li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../CHANGELOG/">
+<a class="md-nav__link" href="../troubleshooting/">
 <span class="md-ellipsis">
-    Changelog
+    Troubleshooting
+    
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../reference/">
+<span class="md-ellipsis">
+    Reference
     
   </span>
 </a>
@@ -238,12 +247,30 @@
 </div>
 <div class="md-content" data-md-component="content">
 <article class="md-content__inner md-typeset">
-<a class="md-content__button md-icon" href="https://github.com/devadalberto/homelab_gitops/edit/main/docs/docs-workflow.md" rel="edit" title="Edit this page">
+<a class="md-content__button md-icon" href="https://github.com/devadalberto/homelab_gitops/edit/main/docs/workflow.md" rel="edit" title="Edit this page">
 <svg viewbox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"></path></svg>
 </a>
-<h1 id="documentation-workflow">Documentation Workflow<a class="headerlink" href="#documentation-workflow" title="Permanent link">¶</a></h1>
-<p>The repository uses MkDocs with the Material theme to convert Markdown content and Mermaid diagrams into a browsable site. This page summarizes the tooling expectations for contributors.</p>
-<h2 id="dependencies">Dependencies<a class="headerlink" href="#dependencies" title="Permanent link">¶</a></h2>
+<h1 id="workflow">Workflow<a class="headerlink" href="#workflow" title="Permanent link">¶</a></h1>
+<p>This guide explains how changes move from a developer workstation into the Uranus homelab along with the tooling that keeps documentation and automation reproducible.</p>
+<h2 id="gitops-control-loop">GitOps Control Loop<a class="headerlink" href="#gitops-control-loop" title="Permanent link">¶</a></h2>
+<p>Flux controllers continuously reconcile the repository against the running cluster. The sequence diagram below summarizes the control flow whenever a manifest or Helm values file changes.</p>
+<p><img alt="GitOps reconciliation sequence" src="../diagrams/gitops-flow.svg"/></p>
+<ol>
+<li>Developers edit Kubernetes manifests or Helm values and push to <code>main</code>.</li>
+<li>Flux's <strong>source-controller</strong> pulls the repository, verifying commit signatures if configured.</li>
+<li>The <strong>kustomize-controller</strong> and <strong>helm-controller</strong> render templates and compare them against the live cluster state.</li>
+<li>Drift is corrected by applying the resulting manifests through the Kubernetes API server.</li>
+<li>Events and reconciliation status are exported via Prometheus and surfaced inside Grafana dashboards.</li>
+</ol>
+<h2 id="application-automation">Application Automation<a class="headerlink" href="#application-automation" title="Permanent link">¶</a></h2>
+<p>Flux manages the PostgreSQL stack under <code>k8s/data/postgres/</code>. The co-located <code>HelmRepository</code> pulls the Bitnami index while the <code>HelmRelease</code> pins chart version <code>16.2.6</code>, loads overrides from <code>data/postgres/pg-values.yaml</code>, and installs the workload into the <code>data</code> namespace. Backups are reconciled by the same Kustomization via the hostPath <code>PersistentVolume</code>, <code>PersistentVolumeClaim</code>, and nightly <code>CronJob</code> that execute <code>pg_dump</code> into the mounted backup share.</p>
+<ul>
+<li>Tune retention or the destination directory by editing <code>data/postgres/backup-cron.yaml</code> and <code>data/postgres/backup-pv.yaml</code> before committing changes.</li>
+<li>Database superuser credentials live in <code>data/postgres/sops-secrets/postgres-superuser.yaml</code>. Update the manifest with <code>sops</code>, commit the change, and let Flux reconcile so the Helm chart picks up the new secret version.</li>
+</ul>
+<h2 id="documentation-workflow">Documentation Workflow<a class="headerlink" href="#documentation-workflow" title="Permanent link">¶</a></h2>
+<p>The repository uses MkDocs with the Material theme to convert Markdown content and Mermaid diagrams into a browsable site. Contributors should mirror the tooling described below when authoring updates.</p>
+<h3 id="dependencies">Dependencies<a class="headerlink" href="#dependencies" title="Permanent link">¶</a></h3>
 <table>
 <thead>
 <tr>
@@ -270,20 +297,20 @@
 </tr>
 </tbody>
 </table>
-<p>The <code>docs/requirements.txt</code> file pins a baseline for MkDocs packages. Install them into a virtual environment to avoid polluting system Python.</p>
-<h2 id="local-authoring">Local Authoring<a class="headerlink" href="#local-authoring" title="Permanent link">¶</a></h2>
+<p>Install the Python packages inside a virtual environment to avoid polluting system interpreters.</p>
+<h3 id="local-authoring">Local Authoring<a class="headerlink" href="#local-authoring" title="Permanent link">¶</a></h3>
 <ul>
 <li>Edit Markdown under the <code>docs/</code> directory. The navigation menu is defined in <code>mkdocs.yml</code>.</li>
 <li>Place Mermaid sources next to the page they support (for example, <code>docs/diagrams/*.mmd</code>).</li>
 <li>Run <code>make docs-serve</code> while iterating. This regenerates all diagrams, starts <code>mkdocs serve</code>, and binds to <code>0.0.0.0:8000</code> for remote previews.</li>
 </ul>
-<h3 id="diagram-conventions">Diagram Conventions<a class="headerlink" href="#diagram-conventions" title="Permanent link">¶</a></h3>
+<h4 id="diagram-conventions">Diagram Conventions<a class="headerlink" href="#diagram-conventions" title="Permanent link">¶</a></h4>
 <ul>
 <li>Output format defaults to SVG so diagrams remain crisp when zoomed inside the Material theme.</li>
 <li>Keep diagrams focused and reference them from the relevant pages using standard Markdown image syntax.</li>
 <li>When diagrams reference Kubernetes objects, stick to namespace/name notation (e.g., <code>awx/awx-operator</code>).</li>
 </ul>
-<h2 id="continuous-integration">Continuous Integration<a class="headerlink" href="#continuous-integration" title="Permanent link">¶</a></h2>
+<h3 id="continuous-integration">Continuous Integration<a class="headerlink" href="#continuous-integration" title="Permanent link">¶</a></h3>
 <p>GitHub Actions execute the following steps on every push to <code>main</code>:</p>
 <ol>
 <li>Install MkDocs Material, the Mermaid plugin, and Mermaid CLI dependencies.</li>
@@ -291,7 +318,7 @@
 <li>Deploy the rendered site to the <code>gh-pages</code> branch via <code>mkdocs gh-deploy</code>.</li>
 </ol>
 <p>Pull requests run through steps 1-2 to validate documentation without publishing.</p>
-<h2 id="pre-commit-hook">Pre-commit Hook<a class="headerlink" href="#pre-commit-hook" title="Permanent link">¶</a></h2>
+<h3 id="pre-commit-hook">Pre-commit Hook<a class="headerlink" href="#pre-commit-hook" title="Permanent link">¶</a></h3>
 <p>Install <a href="https://pre-commit.com/"><code>pre-commit</code></a> to mirror the repository linting locally:</p>
 <div class="highlight"><pre><span></span><code>pip<span class="w"> </span>install<span class="w"> </span>pre-commit
 pre-commit<span class="w"> </span>install
@@ -304,7 +331,7 @@ pre-commit<span class="w"> </span>install
 </main>
 <footer class="md-footer">
 <nav aria-label="Footer" class="md-footer__inner md-grid">
-<a aria-label="Previous: Observability Operations" class="md-footer__link md-footer__link--prev" href="../observability/">
+<a aria-label="Previous: Overview" class="md-footer__link md-footer__link--prev" href="..">
 <div class="md-footer__button md-icon">
 <svg viewbox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"></path></svg>
 </div>
@@ -313,17 +340,17 @@ pre-commit<span class="w"> </span>install
                 Previous
               </span>
 <div class="md-ellipsis">
-                Observability Operations
+                Overview
               </div>
 </div>
 </a>
-<a aria-label="Next: Changelog" class="md-footer__link md-footer__link--next" href="../CHANGELOG/">
+<a aria-label="Next: Troubleshooting" class="md-footer__link md-footer__link--next" href="../troubleshooting/">
 <div class="md-footer__title">
 <span class="md-footer__direction">
                 Next
               </span>
 <div class="md-ellipsis">
-                Changelog
+                Troubleshooting
               </div>
 </div>
 <div class="md-footer__button md-icon">

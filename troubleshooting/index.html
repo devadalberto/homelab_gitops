@@ -10,11 +10,13 @@
       
       
       
-        <link rel="canonical" href="https://devadalberto.github.io/homelab_gitops/CHANGELOG/">
+        <link rel="canonical" href="https://devadalberto.github.io/homelab_gitops/troubleshooting/">
       
       
-        <link rel="prev" href="../docs-workflow/">
+        <link rel="prev" href="../workflow/">
       
+      
+        <link rel="next" href="../reference/">
       
       
       <link rel="icon" href="../assets/images/favicon.png">
@@ -22,7 +24,7 @@
     
     
       
-        <title>Changelog - Homelab GitOps</title>
+        <title>Troubleshooting - Homelab GitOps</title>
       
     
     
@@ -74,7 +76,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#2025-09-20t000000000000z" class="md-skip">
+        <a href="#troubleshooting" class="md-skip">
           Skip to content
         </a>
       
@@ -110,7 +112,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Changelog
+              Troubleshooting
             
           </span>
         </div>
@@ -276,78 +278,12 @@
   
   
     <li class="md-nav__item">
-      <a href="../architecture/" class="md-nav__link">
+      <a href="../workflow/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
-    Architecture
-    
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../automation/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    Automation
-    
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../observability/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    Observability Operations
-    
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../docs-workflow/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    Documentation Workflow
+    Workflow
     
   </span>
   
@@ -370,13 +306,15 @@
       <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
       
       
+        
+      
       
         <label class="md-nav__link md-nav__link--active" for="__toc">
           
   
   
   <span class="md-ellipsis">
-    Changelog
+    Troubleshooting
     
   </span>
   
@@ -389,7 +327,7 @@
   
   
   <span class="md-ellipsis">
-    Changelog
+    Troubleshooting
     
   </span>
   
@@ -402,6 +340,8 @@
   
   
   
+    
+  
   
     <label class="md-nav__title" for="__toc">
       <span class="md-nav__icon md-icon"></span>
@@ -410,45 +350,78 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#2025-09-20t000000000000z" class="md-nav__link">
+  <a href="#quick-triage-checklist" class="md-nav__link">
     <span class="md-ellipsis">
-      2025-09-20T00:00:00.000000Z
+      Quick Triage Checklist
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#2025-09-19t000000000000z" class="md-nav__link">
+  <a href="#pfsense-zero-touch-provisioning" class="md-nav__link">
     <span class="md-ellipsis">
-      2025-09-19T00:00:00.000000Z
+      pfSense Zero-Touch Provisioning
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="pfSense Zero-Touch Provisioning">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#iso-image-production" class="md-nav__link">
+    <span class="md-ellipsis">
+      ISO Image Production
     </span>
   </a>
   
 </li>
-      
-        <li class="md-nav__item">
-  <a href="#2025-09-18t000000000000z" class="md-nav__link">
+        
+          <li class="md-nav__item">
+  <a href="#automation-sequencing" class="md-nav__link">
     <span class="md-ellipsis">
-      2025-09-18T00:00:00.000000Z
+      Automation Sequencing
     </span>
   </a>
   
 </li>
-      
-        <li class="md-nav__item">
-  <a href="#2025-09-17t080000000000z" class="md-nav__link">
+        
+          <li class="md-nav__item">
+  <a href="#bootstrap-health-checks" class="md-nav__link">
     <span class="md-ellipsis">
-      2025-09-17T08:00:00.000000Z
+      Bootstrap Health Checks
     </span>
   </a>
   
 </li>
+        
+          <li class="md-nav__item">
+  <a href="#nic-model-policy" class="md-nav__link">
+    <span class="md-ellipsis">
+      NIC Model Policy
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#additional-notes" class="md-nav__link">
+    <span class="md-ellipsis">
+      Additional Notes
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
       
         <li class="md-nav__item">
-  <a href="#2025-09-10t044738065634z" class="md-nav__link">
+  <a href="#runbook-for-make-up-failures" class="md-nav__link">
     <span class="md-ellipsis">
-      2025-09-10T04:47:38.065634Z
+      Runbook for make up Failures
     </span>
   </a>
   
@@ -458,6 +431,28 @@
   
 </nav>
       
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Reference
+    
+  </span>
+  
+
+      </a>
     </li>
   
 
@@ -478,7 +473,7 @@
 
 
   
-    <a href="https://github.com/devadalberto/homelab_gitops/edit/main/docs/CHANGELOG.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+    <a href="https://github.com/devadalberto/homelab_gitops/edit/main/docs/troubleshooting.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
       
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
     </a>
@@ -486,43 +481,55 @@
   
 
 
-  <h1>Changelog</h1>
-
-<h2 id="2025-09-20t000000000000z">2025-09-20T00:00:00.000000Z<a class="headerlink" href="#2025-09-20t000000000000z" title="Permanent link">&para;</a></h2>
+<h1 id="troubleshooting">Troubleshooting<a class="headerlink" href="#troubleshooting" title="Permanent link">&para;</a></h1>
+<p>Use these runbooks to diagnose bootstrap hiccups and day-2 drift in the Uranus homelab environment.</p>
+<h2 id="quick-triage-checklist">Quick Triage Checklist<a class="headerlink" href="#quick-triage-checklist" title="Permanent link">&para;</a></h2>
 <ul>
-<li>Extended the GitOps CI workflow with a cached lint job that runs ShellCheck, yamllint, and kubeconform before manifest
-  validation.</li>
-<li>Documented how to invoke the lint suite locally via <code>make fmt</code>/<code>pre-commit run --all-files</code> so contributors can mirror the CI
-  checks.</li>
+<li>MetalLB not advertising? Ensure pfSense LAN is <code>10.10.0.0/24</code> and does not overlap with WAN ranges.</li>
+<li>Traefik returning <code>404</code>? Check the Ingress class <code>traefik</code> and confirm certificate secrets exist.</li>
+<li>AWX pending? Wait for operator rollout; check <code>kubectl -n awx get pods</code> for image pulls and migrations.</li>
+<li>Need remote access to troubleshoot without exposing services? Follow the <a href="https://github.com/devadalberto/homelab_gitops/blob/main/README.md#wireguard-remote-access-host-only">WireGuard Remote Access (Host-Only)</a> steps in the repository README.</li>
 </ul>
-<h2 id="2025-09-19t000000000000z">2025-09-19T00:00:00.000000Z<a class="headerlink" href="#2025-09-19t000000000000z" title="Permanent link">&para;</a></h2>
+<h2 id="pfsense-zero-touch-provisioning">pfSense Zero-Touch Provisioning<a class="headerlink" href="#pfsense-zero-touch-provisioning" title="Permanent link">&para;</a></h2>
+<p>Keep pfSense automation reliable by validating the media, sequencing, and health checks described below.</p>
+<h3 id="iso-image-production">ISO Image Production<a class="headerlink" href="#iso-image-production" title="Permanent link">&para;</a></h3>
 <ul>
-<li>Documented a host-only WireGuard workflow in the README, including package installation, key management, sample <code>wg0.conf</code>,
-  router/VPS considerations, client configuration, and verification guidance for the <code>192.168.88.0/24</code> overlay.</li>
-<li>Linked troubleshooting content to the new remote access guidance so runbooks point operators at the same procedure.</li>
+<li>Always invoke <code>xorriso -as mkisofs</code> when rebuilding the pfSense bootstrap media so the image is hybrid and bootable by libvirt.</li>
+<li>Capture the full <code>xorriso</code> command in logs or the runbook to make regressions easy to spot; missing the flag silently produces an unusable image.</li>
 </ul>
-<h2 id="2025-09-18t000000000000z">2025-09-18T00:00:00.000000Z<a class="headerlink" href="#2025-09-18t000000000000z" title="Permanent link">&para;</a></h2>
+<h3 id="automation-sequencing">Automation Sequencing<a class="headerlink" href="#automation-sequencing" title="Permanent link">&para;</a></h3>
 <ul>
-<li>Recorded current release cadence and pinned the GitOps stack to the n-1 builds exercised in testing: Kubernetes v1.31.3, MetalLB 0.14.7, Traefik 27.0.2, cert-manager 1.16.3, Bitnami PostgreSQL 16.2.6, kube-prometheus-stack 65.5.0, and AWX operator 2.20.0.</li>
-<li>Updated the Flux CLI bootstrap helper to install v2.3.0 so local environments reconcile with the same binary verified in automation.</li>
-<li>Refreshed documentation to note the latest upstream versions alongside the pinned releases for easier future upgrades.</li>
+<li>Verify the VM is started before the ZTP script begins its wait loops; otherwise the script exhausts its retries while the domain is still powered off.</li>
+<li>When iterating on ZTP, include an explicit <code>virsh start</code> (or equivalent) step prior to invoking the automation to keep the timeline deterministic.</li>
 </ul>
-<h2 id="2025-09-17t080000000000z">2025-09-17T08:00:00.000000Z<a class="headerlink" href="#2025-09-17t080000000000z" title="Permanent link">&para;</a></h2>
+<h3 id="bootstrap-health-checks">Bootstrap Health Checks<a class="headerlink" href="#bootstrap-health-checks" title="Permanent link">&para;</a></h3>
 <ul>
-<li>Pin Flux-managed chart versions to the builds exercised in automation: MetalLB 0.14.5, cert-manager 1.15.3, and Traefik 26.0.0.</li>
-<li>Document the Helm chart upgrade workflow (bump <code>k8s/addons/*/release.yaml</code>, stage with <code>make up</code>/<code>scripts/uranus_homelab_one.sh</code>, then update docs) to keep production in lockstep with staging.</li>
-<li>Wire Flux <code>dependsOn</code> for Traefik so upgrades wait on MetalLB and cert-manager health, surfacing dependency issues earlier.</li>
+<li>Extend the wait budget to cover slow first boots and add a fallback probe to <code>192.168.1.1</code>—the pfSense factory default—so the automation can detect when it never pulled the custom config.</li>
+<li>Treat a successful <code>192.168.1.1</code> response as a cue to rebuild the USB image and re-run the provisioning workflow.</li>
 </ul>
-<h2 id="2025-09-10t044738065634z">2025-09-10T04:47:38.065634Z<a class="headerlink" href="#2025-09-10t044738065634z" title="Permanent link">&para;</a></h2>
+<h3 id="nic-model-policy">NIC Model Policy<a class="headerlink" href="#nic-model-policy" title="Permanent link">&para;</a></h3>
 <ul>
-<li>Restructured repo to modular stages (Makefile).</li>
-<li>Added bootstrap.sh with br0 default + safe reboot/resume.</li>
-<li>pfSense CE 2.8.0 ISO URL; config.xml generator with labz domain + NAT examples (disabled).</li>
-<li>Minikube + MetalLB + Traefik + cert-manager internal CA.</li>
-<li>Postgres with 7-day nightly backups to hostPath.</li>
-<li>AWX (small), kube-prometheus-stack, Django multiproject app.</li>
-<li>Flux controllers installed (no remote Git).</li>
+<li>Keep pfSense NICs on <code>virtio</code> by default; only switch models when explicitly required and the VM is shut down.</li>
+<li>Document any overrides (such as <code>PF_FORCE_E1000=true</code>) so that they are intentional and reversible.</li>
 </ul>
+<h3 id="additional-notes">Additional Notes<a class="headerlink" href="#additional-notes" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Keep <code>.env</code> aligned with virtio defaults (<code>PF_FORCE_E1000=false</code>) and the intended LAN link (<code>PF_LAN_LINK=bridge:pfsense-lan</code>).</li>
+<li>Generate the pfSense configuration (<code>pf-config-gen.sh</code>) before running ZTP so <code>/opt/homelab/pfsense/config/config.xml</code> exists.</li>
+</ul>
+<h2 id="runbook-for-make-up-failures">Runbook for <code>make up</code> Failures<a class="headerlink" href="#runbook-for-make-up-failures" title="Permanent link">&para;</a></h2>
+<ol>
+<li>Rebuild the USB image with <code>xorriso -as mkisofs</code> and confirm the command used.</li>
+<li>Ensure the pfSense domain is running: <code>sudo virsh list --name | grep pfsense-uranus</code> and start it if necessary.</li>
+<li>Capture current wiring: <code>sudo virsh domiflist pfsense-uranus</code> and <code>sudo virsh dumpxml pfsense-uranus</code> (filter <code>&lt;interface&gt;</code> sections).</li>
+<li>Inspect storage: <code>sudo virsh domblklist pfsense-uranus</code> to confirm USB and disk attachments.</li>
+<li>Check host bridges: <code>ip -br a | grep -E 'virbr|br0'</code> to ensure expected links exist.</li>
+<li>Probe pfSense reachability:</li>
+<li><code>ping -c1 -W1 10.10.0.1</code> and <code>curl -kIs --connect-timeout 5 https://10.10.0.1/</code> for the provisioned address.</li>
+<li><code>ping -c1 -W1 192.168.1.1</code> as the fallback factory-default probe.</li>
+<li>If only the fallback address responds, rebuild the USB media and repeat the ZTP run.</li>
+<li>Collect additional diagnostics with <code>sudo ./scripts/diag-pfsense.sh</code> if available.</li>
+</ol>
 
 
 
@@ -552,7 +559,7 @@
       <nav class="md-footer__inner md-grid" aria-label="Footer" >
         
           
-          <a href="../docs-workflow/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Documentation Workflow">
+          <a href="../workflow/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Workflow">
             <div class="md-footer__button md-icon">
               
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
@@ -562,11 +569,27 @@
                 Previous
               </span>
               <div class="md-ellipsis">
-                Documentation Workflow
+                Workflow
               </div>
             </div>
           </a>
         
+        
+          
+          <a href="../reference/" class="md-footer__link md-footer__link--next" aria-label="Next: Reference">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Reference
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
+            </div>
+          </a>
         
       </nav>
     
