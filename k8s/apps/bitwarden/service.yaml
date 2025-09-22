@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: bitwarden
+  namespace: bitwarden
+  labels:
+    app.kubernetes.io/name: bitwarden
+    app.kubernetes.io/instance: bitwarden
+spec:
+  selector:
+    app.kubernetes.io/name: bitwarden
+    app.kubernetes.io/instance: bitwarden
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

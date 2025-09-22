@@ -28,6 +28,7 @@ The environment stitches together on-premises virtualization, Kubernetes tooling
 ### User-Facing Applications
 
 - **AWX** provides Ansible automation inside the `awx` namespace with persistent volumes and TLS termination handled by Traefik.
+- **Homepage** publishes the default landing page for the homelab at `https://home.lab-minikube.labz.home.arpa/`, loading its layout from `k8s/apps/homepage/configmap.yaml` and pulling widget credentials (`openweathermap_api_key`, `uptime_kuma_api_key`) from the SOPS-encrypted secret at `apps/homepage/sops-secrets/homepage-secrets.yaml`.
 - **Django Multiproject Demo** showcases the platform deployment pipeline, including container image preloading via `apps/django-multiproject/load-image.sh`.
 - **Observability stack** is powered by `kube-prometheus-stack`, exposing Grafana, Prometheus, and Alertmanager through Traefik-managed Ingresses.
 
@@ -58,6 +59,39 @@ Bounce the AWX pods if the operator does not reconcile automatically.
 #### Rotate Postgres Superuser Credentials
 
 The bootstrap Postgres chart consumes `data/postgres/sops-secrets/postgres-superuser.yaml` for the `pg-superuser` secret. When changing the password, ensure the `stringData.postgres-password` field and the `stringData.database-url` connection string stay in sync before applying the manifest.
+
+
+#### Homepage API Keys
+
+The Homepage dashboard reads its widget credentials from `apps/homepage/sops-secrets/homepage-secrets.yaml`. The secret must define `openweathermap_api_key` for the weather widget and `uptime_kuma_api_key` for the Uptime Kuma status widget referenced in `k8s/apps/homepage/configmap.yaml`.
+
+1. Open the manifest with SOPS:
+   ```bash
+   sops apps/homepage/sops-secrets/homepage-secrets.yaml
+   ```
+2. Update the API keys under the `secrets.yaml` document.
+3. Save and exit so SOPS re-encrypts the file, then commit the change or apply it manually (`kubectl apply -f apps/homepage/sops-secrets/homepage-secrets.yaml`).
+
+
+#### Manage Nextcloud Credentials
+
+Flux deploys Nextcloud with the Bitnami chart using three SOPS-encrypted secrets stored under `apps/nextcloud/sops-secrets/`:
+
+- `nextcloud-admin` maps to the Helm values `nextcloudUsername`, `nextcloudPassword`, and `nextcloudEmail` for the initial UI administrator account.【F:apps/nextcloud/sops-secrets/admin-secret.yaml†L1-L24】【F:k8s/apps/nextcloud/helmrelease.yaml†L55-L71】
+- `nextcloud-redis` provides the external cache password consumed by `externalCache.password`.【F:apps/nextcloud/sops-secrets/redis-secret.yaml†L1-L18】【F:k8s/apps/nextcloud/helmrelease.yaml†L72-L76】
+- `nextcloud-database` carries the PostgreSQL DSN plus discrete host, port, database, username, and password values that feed the chart's `externalDatabase` block and populate the `DATABASE_URL` environment variable exposed to the pod.【F:apps/nextcloud/sops-secrets/database-secret.yaml†L1-L24】【F:k8s/apps/nextcloud/helmrelease.yaml†L77-L104】
+
+Update the credentials by decrypting the manifests with `sops`, editing the `stringData` fields, and applying the files back to the cluster:
+
+```bash
+sops apps/nextcloud/sops-secrets/admin-secret.yaml
+sops apps/nextcloud/sops-secrets/redis-secret.yaml
+sops apps/nextcloud/sops-secrets/database-secret.yaml
+kubectl apply -f apps/nextcloud/sops-secrets/
+```
+
+Keep the `dsn` string synchronized with the individual host/port/username/password entries so the HelmRelease renders consistent values. Adjust the ingress host, TLS mapping, and upload limit in `k8s/apps/nextcloud/helmrelease.yaml` if your lab uses a different FQDN or quota than the defaults committed to Git.【F:k8s/apps/nextcloud/helmrelease.yaml†L25-L54】
+
 
 ### Grafana Admin Credential Management
 

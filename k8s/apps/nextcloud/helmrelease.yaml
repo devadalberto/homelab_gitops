@@ -1,0 +1,112 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: nextcloud
+  namespace: flux-system
+spec:
+  interval: 15m
+  releaseName: nextcloud
+  targetNamespace: nextcloud
+  dependsOn:
+    - name: pg
+      namespace: flux-system
+    - name: traefik-ingress
+      namespace: flux-system
+    - name: cert-manager
+      namespace: flux-system
+  install:
+    remediation:
+      retries: 3
+      remediateLastFailure: true
+      strategy: uninstall
+  upgrade:
+    remediation:
+      retries: 3
+      remediateLastFailure: true
+      strategy: uninstall
+  timeout: 10m0s
+  chart:
+    spec:
+      chart: nextcloud
+      sourceRef:
+        kind: HelmRepository
+        name: bitnami
+        namespace: flux-system
+  values:
+    fullnameOverride: nextcloud
+    nextcloudHost: nextcloud.labz.example.com
+    extraEnvVars:
+      - name: DATABASE_URL
+        value: ""
+    ingress:
+      enabled: true
+      ingressClassName: traefik
+      hostname: nextcloud.labz.example.com
+      tls:
+        - hosts:
+            - nextcloud.labz.example.com
+          secretName: labz-apps-tls
+    persistence:
+      enabled: true
+      existingClaim: nextcloud-data
+    mariadb:
+      enabled: false
+    postgresql:
+      enabled: false
+    redis:
+      enabled: false
+    externalDatabase:
+      enabled: true
+      type: postgresql
+      host: postgresql.databases.svc.cluster.local
+      port: 5432
+    externalCache:
+      enabled: true
+      host: redis-master.data.svc.cluster.local
+      port: 6379
+    phpClient:
+      maxUploadSize: 10G
+    podSecurityContext:
+      enabled: true
+      fsGroup: 33
+    containerSecurityContext:
+      enabled: true
+      runAsUser: 33
+      runAsGroup: 33
+  valuesFrom:
+    - kind: Secret
+      name: nextcloud-admin
+      valuesKey: username
+      targetPath: nextcloudUsername
+    - kind: Secret
+      name: nextcloud-admin
+      valuesKey: password
+      targetPath: nextcloudPassword
+    - kind: Secret
+      name: nextcloud-admin
+      valuesKey: email
+      targetPath: nextcloudEmail
+    - kind: Secret
+      name: nextcloud-redis
+      valuesKey: password
+      targetPath: externalCache.password
+    - kind: Secret
+      name: nextcloud-database
+      valuesKey: host
+      targetPath: externalDatabase.host
+    - kind: Secret
+      name: nextcloud-database
+      valuesKey: username
+      targetPath: externalDatabase.user
+    - kind: Secret
+      name: nextcloud-database
+      valuesKey: password
+      targetPath: externalDatabase.password
+    - kind: Secret
+      name: nextcloud-database
+      valuesKey: database
+      targetPath: externalDatabase.database
+    - kind: Secret
+      name: nextcloud-database
+      valuesKey: dsn
+      targetPath: extraEnvVars[0].value
