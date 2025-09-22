@@ -437,113 +437,6 @@ except Exception:
 PY
 }
 
-is_ip_in_use() {
-  local ip=$1
-  if ping -c1 -W1 "$ip" >/dev/null 2>&1; then
-    return 0
-  fi
-  if ip neigh show to "$ip" 2>/dev/null | grep -q "${ip}"; then
-    return 0
-  fi
-  return 1
-}
-
-range_available() {
-  local start=$1
-  local end=$2
-  local ips
-  if ! ips=$(python3 - "$start" "$end" <<'PY'
-import ipaddress
-import sys
-start = ipaddress.ip_address(sys.argv[1])
-end = ipaddress.ip_address(sys.argv[2])
-if start > end:
-    sys.exit(1)
-current = start
-items = []
-while current <= end:
-    items.append(str(current))
-    current += 1
-print('\n'.join(items))
-PY
-); then
-    return 1
-  fi
-  local ip
-  while IFS= read -r ip; do
-    if ! is_ip_in_use "$ip"; then
-      continue
-    fi
-    log_debug "Address ${ip} appears active"
-    return 1
-  done <<<"${ips}"
-  return 0
-}
-
-select_metallb_pool() {
-  local candidate_lines
-  candidate_lines=$(python3 <<'PY'
-import ipaddress
-import json
-import os
-addr = os.environ['NETWORK_ADDR']
-cidr = os.environ['NETWORK_CIDR']
-net = ipaddress.ip_network(cidr, strict=False)
-addr_ip = ipaddress.ip_address(addr)
-candidates = []
-base24 = ipaddress.ip_network(f"{addr_ip}/24", strict=False)
-pref_ips = []
-for suffix in range(240, 251):
-    candidate = base24.network_address + suffix
-    if candidate in net and candidate != net.network_address and candidate != net.broadcast_address:
-        pref_ips.append(candidate)
-if len(pref_ips) == 11 and pref_ips[-1] in net:
-    candidates.append((str(pref_ips[0]), str(pref_ips[-1])))
-try:
-    for subnet in reversed(list(net.subnets(new_prefix=29))):
-        hosts = list(subnet.hosts())
-        if len(hosts) >= 2:
-            candidates.append((str(hosts[0]), str(hosts[-1])))
-except ValueError:
-    pass
-hosts = list(net.hosts())
-if hosts:
-    candidates.append((str(hosts[0]), str(hosts[-1])))
-seen = set()
-unique = []
-for start, end in candidates:
-    key = (start, end)
-    if key not in seen:
-        seen.add(key)
-        unique.append(f"{start},{end}")
-print("\n".join(unique))
-PY
-)
-  local selected_start=""
-  local selected_end=""
-  local line
-  while IFS=',' read -r start end; do
-    [[ -z "$start" ]] && continue
-    if range_available "$start" "$end"; then
-      selected_start="$start"
-      selected_end="$end"
-      break
-    else
-      log_debug "Pool ${start}-${end} in use; trying next candidate"
-    fi
-  done <<<"${candidate_lines}"
-  if [[ -z "${selected_start}" ]]; then
-    selected_start=$(head -n1 <<<"${candidate_lines}" | cut -d',' -f1)
-    selected_end=$(head -n1 <<<"${candidate_lines}" | cut -d',' -f2)
-    log_warn "Falling back to first candidate ${selected_start}-${selected_end} despite conflicts"
-  fi
-  METALLB_POOL_START="${selected_start}"
-  METALLB_POOL_END="${selected_end}"
-  LABZ_METALLB_RANGE="${METALLB_POOL_START}-${METALLB_POOL_END}"
-  export METALLB_POOL_START METALLB_POOL_END LABZ_METALLB_RANGE
-  log_info "MetalLB pool selected: ${LABZ_METALLB_RANGE}"
-}
-
 adapt_address_pools() {
   if [[ -z "${METALLB_POOL_START}" && -n "${PREV_METALLB_START:-}" ]]; then
     METALLB_POOL_START="${PREV_METALLB_START}"
@@ -551,25 +444,33 @@ adapt_address_pools() {
   if [[ -z "${METALLB_POOL_END}" && -n "${PREV_METALLB_END:-}" ]]; then
     METALLB_POOL_END="${PREV_METALLB_END}"
   fi
-  local start_ok end_ok
-  if [[ -n "${METALLB_POOL_START}" ]]; then
-    start_ok=$(ip_in_cidr "${METALLB_POOL_START}" "${NETWORK_CIDR}")
-  else
-    start_ok=0
+  local -a netcalc_env=("LAN_CIDR=${NETWORK_CIDR}")
+  if [[ -n ${NETWORK_ADDR:-} ]]; then
+    netcalc_env+=("LAN_ADDR=${NETWORK_ADDR}")
   fi
-  if [[ -n "${METALLB_POOL_END}" ]]; then
-    end_ok=$(ip_in_cidr "${METALLB_POOL_END}" "${NETWORK_CIDR}")
-  else
-    end_ok=0
+  if [[ -n ${METALLB_POOL_START:-} ]]; then
+    netcalc_env+=("METALLB_POOL_START=${METALLB_POOL_START}")
   fi
-  if [[ "${start_ok}" != "1" || "${end_ok}" != "1" ]]; then
-    log_warn "Existing MetalLB pool is outside current LAN; recalculating"
-    select_metallb_pool
-  else
-    LABZ_METALLB_RANGE="${METALLB_POOL_START}-${METALLB_POOL_END}"
-    export METALLB_POOL_START METALLB_POOL_END LABZ_METALLB_RANGE
-    log_info "Reusing MetalLB pool ${LABZ_METALLB_RANGE}"
+  if [[ -n ${METALLB_POOL_END:-} ]]; then
+    netcalc_env+=("METALLB_POOL_END=${METALLB_POOL_END}")
   fi
+
+  local netcalc_output
+  if ! netcalc_output=$(env "${netcalc_env[@]}" "${SCRIPT_DIR}/net-calc.sh"); then
+    die ${EX_CONFIG} "Unable to determine a MetalLB pool for ${NETWORK_CIDR}"
+  fi
+
+  eval "${netcalc_output}"
+
+  LABZ_METALLB_RANGE="${LABZ_METALLB_RANGE:-${METALLB_POOL_START}-${METALLB_POOL_END}}"
+  export METALLB_POOL_START METALLB_POOL_END LABZ_METALLB_RANGE
+
+  if [[ ${NETCALC_SOURCE:-calculated} == "provided" ]]; then
+    log_info "MetalLB pool confirmed: ${LABZ_METALLB_RANGE}"
+  else
+    log_info "MetalLB pool selected: ${LABZ_METALLB_RANGE}"
+  fi
+
   if [[ -z "${TRAEFIK_LOCAL_IP}" && -n "${PREV_TRAEFIK_IP:-}" ]]; then
     TRAEFIK_LOCAL_IP="${PREV_TRAEFIK_IP}"
   fi

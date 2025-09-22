@@ -250,6 +250,110 @@ PY
   fi
 }
 
+align_metallb_pool() {
+  if [[ -z "${LAN_CIDR}" ]]; then
+    warn "LAN_CIDR not provided; skipping MetalLB pool evaluation"
+    return
+  fi
+
+  local helper="${REPO_ROOT}/scripts/net-calc.sh"
+  if [[ ! -x "${helper}" ]]; then
+    warn "MetalLB helper ${helper} not found; skipping pool evaluation"
+    return
+  fi
+
+  local -a netcalc_env=("LAN_CIDR=${LAN_CIDR}")
+  if [[ -n ${METALLB_POOL_START:-} ]]; then
+    netcalc_env+=("METALLB_POOL_START=${METALLB_POOL_START}")
+  fi
+  if [[ -n ${METALLB_POOL_END:-} ]]; then
+    netcalc_env+=("METALLB_POOL_END=${METALLB_POOL_END}")
+  fi
+
+  local netcalc_output
+  if ! netcalc_output=$(env LOG_LEVEL=error "${netcalc_env[@]}" "${helper}"); then
+    warn "MetalLB pool evaluation failed; see errors above"
+    return
+  fi
+
+  eval "${netcalc_output}"
+
+  local range="${LABZ_METALLB_RANGE:-${METALLB_POOL_START}-${METALLB_POOL_END}}"
+
+  if [[ ${NETCALC_SOURCE:-calculated} == "provided" ]]; then
+    ok "MetalLB pool ${range} is valid within ${LAN_CIDR}"
+  else
+    local message="MetalLB pool adjusted to ${range}; update METALLB_POOL_START/METALLB_POOL_END"
+    case "${NETCALC_REASON:-}" in
+      missing_both)
+        message="MetalLB pool not defined; recommended ${range}"
+        ;;
+      missing_start)
+        message="METALLB_POOL_START not set; recommended ${range}"
+        ;;
+      missing_end)
+        message="METALLB_POOL_END not set; recommended ${range}"
+        ;;
+      invalid_start)
+        message="METALLB_POOL_START '${NETCALC_ORIGINAL_START}' invalid; recommended ${range}"
+        ;;
+      invalid_end)
+        message="METALLB_POOL_END '${NETCALC_ORIGINAL_END}' invalid; recommended ${range}"
+        ;;
+      outside_cidr)
+        message="MetalLB pool ${NETCALC_ORIGINAL_START}-${NETCALC_ORIGINAL_END} outside ${LAN_CIDR}; recommended ${range}"
+        ;;
+      start_reserved)
+        message="MetalLB start ${NETCALC_ORIGINAL_START} is reserved; recommended ${range}"
+        ;;
+      end_reserved)
+        message="MetalLB end ${NETCALC_ORIGINAL_END} is reserved; recommended ${range}"
+        ;;
+      reversed)
+        message="MetalLB pool start/end reversed; recommended ${range}"
+        ;;
+    esac
+    warn "${message}"
+    info "Update METALLB_POOL_START=${METALLB_POOL_START} and METALLB_POOL_END=${METALLB_POOL_END} in your environment"
+  fi
+
+  if [[ ${NETCALC_FALLBACK:-0} -eq 1 ]]; then
+    warn "Unable to find unused MetalLB pool; using ${range}"
+  fi
+
+  if [[ -n ${NETCALC_WARNINGS:-} ]]; then
+    IFS=',' read -r -a netcalc_warnings <<<"${NETCALC_WARNINGS}"
+    for token in "${netcalc_warnings[@]}"; do
+      case "${token}" in
+        missing_ping)
+          warn "ping command not available; pool availability checks skipped"
+          ;;
+        missing_ip)
+          warn "ip command not available; neighbor checks skipped"
+          ;;
+        ping_exec_error)
+          warn "ping failed while evaluating MetalLB pool"
+          ;;
+        ip_cmd_failed)
+          warn "ip neigh failed while evaluating MetalLB pool"
+          ;;
+        no_availability_checks)
+          warn "Unable to confirm MetalLB pool availability"
+          ;;
+        "")
+          ;;
+        *)
+          warn "MetalLB helper warning: ${token}"
+          ;;
+      esac
+    done
+  fi
+
+  METALLB_POOL_START="${METALLB_POOL_START}"
+  METALLB_POOL_END="${METALLB_POOL_END}"
+  LABZ_METALLB_RANGE="${range}"
+}
+
 check_bridge() {
   if ! command -v ip >/dev/null 2>&1; then
     warn "ip command not available; skipping bridge validation"
@@ -273,6 +377,7 @@ check_bridge() {
 info "Starting pfSense preflight checks"
 check_pf_domain
 check_pf_installer
+align_metallb_pool
 validate_ips
 check_bridge
 ok "pfSense preflight checks completed successfully"
