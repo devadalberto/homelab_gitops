@@ -380,7 +380,6 @@ install_traefik() {
 }
 
 create_support_namespaces() {
-  ensure_namespace_safe databases
   ensure_namespace_safe data
   ensure_namespace_safe nextcloud
   ensure_namespace_safe jellyfin
@@ -393,7 +392,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: postgresql-secrets
-  namespace: databases
+  namespace: data
 stringData:
   postgres-password: ${LABZ_POSTGRES_PASSWORD}
   password: ${LABZ_POSTGRES_PASSWORD}
@@ -409,7 +408,7 @@ EOM
 install_postgresql() {
   local -a cmd=(
     helm upgrade --install postgresql bitnami/postgresql
-    --namespace databases
+    --namespace data
     --create-namespace
     --wait
     --timeout 15m0s
@@ -511,7 +510,7 @@ install_nextcloud() {
     --set persistence.existingClaim=nextcloud-data
     --set externalDatabase.enabled=true
     --set externalDatabase.type=postgresql
-    --set externalDatabase.host=postgresql.databases.svc.cluster.local
+    --set externalDatabase.host=postgresql.data.svc.cluster.local
     --set externalDatabase.port=5432
     --set externalDatabase.user="${LABZ_POSTGRES_USER}"
     --set externalDatabase.password="${LABZ_POSTGRES_PASSWORD}"
@@ -676,6 +675,10 @@ wait_for_pvc_bound_safe() {
 }
 
 apply_storage_manifests() {
+  if kubectl get namespace flux-system >/dev/null 2>&1; then
+    log_info "Flux manages storage manifests; skipping manual apply"
+    return
+  fi
   if [[ ! -d ${STORAGE_MANIFEST_DIR} ]]; then
     die ${EX_CONFIG} "Storage manifest directory not found: ${STORAGE_MANIFEST_DIR}"
   fi
@@ -789,7 +792,7 @@ main() {
   apply_storage_manifests
   clear_lingering_pv_claim_refs
 
-  wait_for_pvc_bound_safe databases postgresql-data
+  wait_for_pvc_bound_safe data postgresql-data
   wait_for_pvc_bound_safe nextcloud nextcloud-data
   wait_for_pvc_bound_safe jellyfin jellyfin-media
 

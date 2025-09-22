@@ -18,7 +18,7 @@ apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: postgresql-data
-  namespace: databases
+  namespace: data
   labels:
     pv-role: postgresql-data
 spec:
