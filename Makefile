@@ -4,6 +4,7 @@ SHELL := /bin/bash
 
 ENV_FILE ?= ./.env
 NET_CREATE ?=
+BATS ?= ./tests/vendor/bats-core/bin/bats
 
 export ENV_FILE
 
@@ -55,12 +56,17 @@ k8s.bootstrap:
 	@./scripts/k8s-bootstrap.sh --env-file "$(ENV_FILE)"
 
 status:
+	@echo "Gathering homelab status..."
 	@./scripts/status.sh --env-file "$(ENV_FILE)"
 
 clean:
         @./scripts/clean.sh --env-file "$(ENV_FILE)"
 
+
 up: doctor net.ensure pf.preflight pf.config pf.ztp k8s.bootstrap status
 	@echo "Homelab bootstrap workflow complete."
 
-ci: up
+test:
+	@$(BATS) tests
+
+ci: test
