@@ -39,10 +39,10 @@ The environment stitches together on-premises virtualization, Kubernetes tooling
 
 ### Manage Encrypted Application Secrets
 
-Both the AWX admin and Postgres superuser Kubernetes Secrets live in this repository as [SOPS](https://github.com/getsops/sops) manifests and are encrypted for the Age recipient defined in `.sops/.sops.yaml`. To edit either secret:
+The AWX admin, Postgres superuser, and Pi-hole admin Kubernetes Secrets live in this repository as [SOPS](https://github.com/getsops/sops) manifests and are encrypted for the Age recipient defined in `.sops/.sops.yaml`. To edit any of these secrets:
 
 1. Export the matching Age private key so SOPS can decrypt locally (for example `export SOPS_AGE_KEY_FILE=$HOME/.config/sops/age/keys.txt`).
-2. Open the manifest with SOPS (`sops awx/sops-secrets/awx-admin.sops.yaml` or `sops data/postgres/sops-secrets/postgres-superuser.yaml`). SOPS handles the decrypt/edit/re-encrypt cycle automatically when the editor closes.
+2. Open the manifest with SOPS (`sops awx/sops-secrets/awx-admin.sops.yaml`, `sops data/postgres/sops-secrets/postgres-superuser.yaml`, or `sops apps/pihole/sops-secrets/admin-secret.yaml`). SOPS handles the decrypt/edit/re-encrypt cycle automatically when the editor closes.
 3. Apply the updated manifest back to the cluster (`kubectl apply -f <path-to-secret>`).
 
 #### Rotate AWX Admin Credentials
@@ -58,6 +58,21 @@ Bounce the AWX pods if the operator does not reconcile automatically.
 #### Rotate Postgres Superuser Credentials
 
 The bootstrap Postgres chart consumes `data/postgres/sops-secrets/postgres-superuser.yaml` for the `pg-superuser` secret. When changing the password, ensure the `stringData.postgres-password` field and the `stringData.database-url` connection string stay in sync before applying the manifest.
+
+#### Rotate Pi-hole Admin Password
+
+The Pi-hole Helm release references the SOPS-encrypted manifest at `apps/pihole/sops-secrets/admin-secret.yaml` to supply the `pihole-admin` Secret before the chart installs. To change the web UI password:
+
+1. Decrypt and edit the manifest:
+   ```bash
+   sops apps/pihole/sops-secrets/admin-secret.yaml
+   ```
+2. Replace the value under `stringData.password` with a new credential and save; SOPS will re-encrypt on exit.
+3. Apply the updated secret and restart the release so the deployment consumes the new password:
+   ```bash
+   kubectl apply -f apps/pihole/sops-secrets/admin-secret.yaml
+   kubectl -n pihole rollout restart deployment/pihole
+   ```
 
 ### Grafana Admin Credential Management
 
