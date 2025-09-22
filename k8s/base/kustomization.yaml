@@ -9,3 +9,4 @@ resources:
   - ../data/postgres
   - ../apps/awx
   - ../apps/django-multiproject
+  - ../apps/nextcloud
