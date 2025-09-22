@@ -14,8 +14,8 @@ Stage the pfSense serial installer for virt-install/libvirt consumption.
 
 Options:
   --env-file PATH  Source PATH for environment variables before processing.
-  --source PATH    Override the installer source (defaults to PF_INSTALLER_SRC
-                   or legacy PF_SERIAL_INSTALLER_PATH/PF_ISO_PATH).
+  --source PATH    Override the installer source (defaults to
+                   PF_SERIAL_INSTALLER_PATH or PF_ISO_PATH).
   --dest PATH      Override the expanded image destination (defaults to
                    PF_INSTALLER_DEST or /var/lib/libvirt/images/... when
                    decompressing archives).
@@ -68,16 +68,13 @@ print(os.path.abspath(sys.argv[1]))
 PY
 }
 
-INSTALLER_SRC="${OVERRIDE_SOURCE:-${PF_INSTALLER_SRC:-}}"
-if [[ -z ${INSTALLER_SRC} && -n ${PF_SERIAL_INSTALLER_PATH:-} ]]; then
-  INSTALLER_SRC="${PF_SERIAL_INSTALLER_PATH}"
-fi
+INSTALLER_SRC="${OVERRIDE_SOURCE:-${PF_SERIAL_INSTALLER_PATH:-}}"
 if [[ -z ${INSTALLER_SRC} && -n ${PF_ISO_PATH:-} ]]; then
   INSTALLER_SRC="${PF_ISO_PATH}"
 fi
 
 if [[ -z ${INSTALLER_SRC} ]]; then
-  die "PF_INSTALLER_SRC (or PF_SERIAL_INSTALLER_PATH/PF_ISO_PATH) must be set"
+  die "PF_SERIAL_INSTALLER_PATH (or PF_ISO_PATH) must be set"
 fi
 
 if [[ ! -f ${INSTALLER_SRC} ]]; then

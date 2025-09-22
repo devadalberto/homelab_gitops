@@ -1,6 +1,20 @@
 # Homelab GitOps
 
+[![CI](https://github.com/devadalberto/homelab_gitops/actions/workflows/ci.yml/badge.svg)](https://github.com/devadalberto/homelab_gitops/actions/workflows/ci.yml)
+[![GitHub Pages](https://github.com/devadalberto/homelab_gitops/actions/workflows/gh-pages.yml/badge.svg)](https://github.com/devadalberto/homelab_gitops/actions/workflows/gh-pages.yml)
+
 Homelab GitOps automates a pfSense-backed Minikube environment, layering on networking add-ons such as MetalLB, cert-manager, and Traefik before deploying application stacks including PostgreSQL, Redis, Nextcloud, and Jellyfin through composable scripts.【F:scripts/uranus_homelab.sh†L211-L288】【F:scripts/uranus_homelab_one.sh†L214-L273】【F:scripts/uranus_homelab_apps.sh†L265-L356】
+
+## Quickstart
+
+With `.env` populated, drive the bootstrap in four phases:
+
+1. `make preflight ENV_FILE=./.env` – validate bridges, guardrails, and the pfSense serial installer path before any changes are applied.【F:Makefile†L41-L45】【F:scripts/pf-preflight.sh†L165-L220】
+2. `make pf.config ENV_FILE=./.env` – regenerate `config.xml` and rebuild the `pfSense_config` ISO under `sudo`.【F:Makefile†L47-L50】【F:pfsense/pf-config-gen.sh†L1-L211】
+3. `make pf.install ENV_FILE=./.env` – stage the Netgate serial installer, enforce the headless libvirt policy, and run the zero-touch provisioning helper.【F:Makefile†L52-L58】【F:scripts/pf-installer-prepare.sh†L9-L160】【F:scripts/check-libvirt-no-video.sh†L1-L38】
+4. `make k8s.bootstrap ENV_FILE=./.env` – switch kubectl to Minikube and confirm the cluster is ready before layering on GitOps workloads.【F:Makefile†L74-L88】【F:scripts/k8s-smoketest.sh†L35-L199】
+
+`PF_SERIAL_INSTALLER_PATH` must point at the pfSense **serial** memstick archive (`.img` or `.img.gz`). The automation keeps pfSense headless by default (`PF_HEADLESS=true`) and fails CI if a libvirt domain ever regresses to a VGA console thanks to `scripts/check-libvirt-no-video.sh`.【F:.env.example†L68-L73】【F:scripts/check-libvirt-no-video.sh†L1-L38】
 
 ## One-shot install
 
@@ -10,13 +24,13 @@ With the host dependencies satisfied and `.env` updated, invoke the aggregated M
 make up ENV_FILE=./.env
 ```
 
-`make up` orchestrates the pfSense preflight, config regeneration, VM install, zero-touch provisioning, pfSense smoketest, Kubernetes context wiring, cluster smoketest, and status emission in order so you can move from bare host to running stack in a single command.【F:Makefile†L8-L74】 The pfSense helper now wires the VM via `pf-ztp.sh`, defaulting both WAN and LAN to `br0` unless you override `PF_LAN_BRIDGE`; if you choose a different bridge name the automation creates it so the cabling stays consistent.【F:scripts/pf-ztp.sh†L637-L698】
+`make up` orchestrates the pfSense preflight, config regeneration, VM install, zero-touch provisioning, pfSense smoketest, Kubernetes context wiring, cluster smoketest, and status emission in order so you can move from bare host to running stack in a single command.【F:Makefile†L95-L97】 The pfSense helper now wires the VM via `pf-ztp.sh`, defaulting both WAN and LAN to `br0` unless you override `PF_LAN_BRIDGE`; if you choose a different bridge name the automation creates it so the cabling stays consistent.【F:scripts/pf-ztp.sh†L637-L698】
 
 ## Prerequisites
 
 * Prepare an Ubuntu host (or derivative) with virtualization, libvirt, Docker, Kubernetes CLIs, and other tooling by running `./scripts/host-prep.sh --env-file ./.env`. The script installs the required APT packages, ensures Docker, kubectl, Helm, Minikube, and SOPS are available, wires up libvirt, and can create the pfSense LAN bridge if it is missing.【F:scripts/host-prep.sh†L36-L599】
 * Confirm `virt-install`, `qemu-img`, and `gzip` are present so the installer staging flow can expand archives and create QCOW2 disks (the host-prep routine installs them automatically when missing).【F:scripts/pf-installer-prepare.sh†L61-L151】【F:scripts/pf-ztp.sh†L657-L723】
-* Download the pfSense CE **serial** installer in advance and point `PF_INSTALLER_SRC` (or legacy fallbacks) at the archive so validation passes during preflight.【F:.env.example†L53-L68】【F:scripts/host-prep.sh†L268-L316】
+* Download the pfSense CE **serial** installer in advance and point `PF_SERIAL_INSTALLER_PATH` at the archive so validation passes during preflight.【F:.env.example†L68-L73】【F:scripts/host-prep.sh†L268-L316】
 * Keep the pfSense LAN bridge settings (`PF_LAN_BRIDGE`/`PF_LAN_LINK`) aligned with the actual host interface names; the host-prep routine checks the values and can create the bridge automatically when it is absent.【F:scripts/host-prep.sh†L207-L264】【F:scripts/host-prep.sh†L576-L599】
 
 ## Configuration
@@ -38,24 +52,25 @@ make up ENV_FILE=./.env
      ```
      【F:.env.example†L24-L33】【F:scripts/render_metallb_pool_manifest.sh†L1-L70】
    * **Application credentials and limits** (`LABZ_POSTGRES_DB`, `LABZ_POSTGRES_USER`, `LABZ_POSTGRES_PASSWORD`, `LABZ_REDIS_PASSWORD`, `LABZ_PHP_UPLOAD_LIMIT`).【F:.env.example†L35-L40】
-   * **pfSense and infrastructure parameters** (WAN NIC/mode, VM name, bridge hints, QCOW2 size, installer paths, cluster subdomain, Traefik VIP, and flags such as `PF_HEADLESS`).【F:.env.example†L42-L68】
+   * **pfSense and infrastructure parameters** (WAN NIC/mode, VM name, bridge hints, QCOW2 size, serial installer path, cluster subdomain, Traefik VIP, and flags such as `PF_HEADLESS`).【F:.env.example†L42-L73】
 
 ## Useful targets
 
-* `make up` – runs the pfSense preflight, regenerates the config ISO, ensures the VM exists, and invokes the pfSense bootstrap helper in sequence.【F:Makefile†L8-L55】
-* `make preflight` – executes the pfSense preflight script against the selected environment file.【F:Makefile†L24-L28】
-* `make pf.config` – rebuilds `config.xml` and the `pfSense_config` ISO under `sudo` based on `.env` values.【F:Makefile†L30-L33】
-* `make pf.install` – stages the installer media and runs `scripts/pf-ztp.sh` to create or update the VM definition and USB/ISO wiring.【F:Makefile†L35-L45】
-* `make pf.ztp` – re-runs the pfSense zero-touch helper to refresh the media attachments and configuration.【F:Makefile†L47-L51】
-* `make smoketest` – launches the pfSense smoketest routine to validate DHCP, NAT, and reachability checks.【F:Makefile†L48-L51】【F:scripts/pf-smoketest.sh†L49-L63】
-* `make check.env` – prints the active environment file and key variables for a quick sanity check.【F:Makefile†L19-L22】
+* `make up` – runs the pfSense preflight, regenerates the config ISO, ensures the VM exists, and invokes the pfSense bootstrap helper in sequence.【F:Makefile†L95-L97】
+* `make preflight` – executes the pfSense preflight script against the selected environment file.【F:Makefile†L41-L45】
+* `make pf.config` – rebuilds `config.xml` and the `pfSense_config` ISO under `sudo` based on `.env` values.【F:Makefile†L47-L50】
+* `make pf.install` – stages the serial installer media and runs `scripts/pf-ztp.sh` to create or update the VM definition and USB/ISO wiring.【F:Makefile†L52-L58】
+* `make pf.ztp` – re-runs the pfSense zero-touch helper to refresh the media attachments and configuration.【F:Makefile†L60-L65】
+* `make smoketest` – launches the pfSense smoketest routine to validate DHCP, NAT, and reachability checks.【F:Makefile†L67-L72】【F:scripts/pf-smoketest.sh†L49-L117】
+* `make check.env` – prints the active environment file and key variables for a quick sanity check.【F:Makefile†L26-L30】
+* `make k8s.bootstrap` – prepares the kubectl context and reruns the Kubernetes smoketest in one step.【F:Makefile†L86-L88】
 
 ## Quick checks
 
 * `./scripts/preflight_and_bootstrap.sh --env-file ./.env --context-preflight` captures a non-mutating view of detected networking, packages, and installer state before any changes are applied.【F:scripts/preflight_and_bootstrap.sh†L51-L75】【F:scripts/host-prep.sh†L320-L403】
 * `./scripts/preflight_and_bootstrap.sh --env-file ./.env --preflight-only` runs the full host remediation sequence (sysctls, iptables mode, optional Minikube restart) without launching the cluster bootstrap.【F:scripts/preflight_and_bootstrap.sh†L51-L76】【F:scripts/preflight_and_bootstrap.sh†L800-L887】
-* `make check.env` confirms the expected LAN, MetalLB, and installer values are present in the environment file.【F:Makefile†L19-L22】
-* `make smoketest` (or `./scripts/pf-smoketest.sh --env-file ./.env`) validates the pfSense domain, LAN bridge, DHCP, and WAN reachability probes.【F:Makefile†L48-L51】【F:scripts/pf-smoketest.sh†L49-L117】
+* `make check.env` confirms the expected LAN, MetalLB, and installer values are present in the environment file.【F:Makefile†L26-L30】
+* `make smoketest` (or `./scripts/pf-smoketest.sh --env-file ./.env`) validates the pfSense domain, LAN bridge, DHCP, and WAN reachability probes.【F:Makefile†L67-L72】【F:scripts/pf-smoketest.sh†L49-L117】
 * `./scripts/k8s-smoketest.sh --env-file ./.env` switches kubectl to the Minikube context and ensures node readiness once the cluster is online.【F:scripts/k8s-smoketest.sh†L35-L199】
 
 ## Linting

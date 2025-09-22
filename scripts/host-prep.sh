@@ -271,10 +271,7 @@ check_pf_installer() {
   local source_var=""
   local errors=0
 
-  if [[ -n ${PF_INSTALLER_SRC:-} ]]; then
-    path="${PF_INSTALLER_SRC}"
-    source_var="PF_INSTALLER_SRC"
-  elif [[ -n ${PF_SERIAL_INSTALLER_PATH:-} ]]; then
+  if [[ -n ${PF_SERIAL_INSTALLER_PATH:-} ]]; then
     path="${PF_SERIAL_INSTALLER_PATH}"
     source_var="PF_SERIAL_INSTALLER_PATH"
   elif [[ -n ${PF_ISO_PATH:-} ]]; then
@@ -283,7 +280,7 @@ check_pf_installer() {
   fi
 
   if [[ -z ${path} ]]; then
-    log_error "PF_INSTALLER_SRC is unset and no legacy PF_SERIAL_INSTALLER_PATH/PF_ISO_PATH fallback provided."
+    log_error "PF_SERIAL_INSTALLER_PATH is unset and no PF_ISO_PATH fallback provided."
     errors=1
   elif [[ ! -f ${path} ]]; then
     log_error "pfSense installer not found at ${path} (${source_var:-unset})."
@@ -306,14 +303,14 @@ check_pf_installer() {
   fi
 
   if (( errors != 0 )); then
-    log_info "Download the pfSense CE serial installer from https://www.pfsense.org/download/ and update PF_INSTALLER_SRC in .env (legacy PF_SERIAL_INSTALLER_PATH/PF_ISO_PATH remain supported)."
+    log_info "Download the pfSense CE serial installer from https://www.pfsense.org/download/ and update PF_SERIAL_INSTALLER_PATH in .env (PF_ISO_PATH remains available for VGA installs when PF_HEADLESS=false)."
     if [[ ${fatal} == true ]]; then
       die ${EX_CONFIG} "pfSense installer not ready"
     fi
     return 1
   fi
 
-  log_info "pfSense installer (${source_var:-PF_INSTALLER_SRC}) detected at ${path}"
+  log_info "pfSense installer (${source_var:-PF_SERIAL_INSTALLER_PATH}) detected at ${path}"
   return 0
 }
 
@@ -381,10 +378,7 @@ context_preflight() {
 
   local installer_display=""
   local installer_label=""
-  if [[ -n ${PF_INSTALLER_SRC:-} ]]; then
-    installer_display="${PF_INSTALLER_SRC}"
-    installer_label="PF_INSTALLER_SRC"
-  elif [[ -n ${PF_SERIAL_INSTALLER_PATH:-} ]]; then
+  if [[ -n ${PF_SERIAL_INSTALLER_PATH:-} ]]; then
     installer_display="${PF_SERIAL_INSTALLER_PATH}"
     installer_label="PF_SERIAL_INSTALLER_PATH"
   elif [[ -n ${PF_ISO_PATH:-} ]]; then
@@ -399,7 +393,7 @@ context_preflight() {
       log_warn "pfSense installer (${installer_label}) not found at ${installer_display}"
     fi
   else
-    log_warn "PF_INSTALLER_SRC is unset; set it to the downloaded netgate installer (legacy PF_SERIAL_INSTALLER_PATH/PF_ISO_PATH remain supported)."
+    log_warn "PF_SERIAL_INSTALLER_PATH is unset; set it to the downloaded Netgate installer (PF_ISO_PATH remains available when opting into VGA)."
   fi
 }
 

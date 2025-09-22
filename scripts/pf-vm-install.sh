@@ -30,7 +30,7 @@ USAGE
 ENV_FILE="${ENV_FILE:-}"
 ENV_LOADED=false
 
-PF_INSTALLER_SRC="${PF_INSTALLER_SRC:-}"
+PF_SERIAL_INSTALLER_PATH="${PF_SERIAL_INSTALLER_PATH:-}"
 PF_INSTALLER_DEST="${PF_INSTALLER_DEST:-/var/lib/libvirt/images/netgate-installer-amd64.img}"
 PF_VM_NAME="${PF_VM_NAME:-pfsense-uranus}"
 PF_OSINFO="${PF_OSINFO:-freebsd14.2}"
@@ -57,7 +57,7 @@ while [[ $# -gt 0 ]]; do
       load_env_file "${ENV_FILE}"
       ;;
     --installer|--installer-src)
-      PF_INSTALLER_SRC="${2:-}"
+      PF_SERIAL_INSTALLER_PATH="${2:-}"
       shift 2 || die "Missing value for --installer"
       ;;
     --installer-dest)
@@ -144,7 +144,7 @@ ensure_bridge "WAN" "${PF_WAN_BRIDGE}"
 ensure_bridge "LAN" "${PF_LAN_BRIDGE}"
 
 locate_installer() {
-  local explicit="${PF_INSTALLER_SRC:-}"
+  local explicit="${PF_SERIAL_INSTALLER_PATH:-}"
   if [[ -n "${explicit}" ]]; then
     if [[ -f "${explicit}" ]]; then
       echo "${explicit}"
@@ -193,7 +193,7 @@ locate_installer() {
     fi
   done
 
-  die "Installer image not found. Place a Netgate installer under one of: ${dirs[*]} or set PF_INSTALLER_SRC."
+  die "Installer image not found. Place a Netgate installer under one of: ${dirs[*]} or set PF_SERIAL_INSTALLER_PATH."
 }
 
 sync_file() {
@@ -211,8 +211,8 @@ prepare_installer() {
   local src dest tmp
   src="$(locate_installer)"
   dest="${PF_INSTALLER_DEST}"
-  PF_INSTALLER_SRC="${src}"
-  info "Using installer source: ${PF_INSTALLER_SRC}"
+  PF_SERIAL_INSTALLER_PATH="${src}"
+  info "Using installer source: ${PF_SERIAL_INSTALLER_PATH}"
   if [[ "${src}" == *.gz ]]; then
     tmp="$(mktemp)"
     (

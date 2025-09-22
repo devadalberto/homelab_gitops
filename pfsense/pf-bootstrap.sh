@@ -45,7 +45,7 @@ PF_INSTALLER_DIRS=("$HOME/downloads" "/opt/homelab/pfsense" "/var/lib/libvirt/im
 PF_INSTALLER_NAMES=("netgate-installer-amd64-serial.img.gz" "netgate-installer-amd64.img.gz" "netgate-installer-amd64-serial.img" "netgate-installer-amd64.img")
 
 locate_installer() {
-  local explicit="${INSTALLATION_PATH:-${PF_INSTALLER_SRC:-}}"
+  local explicit="${INSTALLATION_PATH:-${PF_SERIAL_INSTALLER_PATH:-}}"
   if [[ -n "${explicit}" ]]; then
     [[ -f "${explicit}" ]] && { echo "${explicit}"; return 0; }
     [[ "${explicit}" == *.gz && -f "${explicit%.gz}" ]] && { echo "${explicit%.gz}"; return 0; }
@@ -73,7 +73,7 @@ if [[ "${REQUIRE_INSTALLER}" -eq 1 ]]; then
   if INSTALLER_FOUND="$(locate_installer)"; then
     ok "Installer located: ${INSTALLER_FOUND}"
   else
-    die "Installer required to bootstrap a new domain, but none found. Set PF_INSTALLER_SRC or provide --installation-path."
+    die "Installer required to bootstrap a new domain, but none found. Set PF_SERIAL_INSTALLER_PATH or provide --installation-path."
   fi
 else
   if INSTALLER_FOUND="$(locate_installer)"; then

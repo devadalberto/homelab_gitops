@@ -8,12 +8,12 @@ Welcome to the documentation portal for the Uranus homelab GitOps stack. This si
 git clone https://github.com/devadalberto/homelab_gitops.git
 cd homelab_gitops
 cp .env.example .env
-# Edit passwords, ranges, mount paths, and set PF_INSTALLER_SRC to the downloaded pfSense installer (legacy PF_SERIAL_INSTALLER_PATH/PF_ISO_PATH remain fallbacks)
+# Edit passwords, ranges, mount paths, and set PF_SERIAL_INSTALLER_PATH to the downloaded pfSense installer (PF_ISO_PATH remains an opt-in VGA fallback)
 make up
 ```
 
-`.env.example` defaults to the serial image workflow. Update `PF_INSTALLER_SRC` with your local download location so the automation can stage the media automatically before you run `make up`.
-Legacy `PF_SERIAL_INSTALLER_PATH`/`PF_ISO_PATH` variables remain supported for backwards compatibility (use `PF_ISO_PATH` when opting into the VGA build).
+`.env.example` defaults to the serial image workflow. Update `PF_SERIAL_INSTALLER_PATH` with your local download location so the automation can stage the media automatically before you run `make up`.
+`PF_ISO_PATH` remains available when opting into the VGA build after setting `PF_HEADLESS=false`, but the default guardrails enforce headless pfSense guests.
 
 The `make up` target first runs `scripts/preflight_and_bootstrap.sh` in preflight mode so host packages, kernel modules, and firewall rules are ready before Minikube is rebuilt. It then hands control to the combined bootstrap workflow in `scripts/uranus_homelab.sh` for cluster bring-up and application deployment.
 
@@ -49,7 +49,7 @@ virsh shutdown ${VM_NAME}    # skip if the VM has never been started
 sudo ./scripts/pf-ztp.sh --env-file ./.env
 ```
 
-`pf-ztp.sh` now swaps both the installer disk and config ISO, inserting media live when possible. If the VM is running and libvirt refuses a hot change, stop it first or run `virsh change-media ${VM_NAME} sdy ${WORK_ROOT}/pfsense/config/pfSense-config.iso --insert --force --config` manually after the shutdown completes. The helper re-reads `.env` on each invocation, so confirm `PF_INSTALLER_SRC` still references the installer download before triggering a refresh. Legacy `PF_SERIAL_INSTALLER_PATH`/`PF_ISO_PATH` entries are still honored when present (`PF_ISO_PATH` remains the VGA build toggle).
+`pf-ztp.sh` now swaps both the installer disk and config ISO, inserting media live when possible. If the VM is running and libvirt refuses a hot change, stop it first or run `virsh change-media ${VM_NAME} sdy ${WORK_ROOT}/pfsense/config/pfSense-config.iso --insert --force --config` manually after the shutdown completes. The helper re-reads `.env` on each invocation, so confirm `PF_SERIAL_INSTALLER_PATH` still references the installer download before triggering a refresh. `PF_ISO_PATH` remains the VGA build toggle for advanced scenarios.
 
 ## Environment Variables and Mapping
 

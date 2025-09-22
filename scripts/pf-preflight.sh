@@ -120,7 +120,6 @@ TRAEFIK_LOCAL_IP="${TRAEFIK_LOCAL_IP:-}"
 LABZ_METALLB_RANGE="${LABZ_METALLB_RANGE:-}"
 METALLB_POOL_START="${METALLB_POOL_START:-}"
 METALLB_POOL_END="${METALLB_POOL_END:-}"
-LEGACY_PF_INSTALLER_SRC="${PF_INSTALLER_SRC:-}"
 LEGACY_PF_BRIDGE_INTERFACE="${PF_BRIDGE_INTERFACE:-}"
 LEGACY_DHCP_FROM="${DHCP_FROM:-}"
 LEGACY_DHCP_TO="${DHCP_TO:-}"
@@ -171,9 +170,6 @@ ensure_required_environment() {
     installer_msg=$'PF_SERIAL_INSTALLER_PATH is required but empty.\nSet PF_SERIAL_INSTALLER_PATH in '
     installer_msg+="${ENV_SOURCE_LABEL}"
     installer_msg+=$' to the absolute path of the Netgate serial installer (.img or .img.gz).'
-    if [[ -n "${LEGACY_PF_INSTALLER_SRC}" ]]; then
-      installer_msg+=$' Legacy PF_INSTALLER_SRC is set; rename it to PF_SERIAL_INSTALLER_PATH.'
-    fi
     die "${installer_msg}"
   fi
 
