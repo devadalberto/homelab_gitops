@@ -28,11 +28,13 @@ readonly EX_SOFTWARE=70
 readonly EX_TEMPFAIL=75
 readonly EX_CONFIG=78
 
+# shellcheck disable=SC2034
 ASSUME_YES=false
 DELETE_PREVIOUS=false
 DRY_RUN=false
 CONTEXT_ONLY=false
 ENV_FILE_OVERRIDE=""
+# shellcheck disable=SC2034
 ENV_FILE_PATH=""
 HOLD_PORT_FORWARD=false
 
@@ -82,6 +84,7 @@ load_environment() {
     if [[ ! -f ${ENV_FILE_OVERRIDE} ]]; then
       die ${EX_CONFIG} "Environment file not found: ${ENV_FILE_OVERRIDE}"
     fi
+    # shellcheck disable=SC2034
     ENV_FILE_PATH="${ENV_FILE_OVERRIDE}"
     load_env "${ENV_FILE_OVERRIDE}" || die ${EX_CONFIG} "Failed to load ${ENV_FILE_OVERRIDE}"
     return
@@ -97,11 +100,13 @@ load_environment() {
     log_debug "Checking for environment file at ${candidate}"
     if [[ -f ${candidate} ]]; then
       log_info "Loading environment from ${candidate}"
+      # shellcheck disable=SC2034
       ENV_FILE_PATH="${candidate}"
       load_env "${candidate}" || die ${EX_CONFIG} "Failed to load ${candidate}"
       return
     fi
   done
+  # shellcheck disable=SC2034
   ENV_FILE_PATH=""
   log_debug "No environment file present in default search locations"
 }
@@ -109,57 +114,57 @@ load_environment() {
 parse_args() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --env-file)
-        if [[ $# -lt 2 ]]; then
-          usage
-          die ${EX_USAGE} "--env-file requires a path argument"
-        fi
-        ENV_FILE_OVERRIDE="$2"
-        shift 2
-        ;;
-      --assume-yes)
-        ASSUME_YES=true
-        shift
-        ;;
-      --delete-previous-environment)
-        DELETE_PREVIOUS=true
-        shift
-        ;;
-      --dry-run)
-        DRY_RUN=true
-        shift
-        ;;
-      --context-preflight)
-        CONTEXT_ONLY=true
-        shift
-        ;;
-      --hold-port-forward)
-        HOLD_PORT_FORWARD=true
-        shift
-        ;;
-      --verbose)
-        log_set_level debug
-        shift
-        ;;
-      -h|--help)
+    --env-file)
+      if [[ $# -lt 2 ]]; then
         usage
-        exit ${EX_OK}
-        ;;
-      --)
-        shift
-        if [[ $# -gt 0 ]]; then
-          usage
-          die ${EX_USAGE} "Unexpected positional arguments: $*"
-        fi
-        ;;
-      -* )
+        die ${EX_USAGE} "--env-file requires a path argument"
+      fi
+      ENV_FILE_OVERRIDE="$2"
+      shift 2
+      ;;
+    --assume-yes)
+      ASSUME_YES=true
+      shift
+      ;;
+    --delete-previous-environment)
+      DELETE_PREVIOUS=true
+      shift
+      ;;
+    --dry-run)
+      DRY_RUN=true
+      shift
+      ;;
+    --context-preflight)
+      CONTEXT_ONLY=true
+      shift
+      ;;
+    --hold-port-forward)
+      HOLD_PORT_FORWARD=true
+      shift
+      ;;
+    --verbose)
+      log_set_level debug
+      shift
+      ;;
+    -h | --help)
+      usage
+      exit ${EX_OK}
+      ;;
+    --)
+      shift
+      if [[ $# -gt 0 ]]; then
         usage
-        die ${EX_USAGE} "Unknown option: $1"
-        ;;
-      * )
-        usage
-        die ${EX_USAGE} "Positional arguments are not supported"
-        ;;
+        die ${EX_USAGE} "Unexpected positional arguments: $*"
+      fi
+      ;;
+    -*)
+      usage
+      die ${EX_USAGE} "Unknown option: $1"
+      ;;
+    *)
+      usage
+      die ${EX_USAGE} "Positional arguments are not supported"
+      ;;
     esac
   done
 }
@@ -343,14 +348,14 @@ wait_for_registry() {
   local exit_code=0
   local ready=false
 
-  while (( attempt <= attempts )); do
+  while ((attempt <= attempts)); do
     log_debug "Checking registry readiness (attempt ${attempt}/${attempts}, timeout ${rollout_timeout}s)"
     if kubectl -n kube-system rollout status deployment/registry --timeout="${rollout_timeout}s"; then
       ready=true
       break
     fi
     exit_code=$?
-    if (( attempt < attempts )); then
+    if ((attempt < attempts)); then
       log_warn "Registry deployment not ready after attempt ${attempt}/${attempts}. Retrying in ${delay}s..."
       sleep "${delay}"
     fi
@@ -372,8 +377,8 @@ wait_for_registry() {
 start_registry_port_forward() {
   local local_endpoint="localhost:${REGISTRY_LOCAL_PORT}"
   local -a cmd=(
-    kubectl -n kube-system port-forward --address 0.0.0.0 svc/registry \
-      "${REGISTRY_LOCAL_PORT}:${REGISTRY_SERVICE_PORT}"
+    kubectl -n kube-system port-forward --address 0.0.0.0 svc/registry
+    "${REGISTRY_LOCAL_PORT}:${REGISTRY_SERVICE_PORT}"
   )
   local -a success_messages=(
     "Local registry port-forward established at ${local_endpoint}."

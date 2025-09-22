@@ -48,28 +48,28 @@ SKIP_IP_VALIDATION="false"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    -e|--env-file)
-      if [[ $# -lt 2 ]]; then
-        die "Missing value for $1"
-      fi
-      REQUESTED_ENV_FILE="$2"
-      shift 2
-      ;;
-    --skip-ip-validation)
-      SKIP_IP_VALIDATION="true"
-      shift
-      ;;
-    -h|--help)
-      usage
-      exit 0
-      ;;
-    --)
-      shift
-      break
-      ;;
-    *)
-      die "Unknown argument: $1"
-      ;;
+  -e | --env-file)
+    if [[ $# -lt 2 ]]; then
+      die "Missing value for $1"
+    fi
+    REQUESTED_ENV_FILE="$2"
+    shift 2
+    ;;
+  --skip-ip-validation)
+    SKIP_IP_VALIDATION="true"
+    shift
+    ;;
+  -h | --help)
+    usage
+    exit 0
+    ;;
+  --)
+    shift
+    break
+    ;;
+  *)
+    die "Unknown argument: $1"
+    ;;
   esac
 done
 
@@ -180,11 +180,11 @@ validate_ips() {
 
   info "Validating LAN and service IPs against ${LAN_CIDR}"
   if LAN_CIDR="${LAN_CIDR}" \
-     TRAEFIK_LOCAL_IP="${TRAEFIK_LOCAL_IP}" \
-     LABZ_METALLB_RANGE="${LABZ_METALLB_RANGE}" \
-     METALLB_POOL_START="${METALLB_POOL_START}" \
-     METALLB_POOL_END="${METALLB_POOL_END}" \
-     python3 - <<'PY'
+    TRAEFIK_LOCAL_IP="${TRAEFIK_LOCAL_IP}" \
+    LABZ_METALLB_RANGE="${LABZ_METALLB_RANGE}" \
+    METALLB_POOL_START="${METALLB_POOL_START}" \
+    METALLB_POOL_END="${METALLB_POOL_END}" \
+    python3 - <<'PY'; then
 import ipaddress
 import os
 import sys
@@ -243,7 +243,6 @@ if errors:
         print(line, file=sys.stderr)
     raise SystemExit(1)
 PY
-  then
     ok "LAN and MetalLB IP ranges validated"
   else
     die "LAN/IP validation failed"

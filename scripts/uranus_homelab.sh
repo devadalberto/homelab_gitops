@@ -106,57 +106,57 @@ load_environment() {
 parse_args() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --env-file)
-        if [[ $# -lt 2 ]]; then
-          usage
-          die ${EX_USAGE} "--env-file requires a path argument"
-        fi
-        ENV_FILE_OVERRIDE="$2"
-        shift 2
-        ;;
-      --assume-yes)
-        ASSUME_YES=true
-        shift
-        ;;
-      --delete-previous-environment)
-        DELETE_PREVIOUS=true
-        shift
-        ;;
-      --dry-run)
-        DRY_RUN=true
-        shift
-        ;;
-      --check-only)
-        CHECK_ONLY=true
-        shift
-        ;;
-      --context-preflight)
-        CONTEXT_ONLY=true
-        shift
-        ;;
-      --verbose)
-        log_set_level debug
-        shift
-        ;;
-      -h|--help)
+    --env-file)
+      if [[ $# -lt 2 ]]; then
         usage
-        exit ${EX_OK}
-        ;;
-      --)
-        shift
-        if [[ $# -gt 0 ]]; then
-          usage
-          die ${EX_USAGE} "Unexpected positional arguments: $*"
-        fi
-        ;;
-      -* )
+        die ${EX_USAGE} "--env-file requires a path argument"
+      fi
+      ENV_FILE_OVERRIDE="$2"
+      shift 2
+      ;;
+    --assume-yes)
+      ASSUME_YES=true
+      shift
+      ;;
+    --delete-previous-environment)
+      DELETE_PREVIOUS=true
+      shift
+      ;;
+    --dry-run)
+      DRY_RUN=true
+      shift
+      ;;
+    --check-only)
+      CHECK_ONLY=true
+      shift
+      ;;
+    --context-preflight)
+      CONTEXT_ONLY=true
+      shift
+      ;;
+    --verbose)
+      log_set_level debug
+      shift
+      ;;
+    -h | --help)
+      usage
+      exit ${EX_OK}
+      ;;
+    --)
+      shift
+      if [[ $# -gt 0 ]]; then
         usage
-        die ${EX_USAGE} "Unknown option: $1"
-        ;;
-      * )
-        usage
-        die ${EX_USAGE} "Positional arguments are not supported"
-        ;;
+        die ${EX_USAGE} "Unexpected positional arguments: $*"
+      fi
+      ;;
+    -*)
+      usage
+      die ${EX_USAGE} "Unknown option: $1"
+      ;;
+    *)
+      usage
+      die ${EX_USAGE} "Positional arguments are not supported"
+      ;;
     esac
   done
 }
@@ -231,15 +231,15 @@ run_pfsense_ztp() {
   )
 
   local i=0
-  while (( i < ${#common_args[@]} )); do
+  while ((i < ${#common_args[@]})); do
     case "${common_args[i]}" in
-      --env-file)
-        ((i+=2))
-        continue
-        ;;
-      --dry-run)
-        pf_args+=("--dry-run")
-        ;;
+    --env-file)
+      ((i += 2))
+      continue
+      ;;
+    --dry-run)
+      pf_args+=("--dry-run")
+      ;;
     esac
     ((++i))
   done

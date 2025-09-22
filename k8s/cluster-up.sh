@@ -27,7 +27,8 @@ minikube -p "${LABZ_MINIKUBE_PROFILE}" addons enable storage-provisioner >/dev/n
 
 kubectl create ns metallb-system --dry-run=client -o yaml | kubectl apply -f -
 pool_manifest=$("$ROOT/scripts/render_metallb_pool_manifest.sh" --env-file "$ENV_FILE" --output - --stdout)
-advertisement=$(cat <<'YAML'
+advertisement=$(
+  cat <<'YAML'
 apiVersion: metallb.io/v1beta1
 kind: L2Advertisement
 metadata:

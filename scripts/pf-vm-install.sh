@@ -3,11 +3,14 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-log()   { printf "%s %s\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >&2; }
-die()   { log "[ERROR] $*"; exit 1; }
-info()  { log "[INFO] $*"; }
-ok()    { log "[OK] $*"; }
-warn()  { log "[WARN] $*"; }
+log() { printf "%s %s\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >&2; }
+die() {
+  log "[ERROR] $*"
+  exit 1
+}
+info() { log "[INFO] $*"; }
+ok() { log "[OK] $*"; }
+warn() { log "[WARN] $*"; }
 
 usage() {
   cat <<'USAGE' >&2
@@ -51,51 +54,51 @@ load_env_file() {
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --env-file|-e)
-      ENV_FILE="${2:-}"
-      shift 2 || die "Missing value for --env-file"
-      load_env_file "${ENV_FILE}"
-      ;;
-    --installer|--installer-src)
-      PF_INSTALLER_SRC="${2:-}"
-      shift 2 || die "Missing value for --installer"
-      ;;
-    --installer-dest)
-      PF_INSTALLER_DEST="${2:-}"
-      shift 2 || die "Missing value for --installer-dest"
-      ;;
-    --wan-bridge)
-      PF_WAN_BRIDGE="${2:-}"
-      shift 2 || die "Missing value for --wan-bridge"
-      ;;
-    --lan-bridge|--bridge)
-      PF_LAN_BRIDGE="${2:-}"
-      shift 2 || die "Missing value for --lan-bridge"
-      ;;
-    --vm-name)
-      PF_VM_NAME="${2:-}"
-      shift 2 || die "Missing value for --vm-name"
-      ;;
-    --qcow2-path)
-      PF_QCOW2_PATH="${2:-}"
-      shift 2 || die "Missing value for --qcow2-path"
-      ;;
-    --qcow2-size-gb)
-      PF_QCOW2_SIZE_GB="${2:-}"
-      shift 2 || die "Missing value for --qcow2-size-gb"
-      ;;
-    --osinfo)
-      PF_OSINFO="${2:-}"
-      shift 2 || die "Missing value for --osinfo"
-      ;;
-    --help|-h)
-      usage
-      exit 0
-      ;;
-    *)
-      usage
-      die "Unknown argument: $1"
-      ;;
+  --env-file | -e)
+    ENV_FILE="${2:-}"
+    shift 2 || die "Missing value for --env-file"
+    load_env_file "${ENV_FILE}"
+    ;;
+  --installer | --installer-src)
+    PF_INSTALLER_SRC="${2:-}"
+    shift 2 || die "Missing value for --installer"
+    ;;
+  --installer-dest)
+    PF_INSTALLER_DEST="${2:-}"
+    shift 2 || die "Missing value for --installer-dest"
+    ;;
+  --wan-bridge)
+    PF_WAN_BRIDGE="${2:-}"
+    shift 2 || die "Missing value for --wan-bridge"
+    ;;
+  --lan-bridge | --bridge)
+    PF_LAN_BRIDGE="${2:-}"
+    shift 2 || die "Missing value for --lan-bridge"
+    ;;
+  --vm-name)
+    PF_VM_NAME="${2:-}"
+    shift 2 || die "Missing value for --vm-name"
+    ;;
+  --qcow2-path)
+    PF_QCOW2_PATH="${2:-}"
+    shift 2 || die "Missing value for --qcow2-path"
+    ;;
+  --qcow2-size-gb)
+    PF_QCOW2_SIZE_GB="${2:-}"
+    shift 2 || die "Missing value for --qcow2-size-gb"
+    ;;
+  --osinfo)
+    PF_OSINFO="${2:-}"
+    shift 2 || die "Missing value for --osinfo"
+    ;;
+  --help | -h)
+    usage
+    exit 0
+    ;;
+  *)
+    usage
+    die "Unknown argument: $1"
+    ;;
   esac
 done
 
@@ -185,6 +188,7 @@ locate_installer() {
 
   local any=""
   for d in "${dirs[@]}"; do
+    # shellcheck disable=SC2012
     if any=$(ls -1t "${d}"/netgate*amd64*.img* 2>/dev/null | head -n1); then
       if [[ -n "${any}" ]]; then
         echo "${any}"
@@ -218,7 +222,7 @@ prepare_installer() {
     (
       trap 'rm -f "${tmp}"' EXIT
       info "Decompressing installer archive to ${dest}"
-      gunzip -c "${src}" > "${tmp}"
+      gunzip -c "${src}" >"${tmp}"
       sudo install -d "$(dirname "${dest}")"
       sudo rm -f "${dest}"
       sudo install -m 0644 "${tmp}" "${dest}"
@@ -257,8 +261,8 @@ domain_is_live() {
   fi
   state="${state%% *}"
   case "${state}" in
-    running|idle|blocked|paused) return 0 ;;
-    *) return 1 ;;
+  running | idle | blocked | paused) return 0 ;;
+  *) return 1 ;;
   esac
 }
 
@@ -267,7 +271,7 @@ create_domain() {
   local -a osinfo_arg=(--osinfo "${PF_OSINFO}")
   if ! virt-install --osinfo list | awk '{print $1}' | grep -qx "${PF_OSINFO}"; then
     warn "OSINFO '${PF_OSINFO}' not available; using detect=on,require=off"
-    osinfo_arg=(--osinfo detect=on,require=off)
+    osinfo_arg=(--osinfo "detect=on,require=off")
   fi
 
   local -a network_args=(
@@ -327,7 +331,7 @@ ensure_iface_on_bridge() {
   local count
   count="$(count_bridge_ifaces "${domain}" "${bridge}")"
   count="${count:-0}"
-  if (( count >= 1 )); then
+  if ((count >= 1)); then
     ok "${label} bridge '${bridge}' already attached to ${domain}"
     return 0
   fi
@@ -339,12 +343,12 @@ ensure_two_ifaces_same_bridge() {
   local count next
   count="$(count_bridge_ifaces "${domain}" "${bridge}")"
   count="${count:-0}"
-  if (( count >= 2 )); then
+  if ((count >= 2)); then
     ok "${label} bridge '${bridge}' already has ${count} interfaces on ${domain}"
     return 0
   fi
   info "Ensuring ${label} bridge '${bridge}' has two interfaces (currently ${count})"
-  while (( count < 2 )); do
+  while ((count < 2)); do
     next=$((count + 1))
     attach_bridge_interface "${domain}" "${bridge}" "${label} #${next}"
     count=$((count + 1))

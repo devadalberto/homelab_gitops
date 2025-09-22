@@ -194,20 +194,19 @@ jobs:
             rel=${dir#./}
             safe_name=$(echo "$rel" | tr '/._' '-' | tr '[:upper:]' '[:lower:]')
             tmp_file=$(mktemp)
-            cat <<EOT > "$tmp_file"
-apiVersion: kustomize.toolkit.fluxcd.io/v1
-kind: Kustomization
-metadata:
-  name: ${safe_name}
-  namespace: flux-system
-spec:
-  interval: 10m
-  path: ./${rel}
-  prune: false
-  sourceRef:
-    kind: GitRepository
-    name: placeholder
-EOT
+            printf '%s\n' \
+              "apiVersion: kustomize.toolkit.fluxcd.io/v1" \
+              "kind: Kustomization" \
+              "metadata:" \
+              "  name: ${safe_name}" \
+              "  namespace: flux-system" \
+              "spec:" \
+              "  interval: 10m" \
+              "  path: ./${rel}" \
+              "  prune: false" \
+              "  sourceRef:" \
+              "    kind: GitRepository" \
+              "    name: placeholder" >"$tmp_file"
             echo "Flux building ${rel}"
             flux build kustomization "${safe_name}" \
               --namespace=flux-system \

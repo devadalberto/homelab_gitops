@@ -24,6 +24,7 @@ readonly EX_OK=0
 readonly EX_USAGE=64
 readonly EX_UNAVAILABLE=69
 readonly EX_SOFTWARE=70
+# shellcheck disable=SC2034
 readonly EX_TEMPFAIL=75
 readonly EX_CONFIG=78
 
@@ -42,6 +43,7 @@ export STATE_DIR
 export STATE_PATH
 NEED_MINIKUBE_RESTART=0
 NEED_SYSCTL_RELOAD=0
+# shellcheck disable=SC2034
 NETWORK_CHANGED=0
 
 METALLB_POOL_START="${METALLB_POOL_START:-}"
@@ -208,62 +210,62 @@ maybe_sudo() {
 parse_args() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --env-file)
-        if [[ $# -lt 2 ]]; then
-          usage
-          die ${EX_USAGE} "--env-file requires a path argument"
-        fi
-        ENV_FILE_OVERRIDE="$2"
-        shift 2
-        ;;
-      --assume-yes)
-        ASSUME_YES=true
-        shift
-        ;;
-      --allow-ufw)
-        ALLOW_UFW=true
-        shift
-        ;;
-      --verbose)
-        log_set_level debug
-        shift
-        ;;
-      --delete-previous-environment)
-        DELETE_PREVIOUS=true
-        shift
-        ;;
-      --preflight-only)
-        PREFLIGHT_ONLY=true
-        shift
-        ;;
-      --dry-run)
-        DRY_RUN=true
-        PREFLIGHT_ONLY=true
-        shift
-        ;;
-      --context-preflight)
-        CONTEXT_ONLY=true
-        shift
-        ;;
-      -h|--help)
+    --env-file)
+      if [[ $# -lt 2 ]]; then
         usage
-        exit ${EX_OK}
-        ;;
-      --)
-        shift
-        if [[ $# -gt 0 ]]; then
-          usage
-          die ${EX_USAGE} "Unexpected positional arguments: $*"
-        fi
-        ;;
-      -* )
+        die ${EX_USAGE} "--env-file requires a path argument"
+      fi
+      ENV_FILE_OVERRIDE="$2"
+      shift 2
+      ;;
+    --assume-yes)
+      ASSUME_YES=true
+      shift
+      ;;
+    --allow-ufw)
+      ALLOW_UFW=true
+      shift
+      ;;
+    --verbose)
+      log_set_level debug
+      shift
+      ;;
+    --delete-previous-environment)
+      DELETE_PREVIOUS=true
+      shift
+      ;;
+    --preflight-only)
+      PREFLIGHT_ONLY=true
+      shift
+      ;;
+    --dry-run)
+      DRY_RUN=true
+      PREFLIGHT_ONLY=true
+      shift
+      ;;
+    --context-preflight)
+      CONTEXT_ONLY=true
+      shift
+      ;;
+    -h | --help)
+      usage
+      exit ${EX_OK}
+      ;;
+    --)
+      shift
+      if [[ $# -gt 0 ]]; then
         usage
-        die ${EX_USAGE} "Unknown option: $1"
-        ;;
-      * )
-        usage
-        die ${EX_USAGE} "Positional arguments are not supported"
-        ;;
+        die ${EX_USAGE} "Unexpected positional arguments: $*"
+      fi
+      ;;
+    -*)
+      usage
+      die ${EX_USAGE} "Unknown option: $1"
+      ;;
+    *)
+      usage
+      die ${EX_USAGE} "Positional arguments are not supported"
+      ;;
     esac
   done
 }
@@ -291,7 +293,8 @@ classify_interface() {
 
 load_previous_state() {
   if [[ -f "${STATE_PATH}" ]]; then
-    if ! eval "$(python3 <<'PY'
+    if ! eval "$(
+      python3 <<'PY'
 import json, os, shlex, sys
 path = os.environ.get('STATE_PATH')
 try:
@@ -311,7 +314,7 @@ if pool.get('end'):
 if data.get('traefik_ip'):
     print(f'PREV_TRAEFIK_IP={shlex.quote(str(data.get("traefik_ip")))}')
 PY
-)"; then
+    )"; then
       log_warn "Unable to parse previous state file"
     fi
   fi
@@ -322,7 +325,8 @@ collect_network_context() {
     die ${EX_UNAVAILABLE} "ip and python3 are required for network discovery"
   fi
   local json
-  if ! json=$(python3 <<'PY'
+  if ! json=$(
+    python3 <<'PY'
 import ipaddress
 import json
 import subprocess
@@ -368,7 +372,7 @@ print(json.dumps({
     'mtu': mtu,
 }, separators=(',', ':')))
 PY
-); then
+  ); then
     die ${EX_SOFTWARE} "Unable to determine active network context"
   fi
   NETWORK_IFACE=$(python3 -c 'import json,sys; data=json.load(sys.stdin); print(data["iface"])' <<<"${json}")
@@ -383,7 +387,8 @@ PY
 }
 
 compare_fingerprint() {
-  if [[ -n "${PREV_IFACE:-}" && ( "${PREV_IFACE}" != "${NETWORK_IFACE}" || "${PREV_ADDR:-}" != "${NETWORK_ADDR}" || "${PREV_CIDR:-}" != "${NETWORK_CIDR}" || "${PREV_GW:-}" != "${NETWORK_GW}" || "${PREV_MTU:-}" != "${NETWORK_MTU}" ) ]]; then
+  if [[ -n "${PREV_IFACE:-}" && ("${PREV_IFACE}" != "${NETWORK_IFACE}" || "${PREV_ADDR:-}" != "${NETWORK_ADDR}" || "${PREV_CIDR:-}" != "${NETWORK_CIDR}" || "${PREV_GW:-}" != "${NETWORK_GW}" || "${PREV_MTU:-}" != "${NETWORK_MTU}") ]]; then
+    # shellcheck disable=SC2034
     NETWORK_CHANGED=1
     log_warn "Network fingerprint changed since last run"
     log_warn "Previous: iface=${PREV_IFACE:-?}, addr=${PREV_ADDR:-?}, gw=${PREV_GW:-?}, mtu=${PREV_MTU:-?}"
@@ -452,7 +457,8 @@ range_available() {
   local start=$1
   local end=$2
   local ips
-  if ! ips=$(python3 - "$start" "$end" <<'PY'
+  if ! ips=$(
+    python3 - "$start" "$end" <<'PY'
 import ipaddress
 import sys
 start = ipaddress.ip_address(sys.argv[1])
@@ -466,7 +472,7 @@ while current <= end:
     current += 1
 print('\n'.join(items))
 PY
-); then
+  ); then
     return 1
   fi
   local ip
@@ -482,7 +488,8 @@ PY
 
 select_metallb_pool() {
   local candidate_lines
-  candidate_lines=$(python3 <<'PY'
+  candidate_lines=$(
+    python3 <<'PY'
 import ipaddress
 import json
 import os
@@ -518,7 +525,7 @@ for start, end in candidates:
         unique.append(f"{start},{end}")
 print("\n".join(unique))
 PY
-)
+  )
   local selected_start=""
   local selected_end=""
   local line
@@ -898,7 +905,8 @@ ensure_kube_proxy_mode() {
     rm -f "${tmp}"
     return
   fi
-  if python3 <<'PY'
+  if
+    python3 <<'PY'
 import json
 import os
 import re
@@ -917,7 +925,8 @@ data['data']['kube-proxy.conf'] = config
 with open(path, 'w', encoding='utf-8') as fh:
     json.dump(data, fh)
 PY
-"${tmp}"; then
+    "${tmp}"
+  then
     log_info "kube-proxy already configured for iptables"
     rm -f "${tmp}"
     return
@@ -983,7 +992,8 @@ reconcile_metallb_pool() {
   if ! pool_manifest=$(metallb_render_ip_pool_manifest "homelab-pool" "metallb-system"); then
     die ${EX_CONFIG} "Failed to render MetalLB IPAddressPool"
   fi
-  advertisement=$(cat <<'EOF'
+  advertisement=$(
+    cat <<'EOF'
 apiVersion: metallb.io/v1beta1
 kind: L2Advertisement
 metadata:
@@ -993,7 +1003,7 @@ spec:
   ipAddressPools:
     - homelab-pool
 EOF
-)
+  )
   kubectl_apply_manifest "${pool_manifest}"
   kubectl_apply_manifest "${advertisement}"
 }

@@ -94,34 +94,34 @@ load_environment() {
 parse_args() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --env-file)
-        if [[ $# -lt 2 ]]; then
-          usage
-          die ${EX_USAGE} "--env-file requires a path argument"
-        fi
-        ENV_FILE_OVERRIDE="$2"
-        shift 2
-        ;;
-      --verbose)
-        log_set_level debug
-        shift
-        ;;
-      -h|--help)
+    --env-file)
+      if [[ $# -lt 2 ]]; then
         usage
-        exit ${EX_OK}
-        ;;
-      --)
-        shift
-        break
-        ;;
-      -*)
-        usage
-        die ${EX_USAGE} "Unknown option: $1"
-        ;;
-      *)
-        usage
-        die ${EX_USAGE} "Positional arguments are not supported"
-        ;;
+        die ${EX_USAGE} "--env-file requires a path argument"
+      fi
+      ENV_FILE_OVERRIDE="$2"
+      shift 2
+      ;;
+    --verbose)
+      log_set_level debug
+      shift
+      ;;
+    -h | --help)
+      usage
+      exit ${EX_OK}
+      ;;
+    --)
+      shift
+      break
+      ;;
+    -*)
+      usage
+      die ${EX_USAGE} "Unknown option: $1"
+      ;;
+    *)
+      usage
+      die ${EX_USAGE} "Positional arguments are not supported"
+      ;;
     esac
   done
 
@@ -132,19 +132,19 @@ parse_args() {
 }
 
 validate_retry_config() {
-  if ! [[ ${CONTEXT_RETRY_ATTEMPTS} =~ ^[0-9]+$ ]] || (( CONTEXT_RETRY_ATTEMPTS <= 0 )); then
+  if ! [[ ${CONTEXT_RETRY_ATTEMPTS} =~ ^[0-9]+$ ]] || ((CONTEXT_RETRY_ATTEMPTS <= 0)); then
     die ${EX_USAGE} "K8S_SMOKETEST_CONTEXT_ATTEMPTS must be a positive integer"
   fi
-  if ! [[ ${CONTEXT_RETRY_DELAY} =~ ^[0-9]+$ ]] || (( CONTEXT_RETRY_DELAY <= 0 )); then
+  if ! [[ ${CONTEXT_RETRY_DELAY} =~ ^[0-9]+$ ]] || ((CONTEXT_RETRY_DELAY <= 0)); then
     die ${EX_USAGE} "K8S_SMOKETEST_CONTEXT_DELAY must be a positive integer"
   fi
-  if ! [[ ${POD_READINESS_ATTEMPTS} =~ ^[0-9]+$ ]] || (( POD_READINESS_ATTEMPTS <= 0 )); then
+  if ! [[ ${POD_READINESS_ATTEMPTS} =~ ^[0-9]+$ ]] || ((POD_READINESS_ATTEMPTS <= 0)); then
     die ${EX_USAGE} "K8S_SMOKETEST_POD_ATTEMPTS must be a positive integer"
   fi
-  if ! [[ ${POD_READINESS_DELAY} =~ ^[0-9]+$ ]] || (( POD_READINESS_DELAY <= 0 )); then
+  if ! [[ ${POD_READINESS_DELAY} =~ ^[0-9]+$ ]] || ((POD_READINESS_DELAY <= 0)); then
     die ${EX_USAGE} "K8S_SMOKETEST_POD_DELAY must be a positive integer"
   fi
-  if ! [[ ${HTTP_PROBE_TIMEOUT} =~ ^[0-9]+$ ]] || (( HTTP_PROBE_TIMEOUT <= 0 )); then
+  if ! [[ ${HTTP_PROBE_TIMEOUT} =~ ^[0-9]+$ ]] || ((HTTP_PROBE_TIMEOUT <= 0)); then
     die ${EX_USAGE} "K8S_SMOKETEST_HTTP_TIMEOUT must be a positive integer"
   fi
 }
@@ -167,7 +167,7 @@ ensure_kubectl_context() {
   fi
 
   local attempt=1
-  while (( attempt <= CONTEXT_RETRY_ATTEMPTS )); do
+  while ((attempt <= CONTEXT_RETRY_ATTEMPTS)); do
     if kubectl config use-context "${desired}" >/dev/null 2>&1; then
       log_info "kubectl context set to ${desired}"
       return 0
@@ -203,7 +203,7 @@ check_ready_nodes() {
 check_pod_health() {
   log_info "Ensuring all pods report Ready or Succeeded"
   local attempt=1
-  while (( attempt <= POD_READINESS_ATTEMPTS )); do
+  while ((attempt <= POD_READINESS_ATTEMPTS)); do
     local pods_json
     if ! pods_json=$(kubectl get pods -A -o json 2>/dev/null); then
       log_warn "kubectl get pods failed (attempt ${attempt}/${POD_READINESS_ATTEMPTS}); retrying in ${POD_READINESS_DELAY}s"
@@ -253,8 +253,7 @@ for item in data.get("items", []):
 if unready:
     print("\n".join(unready))
     sys.exit(1)
-' <<<"${pods_json}")
-      then
+' <<<"${pods_json}"); then
         log_info "All pods across namespaces are Ready or Succeeded"
         return 0
       else
@@ -264,7 +263,7 @@ if unready:
         log_warn "Pods not yet Ready (attempt ${attempt}/${POD_READINESS_ATTEMPTS}):"
         while IFS= read -r line; do
           [[ -n ${line} ]] && log_warn "  ${line}"
-        done <<< "${analysis}"
+        done <<<"${analysis}"
       else
         log_warn "Unable to evaluate pod readiness (attempt ${attempt}/${POD_READINESS_ATTEMPTS}); retrying in ${POD_READINESS_DELAY}s"
         if [[ -n ${analysis} ]]; then
@@ -273,7 +272,7 @@ if unready:
       fi
     fi
 
-    if (( attempt == POD_READINESS_ATTEMPTS )); then
+    if ((attempt == POD_READINESS_ATTEMPTS)); then
       die ${EX_SOFTWARE} "Pods failed to become Ready after ${POD_READINESS_ATTEMPTS} attempts"
     fi
 

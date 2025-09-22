@@ -37,28 +37,28 @@ fi
 if [[ "$INSTALLED_VERSION" != "$FLUX_VERSION" ]]; then
   OS=$(uname -s | tr '[:upper:]' '[:lower:]')
   case "$OS" in
-    linux|darwin) ;;
-    *)
-      echo "Unsupported operating system: $OS" >&2
-      exit 1
-      ;;
+  linux | darwin) ;;
+  *)
+    echo "Unsupported operating system: $OS" >&2
+    exit 1
+    ;;
   esac
 
   ARCH=$(uname -m)
   case "$ARCH" in
-    x86_64|amd64)
-      ARCH="amd64"
-      ;;
-    arm64|aarch64)
-      ARCH="arm64"
-      ;;
-    armv7l|armv7)
-      ARCH="armv7"
-      ;;
-    *)
-      echo "Unsupported architecture: $ARCH" >&2
-      exit 1
-      ;;
+  x86_64 | amd64)
+    ARCH="amd64"
+    ;;
+  arm64 | aarch64)
+    ARCH="arm64"
+    ;;
+  armv7l | armv7)
+    ARCH="armv7"
+    ;;
+  *)
+    echo "Unsupported architecture: $ARCH" >&2
+    exit 1
+    ;;
   esac
 
   TMP_DIR=$(mktemp -d)
@@ -82,7 +82,7 @@ if [[ "$INSTALLED_VERSION" != "$FLUX_VERSION" ]]; then
 
   (
     cd "$TMP_DIR"
-    awk -v file="$TARBALL" '$2 == file {print; found=1} END {if (!found) exit 1}' "$CHECKSUM_FILE" > "$TARBALL.sha256"
+    awk -v file="$TARBALL" '$2 == file {print; found=1} END {if (!found) exit 1}' "$CHECKSUM_FILE" >"$TARBALL.sha256"
     "${SHA_CMD[@]}" "$TARBALL.sha256"
   )
 

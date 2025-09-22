@@ -15,29 +15,29 @@ USAGE
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    -e|--env-file)
-      shift
-      if [[ $# -eq 0 ]]; then
-        echo "error: --env-file requires a path argument" >&2
-        usage
-        exit 1
-      fi
-      ENV_FILE="$1"
-      shift
-      ;;
-    --env-file=*)
-      ENV_FILE="${1#*=}"
-      shift
-      ;;
-    -h|--help)
-      usage
-      exit 0
-      ;;
-    *)
-      echo "error: unknown argument: $1" >&2
+  -e | --env-file)
+    shift
+    if [[ $# -eq 0 ]]; then
+      echo "error: --env-file requires a path argument" >&2
       usage
       exit 1
-      ;;
+    fi
+    ENV_FILE="$1"
+    shift
+    ;;
+  --env-file=*)
+    ENV_FILE="${1#*=}"
+    shift
+    ;;
+  -h | --help)
+    usage
+    exit 0
+    ;;
+  *)
+    echo "error: unknown argument: $1" >&2
+    usage
+    exit 1
+    ;;
   esac
 done
 

@@ -1,7 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-[[ -f "$ROOT/.env" ]] && source "$ROOT/.env" || source "$ROOT/.env.example"
+if [[ -f "$ROOT/.env" ]]; then
+  # shellcheck disable=SC1090
+  source "$ROOT/.env"
+else
+  # shellcheck disable=SC1090
+  source "$ROOT/.env.example"
+fi
 if docker image inspect "${DJ_IMAGE}" >/dev/null 2>&1; then
   profile="${LABZ_MINIKUBE_PROFILE:-labz}"
 

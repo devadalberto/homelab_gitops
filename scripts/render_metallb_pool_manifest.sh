@@ -96,59 +96,59 @@ load_environment() {
 parse_args() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --env-file)
-        if [[ $# -lt 2 ]]; then
-          log_error "--env-file requires a path argument"
-          usage >&2
-          exit ${EX_USAGE}
-        fi
-        ENV_FILE_OVERRIDE="$2"
-        shift 2
-        ;;
-      --output)
-        if [[ $# -lt 2 ]]; then
-          log_error "--output requires a path argument"
-          usage >&2
-          exit ${EX_USAGE}
-        fi
-        OUTPUT_PATH="$2"
-        if [[ ${OUTPUT_PATH} == '-' ]]; then
-          WRITE_FILE=false
-          STDOUT=true
-        fi
-        shift 2
-        ;;
-      --stdout)
-        STDOUT=true
-        shift
-        ;;
-      --pool-name)
-        if [[ $# -lt 2 ]]; then
-          log_error "--pool-name requires a value"
-          usage >&2
-          exit ${EX_USAGE}
-        fi
-        POOL_NAME="$2"
-        shift 2
-        ;;
-      --pool-namespace)
-        if [[ $# -lt 2 ]]; then
-          log_error "--pool-namespace requires a value"
-          usage >&2
-          exit ${EX_USAGE}
-        fi
-        POOL_NAMESPACE="$2"
-        shift 2
-        ;;
-      -h|--help)
-        usage
-        exit ${EX_OK}
-        ;;
-      *)
-        log_error "Unknown option: $1"
+    --env-file)
+      if [[ $# -lt 2 ]]; then
+        log_error "--env-file requires a path argument"
         usage >&2
         exit ${EX_USAGE}
-        ;;
+      fi
+      ENV_FILE_OVERRIDE="$2"
+      shift 2
+      ;;
+    --output)
+      if [[ $# -lt 2 ]]; then
+        log_error "--output requires a path argument"
+        usage >&2
+        exit ${EX_USAGE}
+      fi
+      OUTPUT_PATH="$2"
+      if [[ ${OUTPUT_PATH} == '-' ]]; then
+        WRITE_FILE=false
+        STDOUT=true
+      fi
+      shift 2
+      ;;
+    --stdout)
+      STDOUT=true
+      shift
+      ;;
+    --pool-name)
+      if [[ $# -lt 2 ]]; then
+        log_error "--pool-name requires a value"
+        usage >&2
+        exit ${EX_USAGE}
+      fi
+      POOL_NAME="$2"
+      shift 2
+      ;;
+    --pool-namespace)
+      if [[ $# -lt 2 ]]; then
+        log_error "--pool-namespace requires a value"
+        usage >&2
+        exit ${EX_USAGE}
+      fi
+      POOL_NAMESPACE="$2"
+      shift 2
+      ;;
+    -h | --help)
+      usage
+      exit ${EX_OK}
+      ;;
+    *)
+      log_error "Unknown option: $1"
+      usage >&2
+      exit ${EX_USAGE}
+      ;;
     esac
   done
 }

@@ -12,7 +12,10 @@ SCRIPT_VERSION="0.8.2 (2025-09-08)"
 trap 'echo "[ERROR] Failed at line $LINENO: $BASH_COMMAND" >&2; exit 1' ERR
 
 log() { printf "[%s] %s\n" "$(date +'%F %T')" "$*"; }
-die() { echo "[FATAL] $*" >&2; exit 1; }
+die() {
+  echo "[FATAL] $*" >&2
+  exit 1
+}
 require() { command -v "$1" >/dev/null 2>&1 || die "Missing required tool: $1"; }
 aptget() { sudo DEBIAN_FRONTEND=noninteractive apt-get -yq install "$@"; }
 
@@ -64,11 +67,11 @@ ensure_sops() {
   trap 'rm -rf "$tmp"' RETURN
   api_url="https://api.github.com/repos/getsops/sops/releases/latest"
   log "Fetching latest sops release metadata from GitHub API"
-  dl_url="$(curl -fsSL "$api_url" \
-    | grep -Eo '"browser_download_url":\s*"[^"]+' \
-    | cut -d'"' -f4 \
-    | grep -E 'linux_amd64\.tar\.gz$' \
-    | head -n1 || true)"
+  dl_url="$(curl -fsSL "$api_url" |
+    grep -Eo '"browser_download_url":\s*"[^"]+' |
+    cut -d'"' -f4 |
+    grep -E 'linux_amd64\.tar\.gz$' |
+    head -n1 || true)"
   if [ -z "${dl_url:-}" ]; then
     die "Unable to determine sops download URL from GitHub API."
   fi
@@ -188,7 +191,7 @@ scaffold_repo() {
   mkdir -p scripts
 
   # flux kustomization placeholders
-  cat > k8s/base/kustomization.yaml <<YAML
+  cat >k8s/base/kustomization.yaml <<YAML
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
@@ -204,35 +207,35 @@ resources:
 YAML
 
   # MetalLB placeholder
-  cat > k8s/addons/metallb/kustomization.yaml <<YAML
+  cat >k8s/addons/metallb/kustomization.yaml <<YAML
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources: []
 YAML
 
   # Traefik placeholder
-  cat > k8s/addons/traefik/kustomization.yaml <<YAML
+  cat >k8s/addons/traefik/kustomization.yaml <<YAML
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources: []
 YAML
 
   # cert-manager placeholder
-  cat > k8s/addons/cert-manager/kustomization.yaml <<YAML
+  cat >k8s/addons/cert-manager/kustomization.yaml <<YAML
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources: []
 YAML
 
   # AWX operator placeholder
-  cat > k8s/addons/awx-operator/kustomization.yaml <<YAML
+  cat >k8s/addons/awx-operator/kustomization.yaml <<YAML
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources: []
 YAML
 
   # README auto-gen script (simple)
-  cat > scripts/generate_readme.sh <<'RS'
+  cat >scripts/generate_readme.sh <<'RS'
 #!/usr/bin/env bash
 set -euo pipefail
 out="README.md"
@@ -290,7 +293,7 @@ init_age_keys() {
   age-keygen -o .sops/age.key
   pub=$(grep -E '^public-key:' .sops/age.key | awk '{print $2}')
   log "AGE public key: $pub"
-  cat > .sops/.sops.yaml <<YAML
+  cat >.sops/.sops.yaml <<YAML
 creation_rules:
   - path_regex: .*
     age: ["$pub"]
@@ -300,7 +303,7 @@ YAML
 
 write_flux_notes() {
   mkdir -p infra/docs
-  cat > infra/docs/BOOTSTRAP_NOTES.md <<'MD'
+  cat >infra/docs/BOOTSTRAP_NOTES.md <<'MD'
 # Flux Bootstrap Notes
 
 1. Ensure kubectl context points to minikube:
@@ -356,4 +359,3 @@ NEXT
 }
 
 main "$@"
-

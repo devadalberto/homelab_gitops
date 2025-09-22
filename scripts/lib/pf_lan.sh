@@ -37,8 +37,8 @@ _pf_lan_log() {
 }
 
 _pf_lan_log_debug() { _pf_lan_log debug "$@"; }
-_pf_lan_log_info()  { _pf_lan_log info "$@"; }
-_pf_lan_log_warn()  { _pf_lan_log warn "$@"; }
+_pf_lan_log_info() { _pf_lan_log info "$@"; }
+_pf_lan_log_warn() { _pf_lan_log warn "$@"; }
 
 _pf_lan_exec_ip() {
   "${_pf_lan_ip_cmd[@]}" "$@"
@@ -55,12 +55,16 @@ pf_lan_resolve_network_bridge() {
 
   if command -v python3 >/dev/null 2>&1; then
     local bridge_name
-    bridge_name=$(
-      virsh net-dumpxml "${network_name}" 2>/dev/null | python3 - <<'PY'
+    local net_xml
+    net_xml=$(virsh net-dumpxml "${network_name}" 2>/dev/null) || return 1
+    if [[ -n ${net_xml} ]]; then
+      bridge_name=$(
+        PF_LAN_NET_XML="${net_xml}" python3 <<'PY'
+import os
 import sys
 import xml.etree.ElementTree as ET
 
-data = sys.stdin.read()
+data = os.environ.get("PF_LAN_NET_XML", "")
 if not data.strip():
     sys.exit(1)
 root = ET.fromstring(data)
@@ -72,10 +76,11 @@ if not name:
     sys.exit(1)
 sys.stdout.write(name)
 PY
-    ) || return 1
-    if [[ -n ${bridge_name} ]]; then
-      printf '%s\n' "${bridge_name}"
-      return 0
+      ) || return 1
+      if [[ -n ${bridge_name} ]]; then
+        printf '%s\n' "${bridge_name}"
+        return 0
+      fi
     fi
   else
     local bridge_name
@@ -155,7 +160,7 @@ pf_lan_temp_addr_ensure() {
       if [[ -z ${python_tmp} ]]; then
         _pf_lan_log_warn "Unable to create temporary file for IPv4 evaluation; continuing with temporary assignment"
       else
-        if python3 - "${network}" "${prefix}" "${existing_cidrs[@]}" >"${python_tmp}" <<'PY'
+        if python3 - "${network}" "${prefix}" "${existing_cidrs[@]}" >"${python_tmp}" <<'PY'; then
 import ipaddress
 import sys
 
@@ -195,7 +200,6 @@ if combined:
 
 sys.exit(1)
 PY
-        then
           python_status=0
         else
           python_status=$?
