@@ -28,6 +28,7 @@ The environment stitches together on-premises virtualization, Kubernetes tooling
 ### User-Facing Applications
 
 - **AWX** provides Ansible automation inside the `awx` namespace with persistent volumes and TLS termination handled by Traefik.
+- **Homepage** publishes the default landing page for the homelab at `https://home.lab-minikube.labz.home.arpa/`, loading its layout from `k8s/apps/homepage/configmap.yaml` and pulling widget credentials (`openweathermap_api_key`, `uptime_kuma_api_key`) from the SOPS-encrypted secret at `apps/homepage/sops-secrets/homepage-secrets.yaml`.
 - **Django Multiproject Demo** showcases the platform deployment pipeline, including container image preloading via `apps/django-multiproject/load-image.sh`.
 - **Observability stack** is powered by `kube-prometheus-stack`, exposing Grafana, Prometheus, and Alertmanager through Traefik-managed Ingresses.
 
@@ -58,6 +59,17 @@ Bounce the AWX pods if the operator does not reconcile automatically.
 #### Rotate Postgres Superuser Credentials
 
 The bootstrap Postgres chart consumes `data/postgres/sops-secrets/postgres-superuser.yaml` for the `pg-superuser` secret. When changing the password, ensure the `stringData.postgres-password` field and the `stringData.database-url` connection string stay in sync before applying the manifest.
+
+#### Homepage API Keys
+
+The Homepage dashboard reads its widget credentials from `apps/homepage/sops-secrets/homepage-secrets.yaml`. The secret must define `openweathermap_api_key` for the weather widget and `uptime_kuma_api_key` for the Uptime Kuma status widget referenced in `k8s/apps/homepage/configmap.yaml`.
+
+1. Open the manifest with SOPS:
+   ```bash
+   sops apps/homepage/sops-secrets/homepage-secrets.yaml
+   ```
+2. Update the API keys under the `secrets.yaml` document.
+3. Save and exit so SOPS re-encrypts the file, then commit the change or apply it manually (`kubectl apply -f apps/homepage/sops-secrets/homepage-secrets.yaml`).
 
 ### Grafana Admin Credential Management
 

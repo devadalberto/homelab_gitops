@@ -1,0 +1,49 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: homepage-config
+data:
+  settings.yaml: |
+    title: Homelab Launchpad
+    theme: dark
+    layout:
+      - Overview:
+          style: columns
+          columns: 3
+    kubernetes:
+      mode: cluster
+      clusterName: lab-minikube
+    header: true
+    footer: false
+  services.yaml: |
+    - Infrastructure:
+        - Homepage:
+            href: https://home.lab-minikube.labz.home.arpa
+            icon: mdi-home-circle
+            description: Primary landing page for homelab links
+        - Traefik:
+            href: https://traefik.labz.home.arpa/dashboard/
+            icon: traefik
+            description: Reverse proxy and ingress controller
+  bookmarks.yaml: |
+    - Documentation:
+        - Repository:
+            href: https://github.com/uranus-lab/homelab-gitops
+            icon: mdi-git
+        - Runbooks:
+            href: https://docs.lab-minikube.labz.home.arpa
+            icon: mdi-book-open-page-variant
+  widgets.yaml: |
+    - search:
+        provider: duckduckgo
+    - weather:
+        label: Home
+        provider: openweathermap
+        units: imperial
+        latitude: 41.8781
+        longitude: -87.6298
+        apiKey: !secret openweathermap_api_key
+    - uptimekuma:
+        url: https://status.labz.home.arpa
+        slug: lab-status
+        apiKey: !secret uptime_kuma_api_key
