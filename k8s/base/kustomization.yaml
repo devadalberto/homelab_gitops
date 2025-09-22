@@ -12,5 +12,6 @@ resources:
   - ../apps/awx
   - ../apps/bitwarden
   - ../apps/django-multiproject
+  - ../apps/jellyfin
   - ../apps/homepage
   - ../apps/nextcloud
