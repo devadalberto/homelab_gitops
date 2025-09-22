@@ -1,72 +1,64 @@
+# IMPORTANT: This file uses TAB characters for all recipe lines.
+
 SHELL := /bin/bash
 .ONESHELL:
-.SHELLFLAGS := -euo pipefail -c
+.SHELLFLAGS := -eu -o pipefail -c
 
 ENV_FILE ?= ./.env
-NET_CREATE ?=
-BATS ?= ./tests/vendor/bats-core/bin/bats
+BATS ?= tests/vendor/bats-core/bin/bats
 
-export ENV_FILE
-
-.PHONY: help doctor net.ensure pf.preflight pf.config pf.ztp k8s.bootstrap status clean up ci
-
+.PHONY: help
 help:
-	@printf "Homelab GitOps automation\n"
-	@printf "=========================\n\n"
-	@printf "Environment variables:\n"
-	@printf "  ENV_FILE=<path>   Path to the environment overrides file (default: ./.env).\n"
-	@printf "  NET_CREATE=1      Allow pf.preflight to define missing libvirt networks.\n\n"
-	@printf "Targets:\n"
-	@printf "  help             Show this help message.\n"
-        @printf "  doctor           Run host diagnostics for the homelab environment.\n"
-        @printf "  net.ensure       Validate or create the pfSense WAN/LAN bridges.\n"
-        @printf "  pf.preflight     Verify pfSense prerequisites and libvirt networking.\n"
-	@printf "  pf.config        Render pfSense configuration assets.\n"
-	@printf "  pf.ztp           Execute pfSense zero-touch provisioning.\n"
-	@printf "  k8s.bootstrap    Bootstrap the Kubernetes cluster and addons.\n"
-	@printf "  status           Summarize homelab bootstrap status.\n"
-	@printf "  clean            Remove generated assets and cached artifacts.\n"
-	@printf "  up               Run the full homelab bootstrap workflow.\n"
-	@printf "  ci               Run continuous integration checks.\n"
+	@echo "Targets:"
+	@echo "  doctor          - Verify host tooling and print required .env keys"
+	@echo "  net.ensure      - Ensure WAN/LAN bridges exist (NET_CREATE=1 to create)"
+	@echo "  pf.preflight    - Validate .env (bridges, LAN, DHCP, installer media)"
+	@echo "  pf.config       - Render pfSense config.xml and config ISO"
+	@echo "  pf.ztp          - Attach media/seed pfSense VM"
+	@echo "  k8s.bootstrap   - Bring up Minikube/core addons/Flux"
+	@echo "  status          - Summarize VM and K8s readiness"
+	@echo "  clean           - Remove generated artifacts"
+	@echo "  up              - Full bootstrap: doctor → net.ensure → pf.preflight → pf.config → pf.ztp → k8s.bootstrap → status"
 
-
+.PHONY: doctor
 doctor:
-	@echo "Running homelab doctor..."
-	@./scripts/doctor.sh --env-file "$(ENV_FILE)"
+	./scripts/doctor.sh --env-file "$(ENV_FILE)"
 
+.PHONY: net.ensure
 net.ensure:
-        @echo "Ensuring pfSense host networking..."
-        @NET_CREATE="$(NET_CREATE)" ./scripts/net-ensure.sh --env-file "$(ENV_FILE)"
+	NET_CREATE=${NET_CREATE:-0} ./scripts/net-ensure.sh --env-file "$(ENV_FILE)"
 
+.PHONY: pf.preflight
 pf.preflight:
-        @echo "Running pfSense preflight checks..."
-        @NET_CREATE="$(NET_CREATE)" ./scripts/net-ensure.sh --env-file "$(ENV_FILE)"
-        @./scripts/pf-preflight.sh --env-file "$(ENV_FILE)"
+	./scripts/pf-preflight.sh --env-file "$(ENV_FILE)"
 
+.PHONY: pf.config
 pf.config:
-	@echo "Generating pfSense configuration assets..."
-	@sudo -E ./pfsense/pf-config-gen.sh --env-file "$(ENV_FILE)"
+	sudo ./pfsense/pf-config-gen.sh --env-file "$(ENV_FILE)"
 
+.PHONY: pf.ztp
 pf.ztp:
-	@echo "Executing pfSense zero-touch provisioning..."
-	@sudo -E ./scripts/pf-ztp.sh --env-file "$(ENV_FILE)"
+	sudo ./scripts/pf-ztp.sh --env-file "$(ENV_FILE)"
 
+.PHONY: k8s.bootstrap
 k8s.bootstrap:
-	@echo "Bootstrapping Kubernetes platform..."
-	@./scripts/k8s-bootstrap.sh --env-file "$(ENV_FILE)"
+	./scripts/k8s-up.sh --env-file "$(ENV_FILE)"
 
+.PHONY: status
 status:
-	@echo "Gathering homelab status..."
-	@./scripts/status.sh --env-file "$(ENV_FILE)"
+	./scripts/status.sh --env-file "$(ENV_FILE)"
 
+.PHONY: clean
 clean:
-        @./scripts/clean.sh --env-file "$(ENV_FILE)"
+	./scripts/clean.sh --env-file "$(ENV_FILE)"
 
-
-up: doctor net.ensure pf.preflight pf.config pf.ztp k8s.bootstrap status
-	@echo "Homelab bootstrap workflow complete."
-
-test:
-	@$(BATS) tests
-
-ci: test
+.PHONY: up
+up:
+	@echo "Using environment file $(ENV_FILE)"
+	make doctor ENV_FILE="$(ENV_FILE)"
+	NET_CREATE=1 make net.ensure ENV_FILE="$(ENV_FILE)"
+	make pf.preflight ENV_FILE="$(ENV_FILE)"
+	sudo make pf.config ENV_FILE="$(ENV_FILE)"
+	sudo make pf.ztp ENV_FILE="$(ENV_FILE)"
+	make k8s.bootstrap ENV_FILE="$(ENV_FILE)"
+	make status ENV_FILE="$(ENV_FILE)"
