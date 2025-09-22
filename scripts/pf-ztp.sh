@@ -42,6 +42,13 @@ USB_IMAGE="${CONFIG_ROOT}/pfSense-ecl-usb.img"
 USB_LABEL="ECLCFG"
 USB_SIZE_MIB=8
 
+INSTALLER_IMAGE_PATH=""
+INSTALLER_IMAGE_FORMAT="raw"
+INSTALLER_DEVICE_TYPE="disk"
+INSTALLER_TARGET_BUS="virtio"
+CONFIG_ISO_PATH=""
+CONFIG_ISO_TARGET="sdy"
+
 ENV_FILE=""
 VM_NAME=""
 VM_NAME_ARG=""
@@ -70,6 +77,7 @@ DOMAIN_INFO_JSON=""
 DOMAIN_BACKUP_FILE=""
 DOMAIN_BACKUP_CREATED=false
 DOMAIN_STATE=""
+DOMAIN_CREATED=false
 
 CONFIG_CHANGED=false
 IMAGE_REBUILT=false
@@ -80,6 +88,8 @@ NIC_MODEL_CHANGED=false
 LAN_INTERFACE_REWIRED=false
 NEEDS_REBOOT=false
 DRIFT_DETECTED=false
+INSTALLER_DETACHED=false
+CONFIG_ISO_UPDATED=false
 PING_SUCCESS=false
 CURL_SUCCESS=false
 VM_AUTO_STARTED=false
@@ -122,6 +132,19 @@ Exit codes:
   2  ECL applied but pfSense LAN not reachable (debug via console).
   3  Fatal error while mutating the VM or performing rollback.
 USAGE
+}
+
+abspath() {
+  local target="$1"
+  if [[ -z ${target} ]]; then
+    printf '%s' ""
+    return 0
+  fi
+  python3 - "$target" <<'PY'
+import os
+import sys
+print(os.path.abspath(sys.argv[1]))
+PY
 }
 
 # shellcheck disable=SC2317
@@ -480,6 +503,83 @@ ensure_vm_name() {
   fi
 }
 
+prepare_installer_media() {
+  if [[ -n ${INSTALLER_IMAGE_PATH:-} && -f ${INSTALLER_IMAGE_PATH} ]]; then
+    return
+  fi
+
+  local helper
+  helper="${REPO_ROOT}/scripts/pf-installer-prepare.sh"
+  if [[ ! -x ${helper} ]]; then
+    die ${EX_PREFLIGHT} "Installer preparation helper not found at ${helper}"
+  fi
+
+  local -a prepare_cmd=("${helper}")
+  if [[ -n ${ENV_FILE:-} ]]; then
+    prepare_cmd+=("--env-file" "${ENV_FILE}")
+  fi
+
+  local prepared
+  if ! prepared="$("${prepare_cmd[@]}")"; then
+    die ${EX_PREFLIGHT} "Installer preparation failed"
+  fi
+
+  prepared="${prepared//$'\r'/}"
+  prepared="${prepared//$'\n'/}"
+
+  if [[ -z ${prepared} ]]; then
+    die ${EX_PREFLIGHT} "Installer preparation returned an empty path"
+  fi
+
+  prepared="$(abspath "${prepared}")"
+  if [[ -z ${prepared} || ! -f ${prepared} ]]; then
+    die ${EX_PREFLIGHT} "Prepared installer not found at ${prepared}"
+  fi
+
+  INSTALLER_IMAGE_PATH="${prepared}"
+  INSTALLER_IMAGE_FORMAT="raw"
+  INSTALLER_DEVICE_TYPE="disk"
+  INSTALLER_TARGET_BUS="virtio"
+
+  case "${INSTALLER_IMAGE_PATH}" in
+    *.iso)
+      INSTALLER_DEVICE_TYPE="cdrom"
+      INSTALLER_TARGET_BUS="sata"
+      ;;
+  esac
+
+  log_info "Installer prepared at ${INSTALLER_IMAGE_PATH}"
+}
+
+ensure_qcow2_disk() {
+  PF_QCOW2_SIZE_GB="${PF_QCOW2_SIZE_GB:-20}"
+  if [[ ! ${PF_QCOW2_SIZE_GB} =~ ^[0-9]+$ ]]; then
+    die ${EX_PREFLIGHT} "PF_QCOW2_SIZE_GB must be an integer (got ${PF_QCOW2_SIZE_GB:-unset})"
+  fi
+
+  PF_QCOW2_PATH="${PF_QCOW2_PATH:-/var/lib/libvirt/images/${PF_VM_NAME}.qcow2}"
+  local abs_path
+  abs_path="$(abspath "${PF_QCOW2_PATH}")"
+  if [[ -z ${abs_path} ]]; then
+    die ${EX_PREFLIGHT} "Unable to resolve PF_QCOW2_PATH (${PF_QCOW2_PATH})"
+  fi
+  PF_QCOW2_PATH="${abs_path}"
+
+  local dir
+  dir="$(dirname "${PF_QCOW2_PATH}")"
+  mkdir -p "${dir}"
+
+  if [[ -f ${PF_QCOW2_PATH} ]]; then
+    log_debug "Reusing qcow2 disk at ${PF_QCOW2_PATH}"
+    return
+  fi
+
+  log_info "Creating qcow2 disk ${PF_QCOW2_PATH} (${PF_QCOW2_SIZE_GB}G)"
+  if ! qemu-img create -f qcow2 "${PF_QCOW2_PATH}" "${PF_QCOW2_SIZE_GB}G" >/dev/null 2>&1; then
+    die ${EX_FATAL} "Failed to create qcow2 disk at ${PF_QCOW2_PATH}"
+  fi
+}
+
 ensure_pf_vm_exists() {
   if [[ -z ${PF_VM_NAME:-} ]]; then
     die ${EX_PREFLIGHT} "PF_VM_NAME is required to verify the pfSense VM"
@@ -488,33 +588,247 @@ ensure_pf_vm_exists() {
   if ! command -v virsh >/dev/null 2>&1; then
     die ${EX_PREFLIGHT} "virsh command is required"
   fi
+  if ! command -v virt-install >/dev/null 2>&1; then
+    die ${EX_PREFLIGHT} "virt-install command is required"
+  fi
+  if ! command -v qemu-img >/dev/null 2>&1; then
+    die ${EX_PREFLIGHT} "qemu-img command is required"
+  fi
 
-  if sudo virsh dominfo "${PF_VM_NAME}" >/dev/null 2>&1; then
+  prepare_installer_media
+
+  if virsh dominfo "${PF_VM_NAME}" >/dev/null 2>&1; then
     log_info "pfSense VM ${PF_VM_NAME} already exists; continuing"
     return
   fi
 
-  local installer="${REPO_ROOT}/scripts/pf-vm-install.sh"
-  if [[ ! -x ${installer} ]]; then
-    die ${EX_PREFLIGHT} "pfSense VM installer not found at ${installer}"
+  ensure_qcow2_disk
+
+  local requested_osinfo
+  requested_osinfo="${PF_OSINFO:-freebsd14.0}"
+  local -a osinfo_arg=("--osinfo" "${requested_osinfo}")
+  if ! virt-install --osinfo list | awk '{print $1}' | grep -qx "${requested_osinfo}"; then
+    log_warn "OSINFO '${requested_osinfo}' not available; using detect=on,require=off"
+    osinfo_arg=("--osinfo" "detect=on,require=off")
   fi
 
-  log_info "pfSense VM ${PF_VM_NAME} not found; invoking installer"
+  local wan_bridge
+  wan_bridge="${PF_WAN_BRIDGE:-br0}"
+  local lan_bridge
+  lan_bridge="${PF_LAN_BRIDGE:-${wan_bridge}}"
+  local -a network_args=(
+    "--network" "bridge=${wan_bridge},model=virtio"
+    "--network" "bridge=${lan_bridge},model=virtio"
+  )
 
-  local -a install_cmd=("${installer}")
-  if [[ -n ${ENV_FILE:-} ]]; then
-    install_cmd+=("--env-file" "${ENV_FILE}")
+  local installer_disk
+  installer_disk="path=${INSTALLER_IMAGE_PATH},format=${INSTALLER_IMAGE_FORMAT},device=${INSTALLER_DEVICE_TYPE},readonly=on,boot.order=1,bus=${INSTALLER_TARGET_BUS}"
+
+  log_info "Creating pfSense VM ${PF_VM_NAME} via virt-install"
+  if ! virt-install \
+    --connect qemu:///system \
+    --name "${PF_VM_NAME}" \
+    --memory 4096 \
+    --vcpus 2 \
+    --cpu host \
+    "${osinfo_arg[@]}" \
+    --import \
+    --boot hd,menu=on,useserial=on \
+    --graphics none \
+    --serial pty \
+    --console pty,target_type=serial \
+    --disk "${installer_disk}" \
+    --disk "path=${PF_QCOW2_PATH},format=qcow2,device=disk,boot.order=2,bus=virtio" \
+    "${network_args[@]}" \
+    --noautoconsole; then
+    die ${EX_FATAL} "virt-install failed to create ${PF_VM_NAME}"
   fi
 
-  if ! "${install_cmd[@]}"; then
-    die ${EX_FATAL} "pfSense VM installation failed"
+  DOMAIN_CREATED=true
+
+  if ! virsh dominfo "${PF_VM_NAME}" >/dev/null 2>&1; then
+    die ${EX_PREFLIGHT} "pfSense VM ${PF_VM_NAME} remains unavailable after virt-install"
   fi
 
-  if ! sudo virsh dominfo "${PF_VM_NAME}" >/dev/null 2>&1; then
-    die ${EX_PREFLIGHT} "pfSense VM ${PF_VM_NAME} remains unavailable after installation"
+  log_info "pfSense VM ${PF_VM_NAME} created via virt-install"
+}
+
+locate_config_iso() {
+  local latest
+  latest="${CONFIG_ROOT}/pfSense-config-latest.iso"
+  if [[ -f ${latest} ]]; then
+    CONFIG_ISO_PATH="$(abspath "${latest}")"
+    return
+  fi
+  local newest
+  newest=$(ls -1t "${CONFIG_ROOT}"/pfSense-config-*.iso 2>/dev/null | head -n1 || true)
+  if [[ -n ${newest} ]]; then
+    CONFIG_ISO_PATH="$(abspath "${newest}")"
+  else
+    CONFIG_ISO_PATH=""
+  fi
+  if [[ -n ${CONFIG_ISO_PATH} ]]; then
+    log_info "Config ISO detected at ${CONFIG_ISO_PATH}"
+  else
+    log_debug "No config ISO located under ${CONFIG_ROOT}"
+  fi
+}
+
+is_config_iso_path() {
+  local candidate="$1"
+  if [[ -z ${candidate} ]]; then
+    return 1
+  fi
+  if [[ ${candidate} == "${CONFIG_ROOT}"/*pfSense-config*.iso ]]; then
+    return 0
+  fi
+  return 1
+}
+
+sync_installer_attachment() {
+  if [[ -z ${INSTALLER_IMAGE_PATH:-} || -z ${VM_NAME:-} ]]; then
+    return
   fi
 
-  log_info "pfSense VM ${PF_VM_NAME} created via installer"
+  local idx=0
+  local attached=false
+  while true; do
+    local source
+    source=$(json_extract "disks[${idx}].source")
+    local device
+    device=$(json_extract "disks[${idx}].device")
+    if [[ -z ${source} && -z ${device} ]]; then
+      break
+    fi
+    if [[ ${source} == "${INSTALLER_IMAGE_PATH}" ]]; then
+      attached=true
+      break
+    fi
+    ((idx++))
+  done
+
+  if [[ ${attached} != true ]]; then
+    return
+  fi
+
+  if [[ ${DOMAIN_CREATED} == true ]]; then
+    log_info "Installer media ${INSTALLER_IMAGE_PATH} attached for initial provisioning"
+    return
+  fi
+
+  if [[ ${CHECK_ONLY} == true ]]; then
+    DRIFT_DETECTED=true
+    log_warn "[CHECK-ONLY] Installer disk ${INSTALLER_IMAGE_PATH} remains attached to ${VM_NAME}"
+    return
+  fi
+
+  backup_domain_xml
+
+  local -a detach_args=(virsh detach-disk "${VM_NAME}" "${INSTALLER_IMAGE_PATH}" --config)
+  if [[ ${DOMAIN_STATE} != "shut off" && ${DOMAIN_STATE} != "pmsuspended" ]]; then
+    detach_args+=(--live)
+  fi
+
+  if "${detach_args[@]}" >/dev/null 2>&1; then
+    INSTALLER_DETACHED=true
+    log_info "Detached installer media ${INSTALLER_IMAGE_PATH} from ${VM_NAME}"
+  else
+    log_warn "Failed to detach installer media ${INSTALLER_IMAGE_PATH} from ${VM_NAME}"
+  fi
+}
+
+sync_config_iso_attachment() {
+  if [[ -z ${VM_NAME:-} ]]; then
+    return
+  fi
+
+  local desired="${CONFIG_ISO_PATH:-}"
+  local idx=0
+  local existing_source=""
+  local existing_target=""
+
+  while true; do
+    local device
+    device=$(json_extract "disks[${idx}].device")
+    local source
+    source=$(json_extract "disks[${idx}].source")
+    if [[ -z ${device} && -z ${source} ]]; then
+      break
+    fi
+    if [[ ${device} == "cdrom" ]]; then
+      if is_config_iso_path "${source}"; then
+        existing_source=${source}
+        existing_target=$(json_extract "disks[${idx}].target")
+        if [[ -n ${desired} && ${source} == "${desired}" ]]; then
+          return
+        fi
+        break
+      fi
+    fi
+    ((idx++))
+  done
+
+  if [[ -n ${desired} ]]; then
+    if [[ ${existing_source} == "${desired}" ]]; then
+      return
+    fi
+
+    if [[ ${CHECK_ONLY} == true ]]; then
+      DRIFT_DETECTED=true
+      log_warn "[CHECK-ONLY] Config ISO ${desired} not attached to ${VM_NAME}"
+      return
+    fi
+
+    backup_domain_xml
+
+    if [[ -n ${existing_source} && ${existing_source} != "${desired}" ]]; then
+      local -a detach_cmd=(virsh detach-disk "${VM_NAME}" "${existing_source}" --config)
+      if [[ ${DOMAIN_STATE} != "shut off" && ${DOMAIN_STATE} != "pmsuspended" ]]; then
+        detach_cmd+=(--live)
+      fi
+      if "${detach_cmd[@]}" >/dev/null 2>&1; then
+        CONFIG_ISO_UPDATED=true
+        log_info "Detached previous config ISO ${existing_source} from ${VM_NAME}"
+      else
+        log_warn "Failed to detach previous config ISO ${existing_source} from ${VM_NAME}"
+      fi
+    fi
+
+    local target="${existing_target:-${CONFIG_ISO_TARGET}}"
+    local -a attach_cmd=(virsh attach-disk "${VM_NAME}" "${desired}" "${target}" --type cdrom --mode readonly --config)
+    if [[ ${DOMAIN_STATE} != "shut off" && ${DOMAIN_STATE} != "pmsuspended" ]]; then
+      attach_cmd+=(--live)
+    fi
+    if "${attach_cmd[@]}" >/dev/null 2>&1; then
+      CONFIG_ISO_UPDATED=true
+      log_info "Attached config ISO ${desired} to ${VM_NAME} (target ${target})"
+    else
+      log_warn "Failed to attach config ISO ${desired} to ${VM_NAME}"
+    fi
+    return
+  fi
+
+  if [[ -z ${existing_source} ]]; then
+    return
+  fi
+
+  if [[ ${CHECK_ONLY} == true ]]; then
+    DRIFT_DETECTED=true
+    log_warn "[CHECK-ONLY] Config ISO ${existing_source} would be detached from ${VM_NAME}"
+    return
+  fi
+
+  backup_domain_xml
+  local -a detach_iso_cmd=(virsh detach-disk "${VM_NAME}" "${existing_source}" --config)
+  if [[ ${DOMAIN_STATE} != "shut off" && ${DOMAIN_STATE} != "pmsuspended" ]]; then
+    detach_iso_cmd+=(--live)
+  fi
+  if "${detach_iso_cmd[@]}" >/dev/null 2>&1; then
+    CONFIG_ISO_UPDATED=true
+    log_info "Detached config ISO ${existing_source} from ${VM_NAME}"
+  else
+    log_warn "Failed to detach config ISO ${existing_source} from ${VM_NAME}"
+  fi
 }
 
 json_extract() {
@@ -598,34 +912,58 @@ info = {}
 info["usb_controller_present"] = any(
     ctrl.get("type") == "usb" for ctrl in root.findall("./devices/controller")
 )
-usb_disk = {
-    "attached": False,
-    "target": None,
-    "readonly": False,
-}
-for disk in root.findall("./devices/disk"):
-    if disk.get("device") != "disk":
-        continue
-    source = disk.find("source")
-    if source is None:
-        continue
-    if source.get("file") == image_path:
-        usb_disk["attached"] = True
-        target = disk.find("target")
-        if target is not None:
-            usb_disk["target"] = target.get("dev")
-        driver = disk.find("driver")
-        if disk.find("readonly") is not None:
-            usb_disk["readonly"] = True
-        elif driver is not None and driver.get("readonly") == "yes":
-            usb_disk["readonly"] = True
-        break
-info["usb_disk"] = usb_disk
-interfaces = []
-for iface in root.findall("./devices/interface"):
-    entry = {
-        "type": iface.get("type"),
-        "kind": iface.get("type"),
+  usb_disk = {
+      "attached": False,
+      "target": None,
+      "readonly": False,
+  }
+  for disk in root.findall("./devices/disk"):
+      if disk.get("device") != "disk":
+          continue
+      source = disk.find("source")
+      if source is None:
+          continue
+      if source.get("file") == image_path:
+          usb_disk["attached"] = True
+          target = disk.find("target")
+          if target is not None:
+              usb_disk["target"] = target.get("dev")
+          driver = disk.find("driver")
+          if disk.find("readonly") is not None:
+              usb_disk["readonly"] = True
+          elif driver is not None and driver.get("readonly") == "yes":
+              usb_disk["readonly"] = True
+          break
+  info["usb_disk"] = usb_disk
+  disks = []
+  for disk in root.findall("./devices/disk"):
+      entry = {
+          "device": disk.get("device"),
+          "type": disk.get("type"),
+          "source": None,
+          "target": None,
+          "bus": None,
+          "readonly": False,
+      }
+      source = disk.find("source")
+      if source is not None:
+          entry["source"] = source.get("file") or source.get("dev") or source.get("name")
+      target = disk.find("target")
+      if target is not None:
+          entry["target"] = target.get("dev")
+          entry["bus"] = target.get("bus")
+      driver = disk.find("driver")
+      if disk.find("readonly") is not None:
+          entry["readonly"] = True
+      elif driver is not None and driver.get("readonly") in ("yes", "true", "1"):
+          entry["readonly"] = True
+      disks.append(entry)
+  info["disks"] = disks
+  interfaces = []
+  for iface in root.findall("./devices/interface"):
+      entry = {
+          "type": iface.get("type"),
+          "kind": iface.get("type"),
         "target": None,
         "bridge": None,
         "source": None,
@@ -1614,6 +1952,12 @@ print_summary() {
     summary_note=" (VM auto-started)"
     detail_note=" vm_auto_started=true"
   fi
+  if [[ ${INSTALLER_DETACHED} == true ]]; then
+    detail_note+=" installer_detached=true"
+  fi
+  if [[ ${CONFIG_ISO_UPDATED} == true ]]; then
+    detail_note+=" config_iso_updated=true"
+  fi
 
   if [[ ${CHECK_ONLY} == true ]]; then
     local drift="false"
@@ -1694,6 +2038,8 @@ main() {
 
   setup_tmp_dir
 
+  locate_config_iso
+
   update_config_xml || true
   ensure_usb_image
 
@@ -1703,6 +2049,15 @@ main() {
 
   fetch_domain_info
   capture_domain_state
+
+  sync_installer_attachment
+  sync_config_iso_attachment
+
+  if [[ ${INSTALLER_DETACHED} == true || ${CONFIG_ISO_UPDATED} == true ]]; then
+    fetch_domain_info
+    capture_domain_state
+  fi
+
   ensure_domain_started_if_needed
   ensure_usb_controller
   ensure_usb_disk_attachment
@@ -1712,7 +2067,7 @@ main() {
   LENIENT_MARK_FILE="${REBOOT_MARK_DIR}/${VM_NAME}.lenient"
   mkdir -p "${REBOOT_MARK_DIR}"
 
-  if [[ ${CONFIG_CHANGED} == true || ${IMAGE_REBUILT} == true || ${USB_CONTROLLER_ADDED} == true || ${USB_DISK_ATTACHED} == true || ${NIC_MODEL_CHANGED} == true || ${LAN_INTERFACE_REWIRED} == true ]]; then
+  if [[ ${CONFIG_CHANGED} == true || ${IMAGE_REBUILT} == true || ${USB_CONTROLLER_ADDED} == true || ${USB_DISK_ATTACHED} == true || ${NIC_MODEL_CHANGED} == true || ${LAN_INTERFACE_REWIRED} == true || ${INSTALLER_DETACHED} == true || ${CONFIG_ISO_UPDATED} == true ]]; then
     NEEDS_REBOOT=true
   fi
 

@@ -46,10 +46,10 @@ pfSense reads configuration overrides from the secondary CD-ROM labelled `pfSens
 ```bash
 ./pfsense/pf-config-gen.sh   # rebuild config.xml and the pfSense_config ISO (requires genisoimage or mkisofs)
 virsh shutdown ${VM_NAME}    # skip if the VM has never been started
-./pfsense/pf-bootstrap.sh    # reattach the refreshed ISO; rerun after edits to .env
+sudo ./scripts/pf-ztp.sh --env-file ./.env
 ```
 
-`pf-bootstrap.sh` swaps the ISO automatically for shut-off domains. If the VM is running, stop it first or run the `virsh change-media ${VM_NAME} sdb ${WORK_ROOT}/pfsense/config/pfSense-config.iso --insert --force --config` command manually after the shutdown completes. The helper re-reads `.env` on each invocation, so confirm `PF_INSTALLER_SRC` still references the installer download before triggering a refresh. Legacy `PF_SERIAL_INSTALLER_PATH`/`PF_ISO_PATH` entries are still honored when present (`PF_ISO_PATH` remains the VGA build toggle).
+`pf-ztp.sh` now swaps both the installer disk and config ISO, inserting media live when possible. If the VM is running and libvirt refuses a hot change, stop it first or run `virsh change-media ${VM_NAME} sdy ${WORK_ROOT}/pfsense/config/pfSense-config.iso --insert --force --config` manually after the shutdown completes. The helper re-reads `.env` on each invocation, so confirm `PF_INSTALLER_SRC` still references the installer download before triggering a refresh. Legacy `PF_SERIAL_INSTALLER_PATH`/`PF_ISO_PATH` entries are still honored when present (`PF_ISO_PATH` remains the VGA build toggle).
 
 ## Environment Variables and Mapping
 

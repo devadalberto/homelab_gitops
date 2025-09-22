@@ -10,11 +10,12 @@ With the host dependencies satisfied and `.env` updated, invoke the aggregated M
 make up ENV_FILE=./.env
 ```
 
-`make up` orchestrates the pfSense preflight, config regeneration, VM install, zero-touch provisioning, pfSense smoketest, Kubernetes context wiring, cluster smoketest, and status emission in order so you can move from bare host to running stack in a single command.【F:Makefile†L8-L75】 By default the pfSense helper reuses the `br0` bridge for both WAN and LAN unless you override `PF_LAN_BRIDGE`; if you set a different LAN bridge name, the automation will create and raise it automatically so the VM cabling stays consistent.【F:scripts/pf-vm-install.sh†L101-L145】
+`make up` orchestrates the pfSense preflight, config regeneration, VM install, zero-touch provisioning, pfSense smoketest, Kubernetes context wiring, cluster smoketest, and status emission in order so you can move from bare host to running stack in a single command.【F:Makefile†L8-L74】 The pfSense helper now wires the VM via `pf-ztp.sh`, defaulting both WAN and LAN to `br0` unless you override `PF_LAN_BRIDGE`; if you choose a different bridge name the automation creates it so the cabling stays consistent.【F:scripts/pf-ztp.sh†L637-L698】
 
 ## Prerequisites
 
 * Prepare an Ubuntu host (or derivative) with virtualization, libvirt, Docker, Kubernetes CLIs, and other tooling by running `./scripts/host-prep.sh --env-file ./.env`. The script installs the required APT packages, ensures Docker, kubectl, Helm, Minikube, and SOPS are available, wires up libvirt, and can create the pfSense LAN bridge if it is missing.【F:scripts/host-prep.sh†L36-L599】
+* Confirm `virt-install`, `qemu-img`, and `gzip` are present so the installer staging flow can expand archives and create QCOW2 disks (the host-prep routine installs them automatically when missing).【F:scripts/pf-installer-prepare.sh†L61-L151】【F:scripts/pf-ztp.sh†L657-L723】
 * Download the pfSense CE **serial** installer in advance and point `PF_INSTALLER_SRC` (or legacy fallbacks) at the archive so validation passes during preflight.【F:.env.example†L53-L68】【F:scripts/host-prep.sh†L268-L316】
 * Keep the pfSense LAN bridge settings (`PF_LAN_BRIDGE`/`PF_LAN_LINK`) aligned with the actual host interface names; the host-prep routine checks the values and can create the bridge automatically when it is absent.【F:scripts/host-prep.sh†L207-L264】【F:scripts/host-prep.sh†L576-L599】
 
@@ -44,8 +45,8 @@ make up ENV_FILE=./.env
 * `make up` – runs the pfSense preflight, regenerates the config ISO, ensures the VM exists, and invokes the pfSense bootstrap helper in sequence.【F:Makefile†L8-L55】
 * `make preflight` – executes the pfSense preflight script against the selected environment file.【F:Makefile†L24-L28】
 * `make pf.config` – rebuilds `config.xml` and the `pfSense_config` ISO under `sudo` based on `.env` values.【F:Makefile†L30-L33】
-* `make pf.install` – creates or updates the libvirt VM definition using `scripts/pf-vm-install.sh`.【F:Makefile†L35-L39】
-* `make pf.ztp` – runs the pfSense bootstrap script in headless mode.【F:Makefile†L41-L46】
+* `make pf.install` – stages the installer media and runs `scripts/pf-ztp.sh` to create or update the VM definition and USB/ISO wiring.【F:Makefile†L35-L45】
+* `make pf.ztp` – re-runs the pfSense zero-touch helper to refresh the media attachments and configuration.【F:Makefile†L47-L51】
 * `make smoketest` – launches the pfSense smoketest routine to validate DHCP, NAT, and reachability checks.【F:Makefile†L48-L51】【F:scripts/pf-smoketest.sh†L49-L63】
 * `make check.env` – prints the active environment file and key variables for a quick sanity check.【F:Makefile†L19-L22】
 
