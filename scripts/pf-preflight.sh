@@ -101,7 +101,7 @@ require_cmd() {
   fi
 }
 
-BASE_DEPS=(awk grep sed)
+BASE_DEPS=(awk grep sed ip)
 info "Checking base command dependencies"
 for dep in "${BASE_DEPS[@]}"; do
   require_cmd "$dep"
@@ -109,13 +109,120 @@ for dep in "${BASE_DEPS[@]}"; do
 done
 
 PF_VM_NAME="${PF_VM_NAME:-pfsense-uranus}"
-PF_BRIDGE_INTERFACE="${PF_BRIDGE_INTERFACE:-br0}"
-PF_INSTALLER_SRC="${PF_INSTALLER_SRC:-}"
+PF_SERIAL_INSTALLER_PATH="${PF_SERIAL_INSTALLER_PATH:-}"
+PF_WAN_BRIDGE="${PF_WAN_BRIDGE:-}"
+PF_LAN_BRIDGE="${PF_LAN_BRIDGE:-}"
 LAN_CIDR="${LAN_CIDR:-}"
+LAN_GW_IP="${LAN_GW_IP:-}"
+LAN_DHCP_FROM="${LAN_DHCP_FROM:-}"
+LAN_DHCP_TO="${LAN_DHCP_TO:-}"
 TRAEFIK_LOCAL_IP="${TRAEFIK_LOCAL_IP:-}"
 LABZ_METALLB_RANGE="${LABZ_METALLB_RANGE:-}"
 METALLB_POOL_START="${METALLB_POOL_START:-}"
 METALLB_POOL_END="${METALLB_POOL_END:-}"
+LEGACY_PF_INSTALLER_SRC="${PF_INSTALLER_SRC:-}"
+LEGACY_PF_BRIDGE_INTERFACE="${PF_BRIDGE_INTERFACE:-}"
+LEGACY_DHCP_FROM="${DHCP_FROM:-}"
+LEGACY_DHCP_TO="${DHCP_TO:-}"
+
+if [[ -n "${REQUESTED_ENV_FILE}" ]]; then
+  ENV_SOURCE_LABEL="${REQUESTED_ENV_FILE}"
+else
+  ENV_SOURCE_LABEL="your environment"
+fi
+
+enumerate_bridges() {
+  if ! command -v ip >/dev/null 2>&1; then
+    printf '  (ip command not available to enumerate bridges)\n'
+    return 0
+  fi
+
+  local output
+  output="$(ip -br link show type bridge 2>/dev/null || true)"
+  if [[ -z "${output//[[:space:]]/}" ]]; then
+    printf '  (no Linux bridge devices detected)\n'
+    return 0
+  fi
+
+  while IFS= read -r line; do
+    [[ -z "${line}" ]] && continue
+    printf '  - %s\n' "${line}"
+  done <<< "${output}"
+}
+
+require_env_var() {
+  local var_name="$1"
+  local message="$2"
+  local value="${!var_name:-}"
+
+  if [[ -z "${value}" ]]; then
+    if [[ -n "${message}" ]]; then
+      die "${message}"
+    fi
+    die "${var_name} is required. Update ${ENV_SOURCE_LABEL} to define it."
+  fi
+}
+
+ensure_required_environment() {
+  info "Validating required environment variables"
+
+  if [[ -z "${PF_SERIAL_INSTALLER_PATH}" ]]; then
+    local installer_msg
+    installer_msg=$'PF_SERIAL_INSTALLER_PATH is required but empty.\nSet PF_SERIAL_INSTALLER_PATH in '
+    installer_msg+="${ENV_SOURCE_LABEL}"
+    installer_msg+=$' to the absolute path of the Netgate serial installer (.img or .img.gz).'
+    if [[ -n "${LEGACY_PF_INSTALLER_SRC}" ]]; then
+      installer_msg+=$' Legacy PF_INSTALLER_SRC is set; rename it to PF_SERIAL_INSTALLER_PATH.'
+    fi
+    die "${installer_msg}"
+  fi
+
+  require_env_var "PF_WAN_BRIDGE" "PF_WAN_BRIDGE is required. Update ${ENV_SOURCE_LABEL} so the WAN bridge is explicit."
+
+  if [[ -z "${PF_LAN_BRIDGE}" ]]; then
+    local lan_msg
+    lan_msg=$'PF_LAN_BRIDGE is required but empty.\nDefine PF_LAN_BRIDGE in '
+    lan_msg+="${ENV_SOURCE_LABEL}"
+    lan_msg+=$' so pfSense can attach to the correct LAN bridge.'
+    if [[ -n "${LEGACY_PF_BRIDGE_INTERFACE}" ]]; then
+      lan_msg+=$' Legacy PF_BRIDGE_INTERFACE is set; rename it to PF_LAN_BRIDGE.'
+    fi
+
+    local bridges
+    bridges="$(enumerate_bridges)"
+    if [[ -n "${bridges}" ]]; then
+      lan_msg+=$'\nAvailable bridge devices:\n'
+      lan_msg+="${bridges%$'\n'}"
+    fi
+
+    die "${lan_msg}"
+  fi
+
+  require_env_var "LAN_CIDR" "LAN_CIDR must be defined in ${ENV_SOURCE_LABEL} (e.g., 10.10.0.0/24)."
+  require_env_var "LAN_GW_IP" "LAN_GW_IP must be defined in ${ENV_SOURCE_LABEL}."
+
+  if [[ -z "${LAN_DHCP_FROM}" ]]; then
+    local dhcp_from_msg
+    dhcp_from_msg=$'LAN_DHCP_FROM is required but empty.\nSet LAN_DHCP_FROM in '
+    dhcp_from_msg+="${ENV_SOURCE_LABEL}"
+    dhcp_from_msg+=$' to the start of the pfSense DHCP scope.'
+    if [[ -n "${LEGACY_DHCP_FROM}" ]]; then
+      dhcp_from_msg+=$' Legacy DHCP_FROM is set; rename it to LAN_DHCP_FROM.'
+    fi
+    die "${dhcp_from_msg}"
+  fi
+
+  if [[ -z "${LAN_DHCP_TO}" ]]; then
+    local dhcp_to_msg
+    dhcp_to_msg=$'LAN_DHCP_TO is required but empty.\nSet LAN_DHCP_TO in '
+    dhcp_to_msg+="${ENV_SOURCE_LABEL}"
+    dhcp_to_msg+=$' to the end of the pfSense DHCP scope.'
+    if [[ -n "${LEGACY_DHCP_TO}" ]]; then
+      dhcp_to_msg+=$' Legacy DHCP_TO is set; rename it to LAN_DHCP_TO.'
+    fi
+    die "${dhcp_to_msg}"
+  fi
+}
 
 check_pf_domain() {
   if ! command -v virsh >/dev/null 2>&1; then
@@ -144,32 +251,27 @@ check_pf_domain() {
 }
 
 check_pf_installer() {
-  if [[ -z "${PF_INSTALLER_SRC}" ]]; then
-    warn "PF_INSTALLER_SRC not defined; skipping installer validation"
-    return
+  local installer="${PF_SERIAL_INSTALLER_PATH}"
+  info "Validating pfSense serial installer path"
+
+  if [[ ! -f "${installer}" ]]; then
+    die "PF_SERIAL_INSTALLER_PATH '${installer}' does not exist. Download the Netgate serial installer and update ${ENV_SOURCE_LABEL}."
   fi
 
-  if [[ -f "${PF_INSTALLER_SRC}" ]]; then
-    ok "Found pfSense installer at ${PF_INSTALLER_SRC}"
-    return
-  fi
+  case "${installer}" in
+    *.img|*.img.gz)
+      ;;
+    *)
+      die "PF_SERIAL_INSTALLER_PATH '${installer}' must point to a .img or .img.gz archive"
+      ;;
+  esac
 
-  if [[ "${PF_INSTALLER_SRC}" == *.gz ]] && [[ -f "${PF_INSTALLER_SRC%.gz}" ]]; then
-    ok "Found extracted pfSense installer at ${PF_INSTALLER_SRC%.gz}"
-    return
-  fi
-
-  warn "PF_INSTALLER_SRC '${PF_INSTALLER_SRC}' does not exist"
+  ok "Found pfSense serial installer at ${installer}"
 }
 
 validate_ips() {
   if [[ "${SKIP_IP_VALIDATION}" == "true" ]]; then
     info "Skipping IP validation due to --skip-ip-validation"
-    return
-  fi
-
-  if [[ -z "${LAN_CIDR}" ]]; then
-    warn "LAN_CIDR not provided; skipping IP validation"
     return
   fi
 
@@ -180,6 +282,9 @@ validate_ips() {
 
   info "Validating LAN and service IPs against ${LAN_CIDR}"
   if LAN_CIDR="${LAN_CIDR}" \
+     LAN_GW_IP="${LAN_GW_IP}" \
+     LAN_DHCP_FROM="${LAN_DHCP_FROM}" \
+     LAN_DHCP_TO="${LAN_DHCP_TO}" \
      TRAEFIK_LOCAL_IP="${TRAEFIK_LOCAL_IP}" \
      LABZ_METALLB_RANGE="${LABZ_METALLB_RANGE}" \
      METALLB_POOL_START="${METALLB_POOL_START}" \
@@ -202,17 +307,23 @@ except ValueError as exc:
 
 errors = []
 
-def validate_ip(name: str) -> None:
-    value = os.environ.get(name, "").strip()
+def _get_env(name: str) -> str:
+    return os.environ.get(name, "").strip()
+
+def validate_host(name: str, *, required: bool = False):
+    value = _get_env(name)
     if not value:
-        return
+        if required:
+            errors.append(f"{name} is required but empty")
+        return None
     try:
         ip = ipaddress.ip_address(value)
     except ValueError as exc:
         errors.append(f"{name} {value!r} is invalid: {exc}")
-        return
+        return None
     if ip not in network:
         errors.append(f"{name} {value} not in {cidr}")
+    return ip
 
 def validate_range(name: str, value: str) -> None:
     parts = [segment.strip() for segment in value.split("-", 1)]
@@ -231,10 +342,21 @@ def validate_range(name: str, value: str) -> None:
     if int(start_ip) > int(end_ip):
         errors.append(f"{name} '{value}' start is after end")
 
-for key in ("TRAEFIK_LOCAL_IP", "METALLB_POOL_START", "METALLB_POOL_END"):
-    validate_ip(key)
+validate_host("LAN_GW_IP", required=True)
+dhcp_start = validate_host("LAN_DHCP_FROM", required=True)
+dhcp_end = validate_host("LAN_DHCP_TO", required=True)
+pool_start = validate_host("METALLB_POOL_START")
+pool_end = validate_host("METALLB_POOL_END")
 
-range_value = os.environ.get("LABZ_METALLB_RANGE", "").strip()
+if dhcp_start and dhcp_end and int(dhcp_start) > int(dhcp_end):
+    errors.append(f"LAN_DHCP_FROM ({dhcp_start}) exceeds LAN_DHCP_TO ({dhcp_end})")
+
+if pool_start and pool_end and int(pool_start) > int(pool_end):
+    errors.append(f"METALLB_POOL_START ({pool_start}) exceeds METALLB_POOL_END ({pool_end})")
+
+validate_host("TRAEFIK_LOCAL_IP")
+
+range_value = _get_env("LABZ_METALLB_RANGE")
 if range_value:
     validate_range("LABZ_METALLB_RANGE", range_value)
 
@@ -244,35 +366,40 @@ if errors:
     raise SystemExit(1)
 PY
   then
-    ok "LAN and MetalLB IP ranges validated"
+    ok "LAN addressing and VIP ranges validated"
   else
     die "LAN/IP validation failed"
   fi
 }
 
 check_bridge() {
+  local role="$1"
+  local bridge="$2"
+
   if ! command -v ip >/dev/null 2>&1; then
-    warn "ip command not available; skipping bridge validation"
-    return
+    die "ip command not available; cannot validate ${role} bridge '${bridge}'"
   fi
 
-  if ! ip -br link show "${PF_BRIDGE_INTERFACE}" >/dev/null 2>&1; then
-    warn "Bridge ${PF_BRIDGE_INTERFACE} not found"
-    return
+  if ! ip -br link show "${bridge}" >/dev/null 2>&1; then
+    die "${role} bridge '${bridge}' not found. Update ${ENV_SOURCE_LABEL} or create the bridge."
   fi
 
   local bridge_state
-  bridge_state="$(ip -br link show "${PF_BRIDGE_INTERFACE}" | awk '{print $2}')"
+  bridge_state="$(ip -br link show "${bridge}" | awk '{print $2}')"
   if [[ "${bridge_state}" == "UP" ]]; then
-    ok "Bridge ${PF_BRIDGE_INTERFACE} is UP"
+    ok "${role} bridge ${bridge} is UP"
   else
-    warn "Bridge ${PF_BRIDGE_INTERFACE} state is ${bridge_state}"
+    warn "${role} bridge ${bridge} state is ${bridge_state}"
   fi
 }
 
 info "Starting pfSense preflight checks"
+ensure_required_environment
 check_pf_domain
 check_pf_installer
 validate_ips
-check_bridge
+check_bridge "WAN" "${PF_WAN_BRIDGE}"
+check_bridge "LAN" "${PF_LAN_BRIDGE}"
+export VERIFIED_ENV=1
+ok "VERIFIED_ENV exported"
 ok "pfSense preflight checks completed successfully"
