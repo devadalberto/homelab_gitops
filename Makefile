@@ -54,6 +54,11 @@ check.env:
 # ---------------------------------------------------------------------------
 
 net.ensure:
+        @echo "Ensuring pfSense network bridges exist..."
+        @chmod +x ./scripts/net-ensure.sh
+        @./scripts/net-ensure.sh --env-file "$(ENV_FILE)"
+
+.PHONY: preflight
 > @NET_CREATE="$(NET_CREATE)" ./scripts/net-ensure.sh --env-file "$(ENV_FILE)"
 
 preflight:
