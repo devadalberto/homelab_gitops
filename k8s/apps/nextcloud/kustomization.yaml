@@ -1,3 +1,9 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-resources: []
+resources:
+  - namespace.yaml
+  - helmrelease.yaml
+  - certificate.yaml
+  - ../../../apps/nextcloud/sops-secrets/admin-secret.yaml
+  - ../../../apps/nextcloud/sops-secrets/redis-secret.yaml
+  - ../../../apps/nextcloud/sops-secrets/database-secret.yaml

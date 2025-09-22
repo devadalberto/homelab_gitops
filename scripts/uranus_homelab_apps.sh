@@ -257,10 +257,10 @@ print_context_summary() {
 
 collect_postgresql_diagnostics() {
   log_warn "Collecting PostgreSQL diagnostics"
-  helm status postgresql --namespace databases || true
-  kubectl -n databases get pods,pvc,svc,statefulset || true
-  kubectl -n databases describe statefulset postgresql || true
-  kubectl -n databases describe pods -l app.kubernetes.io/name=postgresql || true
+  helm status postgresql --namespace data || true
+  kubectl -n data get pods,pvc,svc,statefulset || true
+  kubectl -n data describe statefulset postgresql || true
+  kubectl -n data describe pods -l app.kubernetes.io/name=postgresql || true
   kubectl get events --all-namespaces --sort-by='.metadata.creationTimestamp' | tail -n 50 || true
 }
 
@@ -324,7 +324,7 @@ clear_lingering_pv_claim_refs() {
 install_postgresql() {
   local cmd=(
     helm upgrade --install postgresql bitnami/postgresql
-    --namespace databases
+    --namespace data
     --create-namespace
     --wait
     --timeout 15m0s
@@ -342,7 +342,7 @@ install_postgresql() {
     collect_postgresql_diagnostics
     die ${EX_SOFTWARE} "PostgreSQL installation failed after retries"
   fi
-  retry 5 10 kubectl -n databases rollout status statefulset/postgresql --timeout=5m
+  retry 5 10 kubectl -n data rollout status statefulset/postgresql --timeout=5m
 }
 
 install_redis() {
@@ -430,7 +430,7 @@ install_nextcloud() {
     --set persistence.existingClaim=nextcloud-data
     --set externalDatabase.enabled=true
     --set externalDatabase.type=postgresql
-    --set externalDatabase.host=postgresql.databases.svc.cluster.local
+    --set externalDatabase.host=postgresql.data.svc.cluster.local
     --set externalDatabase.port=5432
     --set externalDatabase.user="${LABZ_POSTGRES_USER}"
     --set externalDatabase.password="${LABZ_POSTGRES_PASSWORD}"
@@ -568,22 +568,25 @@ main() {
   run_cmd mkdir -p "${POSTGRES_DATA_PATH}" "${NEXTCLOUD_DATA_PATH}" "${JELLYFIN_MEDIA_PATH}"
   export POSTGRES_DATA_PATH NEXTCLOUD_DATA_PATH JELLYFIN_MEDIA_PATH PG_STORAGE_SIZE
 
-  ensure_namespace_safe databases
   ensure_namespace_safe data
   ensure_namespace_safe nextcloud
   ensure_namespace_safe jellyfin
 
-  log_info "Applying hostPath storage manifests"
-  local manifest_file
-  for manifest_file in "${STORAGE_MANIFEST_DIR}"/*.yaml; do
-    [[ -f ${manifest_file} ]] || continue
-    log_info "Applying ${manifest_file}"
-    apply_manifest_with_envsubst "${manifest_file}"
-  done
+  if kubectl get namespace flux-system >/dev/null 2>&1; then
+    log_info "Flux manages hostPath storage; skipping manual apply"
+  else
+    log_info "Applying hostPath storage manifests"
+    local manifest_file
+    for manifest_file in "${STORAGE_MANIFEST_DIR}"/*.yaml; do
+      [[ -f ${manifest_file} ]] || continue
+      log_info "Applying ${manifest_file}"
+      apply_manifest_with_envsubst "${manifest_file}"
+    done
+  fi
 
   clear_lingering_pv_claim_refs
 
-  wait_for_pvc_bound_safe databases postgresql-data
+  wait_for_pvc_bound_safe data postgresql-data
   wait_for_pvc_bound_safe nextcloud nextcloud-data
   wait_for_pvc_bound_safe jellyfin jellyfin-media
 
