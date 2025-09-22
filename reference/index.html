@@ -459,6 +459,15 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#rotate-pi-hole-admin-password" class="md-nav__link">
+    <span class="md-ellipsis">
+      Rotate Pi-hole Admin Password
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#homepage-api-keys" class="md-nav__link">
     <span class="md-ellipsis">
       Homepage API Keys
@@ -773,10 +782,10 @@
 <li>Traefik ingress routes always reference TLS secrets; the repo defaults to the internal CA but can be swapped for ACME with external DNS integration.</li>
 </ul>
 <h3 id="manage-encrypted-application-secrets">Manage Encrypted Application Secrets<a class="headerlink" href="#manage-encrypted-application-secrets" title="Permanent link">&para;</a></h3>
-<p>Both the AWX admin and Postgres superuser Kubernetes Secrets live in this repository as <a href="https://github.com/getsops/sops">SOPS</a> manifests and are encrypted for the Age recipient defined in <code>.sops/.sops.yaml</code>. To edit either secret:</p>
+<p>The AWX admin, Postgres superuser, and Pi-hole admin Kubernetes Secrets live in this repository as <a href="https://github.com/getsops/sops">SOPS</a> manifests and are encrypted for the Age recipient defined in <code>.sops/.sops.yaml</code>. To edit any of these secrets:</p>
 <ol>
 <li>Export the matching Age private key so SOPS can decrypt locally (for example <code>export SOPS_AGE_KEY_FILE=$HOME/.config/sops/age/keys.txt</code>).</li>
-<li>Open the manifest with SOPS (<code>sops awx/sops-secrets/awx-admin.sops.yaml</code> or <code>sops data/postgres/sops-secrets/postgres-superuser.yaml</code>). SOPS handles the decrypt/edit/re-encrypt cycle automatically when the editor closes.</li>
+<li>Open the manifest with SOPS (<code>sops awx/sops-secrets/awx-admin.sops.yaml</code>, <code>sops data/postgres/sops-secrets/postgres-superuser.yaml</code>, or <code>sops apps/pihole/sops-secrets/admin-secret.yaml</code>). SOPS handles the decrypt/edit/re-encrypt cycle automatically when the editor closes.</li>
 <li>Apply the updated manifest back to the cluster (<code>kubectl apply -f &lt;path-to-secret&gt;</code>).</li>
 </ol>
 <h4 id="rotate-awx-admin-credentials">Rotate AWX Admin Credentials<a class="headerlink" href="#rotate-awx-admin-credentials" title="Permanent link">&para;</a></h4>
@@ -786,6 +795,18 @@
 <p>Bounce the AWX pods if the operator does not reconcile automatically.</p>
 <h4 id="rotate-postgres-superuser-credentials">Rotate Postgres Superuser Credentials<a class="headerlink" href="#rotate-postgres-superuser-credentials" title="Permanent link">&para;</a></h4>
 <p>The bootstrap Postgres chart consumes <code>data/postgres/sops-secrets/postgres-superuser.yaml</code> for the <code>pg-superuser</code> secret. When changing the password, ensure the <code>stringData.postgres-password</code> field and the <code>stringData.database-url</code> connection string stay in sync before applying the manifest.</p>
+<h4 id="rotate-pi-hole-admin-password">Rotate Pi-hole Admin Password<a class="headerlink" href="#rotate-pi-hole-admin-password" title="Permanent link">&para;</a></h4>
+<p>The Pi-hole Helm release references the SOPS-encrypted manifest at <code>apps/pihole/sops-secrets/admin-secret.yaml</code> to supply the <code>pihole-admin</code> Secret before the chart installs. To change the web UI password:</p>
+<ol>
+<li>Decrypt and edit the manifest:
+   <div class="highlight"><pre><span></span><code>sops<span class="w"> </span>apps/pihole/sops-secrets/admin-secret.yaml
+</code></pre></div></li>
+<li>Replace the value under <code>stringData.password</code> with a new credential and save; SOPS will re-encrypt on exit.</li>
+<li>Apply the updated secret and restart the release so the deployment consumes the new password:
+   <div class="highlight"><pre><span></span><code>kubectl<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span>apps/pihole/sops-secrets/admin-secret.yaml
+kubectl<span class="w"> </span>-n<span class="w"> </span>pihole<span class="w"> </span>rollout<span class="w"> </span>restart<span class="w"> </span>deployment/pihole
+</code></pre></div></li>
+</ol>
 <h4 id="homepage-api-keys">Homepage API Keys<a class="headerlink" href="#homepage-api-keys" title="Permanent link">&para;</a></h4>
 <p>The Homepage dashboard reads its widget credentials from <code>apps/homepage/sops-secrets/homepage-secrets.yaml</code>. The secret must define <code>openweathermap_api_key</code> for the weather widget and <code>uptime_kuma_api_key</code> for the Uptime Kuma status widget referenced in <code>k8s/apps/homepage/configmap.yaml</code>.</p>
 <ol>
