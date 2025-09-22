@@ -596,6 +596,21 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Environment Variables and Mapping">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#jellyfin-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      Jellyfin configuration
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
         
           <li class="md-nav__item">
@@ -882,6 +897,8 @@ sudo<span class="w"> </span>./scripts/pf-ztp.sh<span class="w"> </span>--env-fil
 </tr>
 </tbody>
 </table>
+<h4 id="jellyfin-configuration">Jellyfin configuration<a class="headerlink" href="#jellyfin-configuration" title="Permanent link">&para;</a></h4>
+<p>The Jellyfin overlay sources runtime values from the <code>jellyfin-config</code> ConfigMap and the SOPS-managed <code>jellyfin-api</code> Secret. Update <code>k8s/apps/jellyfin/configmap.yaml</code> when the timezone, published URL, or media mount path change, and edit <code>k8s/apps/jellyfin/sops-secrets/jellyfin-api.yaml</code> with the Age key to rotate the API token exposed as <code>JELLYFIN_API_KEY</code> in the deployment.【F:k8s/apps/jellyfin/configmap.yaml†L1-L9】【F:k8s/apps/jellyfin/sops-secrets/jellyfin-api.yaml†L1-L29】【F:k8s/apps/jellyfin/deployment.yaml†L1-L42】</p>
 <p>After updating the MetalLB fields in <code>.env</code>, regenerate the Flux manifest so the GitOps path and bootstrap helpers agree on the pool range:</p>
 <div class="highlight"><pre><span></span><code>./scripts/render_metallb_pool_manifest.sh<span class="w"> </span>--env-file<span class="w"> </span>./.env
 </code></pre></div>
