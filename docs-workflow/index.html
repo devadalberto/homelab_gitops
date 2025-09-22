@@ -292,10 +292,11 @@
 </ol>
 <p>Pull requests run through steps 1-2 to validate documentation without publishing.</p>
 <h2 id="pre-commit-hook">Pre-commit Hook<a class="headerlink" href="#pre-commit-hook" title="Permanent link">¶</a></h2>
-<p>A <a href="https://pre-commit.com/"><code>pre-commit</code></a> hook is provided to help contributors catch stale diagrams before they push commits. Install the framework (<code>pip install pre-commit</code>) and then enable it:</p>
-<div class="highlight"><pre><span></span><code>pre-commit<span class="w"> </span>install
+<p>Install <a href="https://pre-commit.com/"><code>pre-commit</code></a> to mirror the repository linting locally:</p>
+<div class="highlight"><pre><span></span><code>pip<span class="w"> </span>install<span class="w"> </span>pre-commit
+pre-commit<span class="w"> </span>install
 </code></pre></div>
-<p>On each commit, the hook triggers <code>make docs</code>. Regenerated SVGs will show up as staged changes if diagrams or Markdown were modified.</p>
+<p>Running <code>pre-commit run --all-files</code> executes shellcheck, shfmt, yamllint, markdownlint, and a guard that rejects libvirt domain XMLs containing <code>&lt;video&gt;</code> devices so headless guests are preserved.【F:.pre-commit-config.yaml†L2-L24】【F:scripts/check-libvirt-no-video.sh†L1-L38】 Re-run <code>make docs</code> or <code>make docs-serve</code> whenever content or diagrams change; those targets remain the supported path to regenerate the site during reviews.【F:Makefile†L77-L96】</p>
 </article>
 </div>
 <script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
