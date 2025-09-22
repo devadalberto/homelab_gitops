@@ -59,6 +59,6 @@ make up ENV_FILE=./.env
 
 ## Security notes
 
-* Repository secrets are stored as SOPS-encrypted manifests; export `SOPS_AGE_KEY_FILE` with the matching Age private key before editing them with the `sops` CLI and reapply the manifests after changes.【F:docs/index.md†L26-L40】
-* Keep the Age private key outside of version control and decrypt secrets only on trusted hosts; the automation expects the key path via `SOPS_AGE_KEY_FILE` when reconciling with Flux.【F:docs/architecture.md†L46-L47】
+* Repository secrets are stored as SOPS-encrypted manifests; export `SOPS_AGE_KEY_FILE` with the matching Age private key before editing them with the `sops` CLI and reapply the manifests after changes.【F:docs/reference.md†L59-L70】
+* Keep the Age private key outside of version control and decrypt secrets only on trusted hosts; the automation expects the key path via `SOPS_AGE_KEY_FILE` when reconciling with Flux.【F:docs/reference.md†L63-L67】
 * The orchestration wrapper invokes the pfSense zero-touch provisioning script with `sudo`; review `.env` carefully before running so the virtualization changes and network rewrites are intentional.【F:scripts/uranus_homelab.sh†L220-L259】
