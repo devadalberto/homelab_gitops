@@ -459,6 +459,15 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#homepage-api-keys" class="md-nav__link">
+    <span class="md-ellipsis">
+      Homepage API Keys
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#manage-nextcloud-credentials" class="md-nav__link">
     <span class="md-ellipsis">
       Manage Nextcloud Credentials
@@ -738,6 +747,7 @@
 <h3 id="user-facing-applications">User-Facing Applications<a class="headerlink" href="#user-facing-applications" title="Permanent link">&para;</a></h3>
 <ul>
 <li><strong>AWX</strong> provides Ansible automation inside the <code>awx</code> namespace with persistent volumes and TLS termination handled by Traefik.</li>
+<li><strong>Homepage</strong> publishes the default landing page for the homelab at <code>https://home.lab-minikube.labz.home.arpa/</code>, loading its layout from <code>k8s/apps/homepage/configmap.yaml</code> and pulling widget credentials (<code>openweathermap_api_key</code>, <code>uptime_kuma_api_key</code>) from the SOPS-encrypted secret at <code>apps/homepage/sops-secrets/homepage-secrets.yaml</code>.</li>
 <li><strong>Django Multiproject Demo</strong> showcases the platform deployment pipeline, including container image preloading via <code>apps/django-multiproject/load-image.sh</code>.</li>
 <li><strong>Observability stack</strong> is powered by <code>kube-prometheus-stack</code>, exposing Grafana, Prometheus, and Alertmanager through Traefik-managed Ingresses.</li>
 </ul>
@@ -761,6 +771,15 @@
 <p>Bounce the AWX pods if the operator does not reconcile automatically.</p>
 <h4 id="rotate-postgres-superuser-credentials">Rotate Postgres Superuser Credentials<a class="headerlink" href="#rotate-postgres-superuser-credentials" title="Permanent link">&para;</a></h4>
 <p>The bootstrap Postgres chart consumes <code>data/postgres/sops-secrets/postgres-superuser.yaml</code> for the <code>pg-superuser</code> secret. When changing the password, ensure the <code>stringData.postgres-password</code> field and the <code>stringData.database-url</code> connection string stay in sync before applying the manifest.</p>
+<h4 id="homepage-api-keys">Homepage API Keys<a class="headerlink" href="#homepage-api-keys" title="Permanent link">&para;</a></h4>
+<p>The Homepage dashboard reads its widget credentials from <code>apps/homepage/sops-secrets/homepage-secrets.yaml</code>. The secret must define <code>openweathermap_api_key</code> for the weather widget and <code>uptime_kuma_api_key</code> for the Uptime Kuma status widget referenced in <code>k8s/apps/homepage/configmap.yaml</code>.</p>
+<ol>
+<li>Open the manifest with SOPS:
+   <div class="highlight"><pre><span></span><code>sops<span class="w"> </span>apps/homepage/sops-secrets/homepage-secrets.yaml
+</code></pre></div></li>
+<li>Update the API keys under the <code>secrets.yaml</code> document.</li>
+<li>Save and exit so SOPS re-encrypts the file, then commit the change or apply it manually (<code>kubectl apply -f apps/homepage/sops-secrets/homepage-secrets.yaml</code>).</li>
+</ol>
 <h4 id="manage-nextcloud-credentials">Manage Nextcloud Credentials<a class="headerlink" href="#manage-nextcloud-credentials" title="Permanent link">&para;</a></h4>
 <p>Flux deploys Nextcloud with the Bitnami chart using three SOPS-encrypted secrets stored under <code>apps/nextcloud/sops-secrets/</code>:</p>
 <ul>
