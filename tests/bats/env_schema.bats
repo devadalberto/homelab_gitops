@@ -12,6 +12,7 @@ setup() {
   assert_not_empty "${LABZ_DOMAIN}" "LABZ_DOMAIN"
   assert_not_empty "${LABZ_MINIKUBE_PROFILE}" "LABZ_MINIKUBE_PROFILE"
   assert_not_empty "${LAN_CIDR}" "LAN_CIDR"
+  assert_not_empty "${PF_LAN_BRIDGE}" "PF_LAN_BRIDGE"
   assert_not_empty "${METALLB_POOL_START}" "METALLB_POOL_START"
   assert_not_empty "${METALLB_POOL_END}" "METALLB_POOL_END"
   assert_not_empty "${LABZ_METALLB_RANGE}" "LABZ_METALLB_RANGE"
