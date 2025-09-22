@@ -4,10 +4,16 @@ SHELL := /bin/bash
 
 ENV_FILE ?= ./.env
 PF_VM_NAME ?= pfsense-uranus
+SITE_DIR ?= site
 
 .PHONY: help
 help:
 	@echo "Targets:"
+	@echo "  docs            - Build MkDocs documentation"
+	@echo "  docs-serve      - Serve MkDocs documentation locally"
+	@echo "  lint            - Run repository linters via pre-commit"
+	@echo "  test            - Execute shell library tests"
+	@echo "  ci              - Run lint and test suites"
 	@echo "  up              - Run full bootstrap: pfSense + Kubernetes + status"
 	@echo "  net.ensure      - Ensure WAN/LAN bridges are present"
 	@echo "  preflight       - Ensure pfSense VM is running & IPs sane"
@@ -19,6 +25,30 @@ help:
 	@echo "  k8s.smoketest   - Validate Kubernetes readiness"
 	@echo "  status          - Emit current bootstrap status marker"
 	@echo "  check.env       - Show key environment values"
+
+.PHONY: docs
+docs:
+	@command -v mkdocs >/dev/null 2>&1 || { echo "mkdocs not found. Install Python dependencies with 'pip install -r docs/requirements.txt'." >&2; exit 1; }
+	@echo "Building MkDocs documentation into $(SITE_DIR)..."
+	@mkdocs build --strict --clean --site-dir "$(SITE_DIR)"
+
+.PHONY: docs-serve
+docs-serve:
+	@command -v mkdocs >/dev/null 2>&1 || { echo "mkdocs not found. Install Python dependencies with 'pip install -r docs/requirements.txt'." >&2; exit 1; }
+	@mkdocs serve --dev-addr=0.0.0.0:8000
+
+.PHONY: lint
+lint:
+	@command -v pre-commit >/dev/null 2>&1 || { echo "pre-commit not found. Install it with 'pip install pre-commit'." >&2; exit 1; }
+	@pre-commit run --all-files --show-diff-on-failure
+
+.PHONY: test
+test:
+	@./scripts/tests/retry_test.sh
+
+.PHONY: ci
+ci: lint test
+	@echo "All CI checks completed successfully."
 
 .PHONY: check.env
 check.env:
