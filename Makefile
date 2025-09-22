@@ -50,9 +50,11 @@ k8s.bootstrap:
 	@./scripts/k8s-bootstrap.sh --env-file "$(ENV_FILE)"
 
 status:
+	@echo "Gathering homelab status..."
 	@./scripts/status.sh --env-file "$(ENV_FILE)"
 
 clean:
+	@echo "Cleaning generated pfSense artifacts..."
 	@./scripts/clean.sh --env-file "$(ENV_FILE)"
 
 up: doctor pf.preflight pf.config pf.ztp k8s.bootstrap status

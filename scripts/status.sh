@@ -8,184 +8,186 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 source "${REPO_ROOT}/scripts/common-env.sh"
 
 ENV_FILE=""
+VM_NAME=""
 
 usage() {
   cat <<'USAGE'
 Usage: status.sh [options]
 
+Summarise the homelab environment, pfSense artifacts, and libvirt wiring.
+
 Options:
-  -e, --env-file <path>   Load environment variables from the given file before running.
+  -e, --env-file <path>   Load environment variables from the given file.
+  -n, --vm-name <name>    Override the pfSense libvirt domain to inspect.
   -h, --help              Show this help message and exit.
 USAGE
 }
 
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-  -e | --env-file)
-    shift
-    if [[ $# -eq 0 ]]; then
-      echo "error: --env-file requires a path argument" >&2
-      usage
-      exit 1
-    fi
-    ENV_FILE="$1"
-    shift
-    ;;
-  --env-file=*)
-    ENV_FILE="${1#*=}"
-    shift
-    ;;
-  -h | --help)
-    usage
-    exit 0
-    ;;
-  *)
-    echo "error: unknown argument: $1" >&2
-    usage
-    exit 1
-    ;;
-  esac
-done
+parse_args() {
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -e|--env-file)
+        if [[ $# -lt 2 ]]; then
+          usage >&2
+          die ${EX_USAGE:-64} "--env-file requires a path argument"
+        fi
+        ENV_FILE="$2"
+        shift 2
+        ;;
+      --env-file=*)
+        ENV_FILE="${1#*=}"
+        shift
+        ;;
+      -n|--vm-name)
+        if [[ $# -lt 2 ]]; then
+          usage >&2
+          die ${EX_USAGE:-64} "--vm-name requires a value"
+        fi
+        VM_NAME="$2"
+        shift 2
+        ;;
+      --vm-name=*)
+        VM_NAME="${1#*=}"
+        shift
+        ;;
+      -h|--help)
+        usage
+        exit 0
+        ;;
+      *)
+        usage >&2
+        die ${EX_USAGE:-64} "Unknown argument: $1"
+        ;;
+    esac
+  done
+}
 
-print_section() {
-  local title="$1"
-  printf "\n%s\n" "$title"
+print_heading() {
+  local title=$1
+  printf '\n%s\n' "${title}"
   printf '%s\n' "$(printf '%*s' "${#title}" '' | tr ' ' '-')"
 }
 
-print_key_value() {
-  local label="$1"
-  local value="$2"
-  printf "  %-24s %s\n" "$label" "$value"
-}
-
-run_cmd() {
-  local description="$1"
+run_and_capture() {
+  local description=$1
   shift
-  printf "  - %s\n" "$description"
+  printf '  %s\n' "${description}"
+  if [[ $# -eq 0 ]]; then
+    printf '    (no command provided)\n'
+    return
+  fi
 
+  local previous_opts
+  previous_opts=$(set +o)
   set +e
   local output
   output=$("$@" 2>&1)
   local status=$?
-  set -e
+  eval "${previous_opts}"
 
-  if [[ $status -eq 0 ]]; then
-    if [[ -z "$output" ]]; then
-      printf "      (no output)\n"
+  if [[ ${status} -eq 0 ]]; then
+    if [[ -z ${output} ]]; then
+      printf '    (no output)\n'
     else
-      printf '%s\n' "$output" | sed 's/^/      /'
+      printf '%s\n' "${output}" | sed 's/^/    /'
     fi
   else
-    printf "      command failed (exit code %d)\n" "$status"
-    if [[ -n "$output" ]]; then
-      printf '%s\n' "$output" | sed 's/^/        /'
+    printf '    command failed (exit code %d)\n' "${status}"
+    if [[ -n ${output} ]]; then
+      printf '%s\n' "${output}" | sed 's/^/      /'
     fi
   fi
 }
 
-print_header() {
-  printf "Homelab Status Summary\n"
-  printf "======================\n"
+list_config_artifacts() {
+  local config_dir=$1
+  print_heading "pfSense config artifacts"
+  printf '  Directory: %s\n' "${config_dir}"
+
+  if [[ -z ${config_dir} ]]; then
+    printf '  (configuration directory not set)\n'
+    return
+  fi
+
+  if [[ ! -d ${config_dir} ]]; then
+    printf '  (directory not found)\n'
+    return
+  fi
+
+  local -a entries=()
+  while IFS= read -r -d '' entry; do
+    entries+=("${entry}")
+  done < <(find "${config_dir}" -maxdepth 1 -mindepth 1 -print0 2>/dev/null | sort -z)
+
+  if (( ${#entries[@]} == 0 )); then
+    printf '  (no artifacts present)\n'
+    return
+  fi
+
+  local entry name type
+  for entry in "${entries[@]}"; do
+    name="${entry#"${config_dir}/"}"
+    if [[ -h ${entry} ]]; then
+      type="link"
+    elif [[ -d ${entry} ]]; then
+      type="dir"
+    else
+      type="file"
+    fi
+    printf '  %-6s %s\n' "${type}" "${name}"
+  done
 }
 
-print_env_summary() {
-  dump_effective_env --header "Environment configuration" \
-    LABZ_DOMAIN \
-    LAB_DOMAIN_BASE \
-    LABZ_TRAEFIK_HOST \
-    LABZ_NEXTCLOUD_HOST \
-    LABZ_JELLYFIN_HOST \
-    LABZ_MINIKUBE_PROFILE \
-    LABZ_MINIKUBE_DRIVER \
-    LABZ_MINIKUBE_CPUS \
-    LABZ_MINIKUBE_MEMORY \
-    LABZ_MINIKUBE_DISK \
-    LABZ_MOUNT_BACKUPS \
-    LABZ_MOUNT_MEDIA \
-    LABZ_MOUNT_NEXTCLOUD
-}
+inspect_domain() {
+  local domain=$1
+  print_heading "libvirt domain overview"
 
-print_virsh_summary() {
-  print_section "Virtualization (virsh)"
+  if [[ -z ${domain} ]]; then
+    printf '  Domain: <unset>\n'
+    printf '  Skipping virsh inspection because no domain name is available.\n'
+    return
+  fi
+
+  printf '  Domain: %s\n' "${domain}"
 
   if ! command -v virsh >/dev/null 2>&1; then
-    printf "  virsh command not found. Skipping virtualization summary.\n"
+    printf '  virsh command not available; skipping domblklist/domiflist.\n'
     return
   fi
 
-  run_cmd "Defined domains" virsh list --all
-  run_cmd "Defined networks" virsh net-list --all
-  run_cmd "Defined storage pools" virsh pool-list --all
+  run_and_capture "virsh domblklist ${domain}" virsh domblklist "${domain}"
+  run_and_capture "virsh domiflist ${domain}" virsh domiflist "${domain}"
 }
 
-print_kubectl_summary() {
-  print_section "Kubernetes (kubectl)"
-
-  if ! command -v kubectl >/dev/null 2>&1; then
-    printf "  kubectl command not found. Skipping Kubernetes summary.\n"
-    return
+load_environment() {
+  local -a args=()
+  if [[ -n ${ENV_FILE} ]]; then
+    args+=("--env-file" "${ENV_FILE}")
   fi
-
-  run_cmd "Current context" kubectl config current-context
-  run_cmd "Nodes" kubectl get nodes
-  run_cmd "Namespaces" kubectl get ns
-  run_cmd "Pods not running" kubectl get pods -A --field-selector=status.phase!=Running,status.phase!=Succeeded
-}
-
-print_ingress_hosts() {
-  print_section "Ingress hosts"
-
-  local has_env_hosts=false
-  if [[ -n "${LABZ_TRAEFIK_HOST:-}" || -n "${LABZ_NEXTCLOUD_HOST:-}" || -n "${LABZ_JELLYFIN_HOST:-}" ]]; then
-    has_env_hosts=true
-  fi
-
-  if [[ "$has_env_hosts" == true ]]; then
-    printf "  From environment configuration:\n"
-    if [[ -n "${LABZ_TRAEFIK_HOST:-}" ]]; then
-      print_key_value "Traefik:" "${LABZ_TRAEFIK_HOST}"
+  if ! load_env "${args[@]}"; then
+    if [[ -n ${ENV_FILE} ]]; then
+      warn "Environment file not found: ${ENV_FILE}"
+    else
+      warn "No environment file located; continuing with current shell values."
     fi
-    if [[ -n "${LABZ_NEXTCLOUD_HOST:-}" ]]; then
-      print_key_value "Nextcloud:" "${LABZ_NEXTCLOUD_HOST}"
-    fi
-    if [[ -n "${LABZ_JELLYFIN_HOST:-}" ]]; then
-      print_key_value "Jellyfin:" "${LABZ_JELLYFIN_HOST}"
-    fi
-  else
-    printf "  No ingress host variables found in the environment.\n"
   fi
-
-  if command -v kubectl >/dev/null 2>&1; then
-    run_cmd "Ingress resources" kubectl get ingress -A --output=custom-columns='NAMESPACE:.metadata.namespace,NAME:.metadata.name,HOSTS:.spec.rules[*].host,ADDRESS:.status.loadBalancer.ingress[*].ip' --no-headers
-  else
-    printf "  kubectl command not found, skipping live ingress summary.\n"
-  fi
-}
-
-print_k9s_tips() {
-  print_section "k9s tips"
-  cat <<'TIPS'
-  - Start k9s in a specific context: `k9s --context <name>`.
-  - Use `:ns` to quickly switch namespaces, and `:ctx` for contexts.
-  - Press `/` to filter resources, `:ing` for ingress view, or `:svc` for services.
-  - Use `Shift+F` to toggle port-forward view (`:pf`) and manage tunnels.
-  - Press `?` at any time to see the built-in cheat sheet.
-TIPS
 }
 
 main() {
-  if ! load_env "${ENV_FILE}"; then
-    if [[ -n ${ENV_FILE} ]]; then
-      fatal ${EX_USAGE} "env file not found: ${ENV_FILE}"
-    fi
+  parse_args "$@"
+  load_environment
+
+  if [[ -z ${VM_NAME} && -n ${PF_VM_NAME:-} ]]; then
+    VM_NAME=${PF_VM_NAME}
   fi
-  print_header
-  print_env_summary
-  print_virsh_summary
-  print_kubectl_summary
-  print_ingress_hosts
-  print_k9s_tips
+  if [[ -z ${VM_NAME} ]]; then
+    VM_NAME="pfsense-uranus"
+  fi
+
+  print_heading "Homelab status summary"
+  dump_effective_env --header "Environment configuration" PF_VM_NAME
+  list_config_artifacts "${HOMELAB_PFSENSE_CONFIG_DIR}" 
+  inspect_domain "${VM_NAME}"
 }
 
 main "$@"
