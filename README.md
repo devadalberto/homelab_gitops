@@ -1,63 +1,57 @@
 # Homelab GitOps
 
-Homelab GitOps automates a pfSense-backed Minikube environment, layering on networking add-ons such as MetalLB, cert-manager, and Traefik before deploying application stacks including PostgreSQL, Redis, Nextcloud, and Jellyfin through composable scripts.【F:scripts/uranus_homelab.sh†L211-L288】【F:scripts/uranus_homelab_one.sh†L214-L273】【F:scripts/uranus_homelab_apps.sh†L265-L356】
+Homelab GitOps provisions a pfSense-backed virtualization stack, renders the pfSense configuration bundle, and bootstraps a Kubernetes control plane with supporting services so the lab can be rebuilt from a clean host with a consistent set of make targets.【F:scripts/pf-ztp.sh†L1-L120】【F:scripts/k8s-up.sh†L21-L33】【F:pfsense/pf-config-gen.sh†L1-L120】 The automation is organized as discrete stages to make validation, recovery, and iterative development easier.
 
-## One-shot install
+## Bootstrap workflow
 
-With the host dependencies satisfied and `.env` updated, invoke the aggregated Make target to drive the full bootstrap:
+Run the aggregated workflow once `.env` has been populated with your site-specific values:
 
 ```bash
 make up ENV_FILE=./.env
 ```
 
-`make up` orchestrates the pfSense preflight, config regeneration, VM install, zero-touch provisioning, pfSense smoketest, Kubernetes context wiring, cluster smoketest, and status emission in order so you can move from bare host to running stack in a single command.【F:Makefile†L8-L74】 The pfSense helper now wires the VM via `pf-ztp.sh`, defaulting both WAN and LAN to `br0` unless you override `PF_LAN_BRIDGE`; if you choose a different bridge name the automation creates it so the cabling stays consistent.【F:scripts/pf-ztp.sh†L637-L698】
+`make up` walks through host diagnostics, network validation, pfSense configuration regeneration, zero-touch provisioning, cluster bootstrap, and a status summary so the lab moves from bare-metal to ready-for-use in one command.【F:Makefile†L8-L63】 Each stage is still available as an individual target for troubleshooting or day-two maintenance.
 
-## Prerequisites
+## Environment configuration
 
-* Prepare an Ubuntu host (or derivative) with virtualization, libvirt, Docker, Kubernetes CLIs, and other tooling by running `./scripts/host-prep.sh --env-file ./.env`. The script installs the required APT packages, ensures Docker, kubectl, Helm, Minikube, and SOPS are available, wires up libvirt, and can create the pfSense LAN bridge if it is missing.【F:scripts/host-prep.sh†L36-L599】
-* Confirm `virt-install`, `qemu-img`, and `gzip` are present so the installer staging flow can expand archives and create QCOW2 disks (the host-prep routine installs them automatically when missing).【F:scripts/pf-installer-prepare.sh†L61-L151】【F:scripts/pf-ztp.sh†L657-L723】
-* Download the pfSense CE **serial** installer in advance and point `PF_INSTALLER_SRC` (or legacy fallbacks) at the archive so validation passes during preflight.【F:.env.example†L53-L68】【F:scripts/host-prep.sh†L268-L316】
-* Keep the pfSense LAN bridge settings (`PF_LAN_BRIDGE`/`PF_LAN_LINK`) aligned with the actual host interface names; the host-prep routine checks the values and can create the bridge automatically when it is absent.【F:scripts/host-prep.sh†L207-L264】【F:scripts/host-prep.sh†L576-L599】
+1. Copy the example environment and edit it for your installation:
 
-## Configuration
-
-1. Copy the sample environment file and edit it with your site-specific values:
-   
    ```bash
    cp .env.example .env
    ```
 
-2. Update the following sections in `.env`:
-   * **Domain and ingress hosts** (`LABZ_DOMAIN`, `LABZ_TRAEFIK_HOST`, `LABZ_NEXTCLOUD_HOST`, `LABZ_JELLYFIN_HOST`).【F:.env.example†L1-L4】
-   * **HostPath mounts and working directories** (`LABZ_MOUNT_BACKUPS`, `LABZ_MOUNT_MEDIA`, `LABZ_MOUNT_NEXTCLOUD`, `WORK_ROOT`, `PG_BACKUP_HOSTPATH`).【F:.env.example†L6-L8】【F:.env.example†L55-L59】
-   * **Minikube profile sizing and Kubernetes version** (`LABZ_MINIKUBE_PROFILE`, CPU, memory, disk, driver, and version pins).【F:.env.example†L10-L22】
-   * **LAN addressing and MetalLB pool** (`LAN_CIDR`, gateway, DHCP scope, `LABZ_METALLB_RANGE`, and `METALLB_POOL_START/END`). After edits, regenerate the Flux manifest so GitOps and bootstrap flows share the same VIP range:
-     
-     ```bash
-     ./scripts/render_metallb_pool_manifest.sh --env-file ./.env
-     ```
-     【F:.env.example†L24-L33】【F:scripts/render_metallb_pool_manifest.sh†L1-L70】
-   * **Application credentials and limits** (`LABZ_POSTGRES_DB`, `LABZ_POSTGRES_USER`, `LABZ_POSTGRES_PASSWORD`, `LABZ_REDIS_PASSWORD`, `LABZ_PHP_UPLOAD_LIMIT`).【F:.env.example†L35-L40】
-   * **Nextcloud GitOps secrets** live under `apps/nextcloud/sops-secrets/`. Decrypt each manifest with `sops` to set the admin account (`nextcloud-admin`), Redis password (`nextcloud-redis`), and PostgreSQL connection details (`nextcloud-database`) so Flux can render the HelmRelease with the proper values.【F:apps/nextcloud/sops-secrets/admin-secret.yaml†L1-L24】【F:apps/nextcloud/sops-secrets/redis-secret.yaml†L1-L18】【F:apps/nextcloud/sops-secrets/database-secret.yaml†L1-L24】
-   * **pfSense and infrastructure parameters** (WAN NIC/mode, VM name, bridge hints, QCOW2 size, installer paths, cluster subdomain, Traefik VIP, and flags such as `PF_HEADLESS`).【F:.env.example†L42-L68】
+2. Populate the required keys in `.env`:
+   * `PF_VM_NAME` – libvirt domain name of the pfSense VM to validate and manage.【F:.env.example†L1-L9】【F:scripts/pf-preflight.sh†L126-L200】
+   * `WAN_MODE` – `br0` manages a Linux bridge for the WAN uplink, while other values (for example `macvtap`) skip bridge creation.【F:.env.example†L4-L6】【F:scripts/net-ensure.sh†L62-L115】
+   * `PF_WAN_BRIDGE` and `PF_LAN_BRIDGE` – bridge devices that back the pfSense WAN/LAN interfaces.【F:.env.example†L4-L9】【F:scripts/net-ensure.sh†L99-L150】
+   * `PF_SERIAL_INSTALLER_PATH` – absolute path to the downloaded Netgate serial installer image used during provisioning.【F:.env.example†L11-L12】【F:scripts/pf-preflight.sh†L126-L183】
+   * `LAN_CIDR`, `LAN_GW_IP`, `LAN_DHCP_FROM`, and `LAN_DHCP_TO` – LAN subnet and DHCP scope enforced during preflight validation.【F:.env.example†L14-L18】【F:scripts/pf-preflight.sh†L161-L184】
 
-## Useful targets
+These variables give the automation everything it needs to lay down bridges, verify addressing, and attach the pfSense media. Optional knobs (application hosts, chart versions, and storage paths) can still be provided via a private `.env` but are intentionally omitted from the public example.
 
-* `make up` – runs the pfSense preflight, regenerates the config ISO, ensures the VM exists, and invokes the pfSense bootstrap helper in sequence.【F:Makefile†L8-L55】
-* `make preflight` – executes the pfSense preflight script against the selected environment file.【F:Makefile†L24-L28】
-* `make pf.config` – rebuilds `config.xml` and the `pfSense_config` ISO under `sudo` based on `.env` values.【F:Makefile†L30-L33】
-* `make pf.install` – stages the installer media and runs `scripts/pf-ztp.sh` to create or update the VM definition and USB/ISO wiring.【F:Makefile†L35-L45】
-* `make pf.ztp` – re-runs the pfSense zero-touch helper to refresh the media attachments and configuration.【F:Makefile†L47-L51】
-* `make smoketest` – launches the pfSense smoketest routine to validate DHCP, NAT, and reachability checks.【F:Makefile†L48-L51】【F:scripts/pf-smoketest.sh†L49-L63】
-* `make check.env` – prints the active environment file and key variables for a quick sanity check.【F:Makefile†L19-L22】
+## Make targets
 
-## Quick checks
+* `make doctor` – inventories required tooling (bash, curl, git, libvirt, Kubernetes CLIs, and more) so host gaps are obvious before provisioning.【F:Makefile†L17-L33】【F:scripts/doctor.sh†L25-L124】
+* `make net.ensure` – confirms the WAN and LAN bridges exist (creating them when `NET_CREATE=1`) ahead of pfSense bring-up.【F:Makefile†L17-L42】【F:scripts/net-ensure.sh†L1-L166】
+* `make pf.preflight` – validates pfSense prerequisites, LAN addressing, and optional MetalLB ranges using the staged environment file.【F:Makefile†L38-L44】【F:scripts/pf-preflight.sh†L1-L248】
+* `make pf.config` – rebuilds the pfSense `config.xml` and ISO artifacts under sudo so zero-touch provisioning pulls in the latest values.【F:Makefile†L46-L48】【F:pfsense/pf-config-gen.sh†L1-L120】
+* `make pf.ztp` – applies the regenerated assets, ensures the qcow2 disk exists, and wires the VM peripherals for unattended provisioning.【F:Makefile†L50-L53】【F:scripts/pf-ztp.sh†L101-L200】
+* `make k8s.bootstrap` – seeds Kubernetes, installs platform add-ons, and reconciles the GitOps controllers that manage the workloads.【F:Makefile†L55-L58】【F:scripts/k8s-up.sh†L21-L120】
+* `make status` – prints the effective environment, libvirt domain state, and Kubernetes readiness checks for quick health summaries.【F:Makefile†L60-L61】【F:scripts/status.sh†L1-L132】
+* `make clean` – removes cached artifacts, generated pfSense assets, and other build products to reclaim disk or reset the lab state.【F:Makefile†L63-L64】【F:scripts/clean.sh†L1-L120】
 
-* `./scripts/preflight_and_bootstrap.sh --env-file ./.env --context-preflight` captures a non-mutating view of detected networking, packages, and installer state before any changes are applied.【F:scripts/preflight_and_bootstrap.sh†L51-L75】【F:scripts/host-prep.sh†L320-L403】
-* `./scripts/preflight_and_bootstrap.sh --env-file ./.env --preflight-only` runs the full host remediation sequence (sysctls, iptables mode, optional Minikube restart) without launching the cluster bootstrap.【F:scripts/preflight_and_bootstrap.sh†L51-L76】【F:scripts/preflight_and_bootstrap.sh†L800-L887】
-* `make check.env` confirms the expected LAN, MetalLB, and installer values are present in the environment file.【F:Makefile†L19-L22】
-* `make smoketest` (or `./scripts/pf-smoketest.sh --env-file ./.env`) validates the pfSense domain, LAN bridge, DHCP, and WAN reachability probes.【F:Makefile†L48-L51】【F:scripts/pf-smoketest.sh†L49-L117】
-* `./scripts/k8s-smoketest.sh --env-file ./.env` switches kubectl to the Minikube context and ensures node readiness once the cluster is online.【F:scripts/k8s-smoketest.sh†L35-L199】
+## Acceptance steps
+
+Use the staged targets individually when validating a fresh environment or confirming a change:
+
+1. `make doctor` – capture dependency issues on the host before attempting virtualization or Kubernetes work.【F:scripts/doctor.sh†L25-L124】
+2. `NET_CREATE=1 make net.ensure` – create or repair the WAN/LAN bridges so pfSense attaches to the expected interfaces.【F:scripts/net-ensure.sh†L62-L166】
+3. `make pf.preflight` – verify LAN addressing, DHCP scope, pfSense domain availability, and installer media before mutating state.【F:scripts/pf-preflight.sh†L103-L211】
+4. `sudo make pf.config` – render `config.xml` and the `pfSense_config` ISO with the latest `.env` values.【F:pfsense/pf-config-gen.sh†L1-L120】
+5. `sudo make pf.ztp` – run the zero-touch provisioning helper to align the pfSense VM definition with the regenerated assets.【F:scripts/pf-ztp.sh†L101-L330】
+6. `make k8s.bootstrap` – provision Minikube, MetalLB, Traefik, cert-manager, and the GitOps controllers that reconcile the app stack.【F:scripts/k8s-up.sh†L21-L200】
+7. `make status` – confirm virsh, kubectl, and ingress summaries look healthy before handing the environment over to users.【F:scripts/status.sh†L1-L132】
+8. `make clean` – optional teardown step that removes generated assets when acceptance is complete or you need to rerun the workflow from scratch.【F:scripts/clean.sh†L1-L120】
 
 ## Linting
 
@@ -76,10 +70,10 @@ Running `pre-commit run --all-files` executes the default suite:
 * [`markdownlint-cli2`](https://github.com/DavidAnson/markdownlint-cli2) for Markdown style across `README.md` and the `docs/` tree.
 * `scripts/check-libvirt-no-video.sh` to block `<video>` devices from libvirt domain XML definitions so headless guests stay headless.【F:scripts/check-libvirt-no-video.sh†L1-L38】
 
-Documentation builds still run through `make docs`/`make docs-serve` when you need to regenerate diagrams or preview the site locally.【F:Makefile†L77-L96】
+Documentation builds still run through `make docs`/`make docs-serve` when you need to regenerate diagrams or preview the site locally.【F:docs/workflow.md†L38-L56】
 
 ## Security notes
 
-* Repository secrets are stored as SOPS-encrypted manifests; export `SOPS_AGE_KEY_FILE` with the matching Age private key before editing them with the `sops` CLI and reapply the manifests after changes.【F:docs/index.md†L26-L40】
+* Repository secrets are stored as SOPS-encrypted manifests; export `SOPS_AGE_KEY_FILE` with the matching Age private key before editing them with the `sops` CLI and reapply the manifests after changes.【F:docs/index.md†L1-L40】
 * Keep the Age private key outside of version control and decrypt secrets only on trusted hosts; the automation expects the key path via `SOPS_AGE_KEY_FILE` when reconciling with Flux.【F:docs/reference.md†L36-L46】
-* The orchestration wrapper invokes the pfSense zero-touch provisioning script with `sudo`; review `.env` carefully before running so the virtualization changes and network rewrites are intentional.【F:scripts/uranus_homelab.sh†L220-L259】
+* The zero-touch provisioning helper invokes pfSense virtualization operations with `sudo`; review `.env` carefully before running so the libvirt changes and bridge rewrites are intentional.【F:scripts/pf-ztp.sh†L1-L84】

@@ -210,7 +210,7 @@ Basic authentication protects the dashboard. Use the following credentials when 
 ## Backup & Disaster Recovery
 
 - PostgreSQL backups are scheduled by the CronJob in `data/postgres/backup-cron.yaml`.
-- HostPath directories are prepared by `scripts/uranus_homelab.sh`, which can optionally wipe and recreate volumes for a clean re-provisioning.
+- HostPath directories are prepared during the Kubernetes bootstrap helper (`scripts/k8s-up.sh`), which ensures application data paths exist before workloads deploy.【F:scripts/k8s-up.sh†L625-L704】
 - To restore, re-run the bootstrap scripts (`make up`) and re-apply the saved secrets using Flux or manual `kubectl` commands.
 
 ## Extending the Platform
@@ -236,7 +236,7 @@ Basic authentication protects the dashboard. Use the following credentials when 
 
 ### 2025-09-17T08:00:00.000000Z
 - Pin Flux-managed chart versions to the builds exercised in automation: MetalLB 0.14.5, cert-manager 1.15.3, and Traefik 26.0.0.
-- Document the Helm chart upgrade workflow (bump `k8s/addons/*/release.yaml`, stage with `make up`/`scripts/uranus_homelab_one.sh`, then update docs) to keep production in lockstep with staging.
+- Document the Helm chart upgrade workflow (bump `k8s/addons/*/release.yaml`, stage with `make k8s.bootstrap`, then update docs) to keep production in lockstep with staging.【F:Makefile†L46-L58】
 - Wire Flux `dependsOn` for Traefik so upgrades wait on MetalLB and cert-manager health, surfacing dependency issues earlier.
 
 ### 2025-09-10T04:47:38.065634Z

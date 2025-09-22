@@ -8,13 +8,13 @@ Welcome to the documentation portal for the Uranus homelab GitOps stack. The sit
 git clone https://github.com/devadalberto/homelab_gitops.git
 cd homelab_gitops
 cp .env.example .env
-# Edit passwords, ranges, mount paths, and set PF_INSTALLER_SRC to the downloaded pfSense installer
+# Edit pfSense bridges, LAN settings, and point PF_SERIAL_INSTALLER_PATH at the Netgate installer
 make up
 ```
 
-`.env.example` defaults to the serial image workflow. Update `PF_INSTALLER_SRC` with your local download location so the automation can stage the media automatically before you run `make up`. Legacy `PF_SERIAL_INSTALLER_PATH`/`PF_ISO_PATH` variables remain supported for backwards compatibility (use `PF_ISO_PATH` when opting into the VGA build).
+`.env.example` now highlights only the required pfSense settings (VM name, WAN mode, bridges, installer path, and LAN ranges) so you can focus on the zero-touch workflow. Optional variables for ingress hosts, applications, and chart versions can still live in a private `.env`.
 
-The `make up` target first runs `scripts/preflight_and_bootstrap.sh` in preflight mode so host packages, kernel modules, and firewall rules are ready before Minikube is rebuilt. It then hands control to the combined bootstrap workflow in `scripts/uranus_homelab.sh` for cluster bring-up and application deployment.
+The `make up` target walks the staged automation targets in order—`doctor`, `net.ensure`, `pf.preflight`, `pf.config`, `pf.ztp`, `k8s.bootstrap`, and `status`—to validate host dependencies, render pfSense assets, provision the VM, and stand up Kubernetes with a single command.【F:Makefile†L8-L63】
 
 If you chose `br0`, the host will reboot once, then resume automatically:
 - pfSense VM defined with the `pfSense_config` ISO attached so first boot auto-imports `/opt/homelab/pfsense/config/config.xml`.
