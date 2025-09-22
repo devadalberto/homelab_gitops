@@ -5,30 +5,11 @@ IFS=$'\n\t'
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-COMMON_LIB="${SCRIPT_DIR}/lib/common.sh"
-if [[ -f "${COMMON_LIB}" ]]; then
-  # shellcheck source=scripts/lib/common.sh
-  source "${COMMON_LIB}"
-else
-  FALLBACK_LIB="${SCRIPT_DIR}/lib/common_fallback.sh"
-  if [[ -f "${FALLBACK_LIB}" ]]; then
-    # shellcheck source=scripts/lib/common_fallback.sh
-    source "${FALLBACK_LIB}"
-  else
-    echo "Unable to locate scripts/lib/common.sh or fallback helpers" >&2
-    exit 70
-  fi
-fi
-
-readonly EX_OK=0
-readonly EX_USAGE=64
-readonly EX_UNAVAILABLE=69
-readonly EX_SOFTWARE=70
-readonly EX_CONFIG=78
+# shellcheck source=scripts/common-env.sh
+source "${REPO_ROOT}/scripts/common-env.sh"
 
 ASSUME_YES=false
 ENV_FILE_OVERRIDE=""
-ENV_FILE_PATH=""
 DRY_RUN=false
 CONTEXT_ONLY=false
 
@@ -104,33 +85,24 @@ ensure_namespace_safe() {
 }
 
 load_environment() {
+  local -a args=()
+
   if [[ -n ${ENV_FILE_OVERRIDE} ]]; then
-    log_info "Loading environment overrides from ${ENV_FILE_OVERRIDE}"
     if [[ ! -f ${ENV_FILE_OVERRIDE} ]]; then
       die ${EX_CONFIG} "Environment file not found: ${ENV_FILE_OVERRIDE}"
     fi
-    ENV_FILE_PATH="${ENV_FILE_OVERRIDE}"
-    load_env "${ENV_FILE_OVERRIDE}" || die ${EX_CONFIG} "Failed to load ${ENV_FILE_OVERRIDE}"
-    return
+    args+=(--env-file "${ENV_FILE_OVERRIDE}")
   fi
 
-  local candidates=(
-    "${REPO_ROOT}/.env"
-    "${SCRIPT_DIR}/.env"
-    "/opt/homelab/.env"
-  )
-  local candidate
-  for candidate in "${candidates[@]}"; do
-    log_debug "Checking for environment file at ${candidate}"
-    if [[ -f ${candidate} ]]; then
-      log_info "Loading environment from ${candidate}"
-      ENV_FILE_PATH="${candidate}"
-      load_env "${candidate}" || die ${EX_CONFIG} "Failed to load ${candidate}"
-      return
+  if ! load_env "${args[@]}"; then
+    if [[ -n ${ENV_FILE_OVERRIDE} ]]; then
+      die ${EX_CONFIG} "Failed to load environment file: ${ENV_FILE_OVERRIDE}"
     fi
-  done
-  ENV_FILE_PATH=""
-  log_debug "No environment file present in default search locations"
+    warn "Continuing without an environment file"
+    return 1
+  fi
+
+  return 0
 }
 
 parse_args() {

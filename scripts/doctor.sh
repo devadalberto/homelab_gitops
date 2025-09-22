@@ -5,15 +5,9 @@ readonly EX_USAGE=64
 readonly EX_SOFTWARE=70
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-LIB_LOAD_ENV="${SCRIPT_DIR}/lib/load-env.sh"
-if [[ ! -f ${LIB_LOAD_ENV} ]]; then
-  printf 'homelab doctor: missing helper library %s\n' "${LIB_LOAD_ENV}" >&2
-  exit ${EX_SOFTWARE}
-fi
-# shellcheck source=scripts/lib/load-env.sh
-source "${LIB_LOAD_ENV}"
+# shellcheck source=scripts/common-env.sh
+source "${SCRIPT_DIR}/common-env.sh"
 
 print_heading() {
   local title=$1
@@ -96,7 +90,7 @@ parse_args() {
   done
 }
 
-require_cmd() {
+doctor_require_cmd() {
   local cmd=$1
   if command -v "${cmd}" >/dev/null 2>&1; then
     print_status OK "${cmd}" "$(command -v "${cmd}")"
@@ -111,7 +105,7 @@ check_required_commands() {
   print_heading "Required tooling"
   local cmd
   for cmd in "${REQUIRED_CMDS[@]}"; do
-    require_cmd "${cmd}"
+    doctor_require_cmd "${cmd}"
   done
 }
 
@@ -213,28 +207,26 @@ check_iso_tool() {
 }
 
 load_environment() {
+  local -a args=()
+
   if [[ -n ${ENV_FILE} ]]; then
     if [[ ! -f ${ENV_FILE} ]]; then
       printf 'homelab doctor: env file not found: %s\n' "${ENV_FILE}" >&2
       exit ${EX_USAGE}
     fi
-    load_env "--env-file" "${ENV_FILE}"
-    ACTIVE_ENV_FILE="${ENV_FILE}"
-    return
+    args+=(--env-file "${ENV_FILE}")
+  else
+    args+=(--silent)
   fi
 
-  local -a candidates=(
-    "${REPO_ROOT}/.env"
-    "${REPO_ROOT}/.env.example"
-  )
-  local candidate
-  for candidate in "${candidates[@]}"; do
-    if [[ -f ${candidate} ]]; then
-      load_env "--env-file" "${candidate}"
-      ACTIVE_ENV_FILE="${candidate}"
-      return
+  if ! load_env "${args[@]}"; then
+    if [[ -n ${ENV_FILE} ]]; then
+      printf 'homelab doctor: failed to load env file: %s\n' "${ENV_FILE}" >&2
+      exit ${EX_USAGE}
     fi
-  done
+  fi
+
+  ACTIVE_ENV_FILE="${HOMELAB_ENV_FILE:-}"
 }
 
 main() {

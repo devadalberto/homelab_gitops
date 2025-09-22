@@ -5,20 +5,8 @@ IFS=$'\n\t'
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-COMMON_LIB="${SCRIPT_DIR}/lib/common.sh"
-if [[ -f "${COMMON_LIB}" ]]; then
-  # shellcheck source=scripts/lib/common.sh
-  source "${COMMON_LIB}"
-else
-  FALLBACK_LIB="${SCRIPT_DIR}/lib/common_fallback.sh"
-  if [[ -f "${FALLBACK_LIB}" ]]; then
-    # shellcheck source=scripts/lib/common_fallback.sh
-    source "${FALLBACK_LIB}"
-  else
-    echo "Unable to locate scripts/lib/common.sh or fallback helpers" >&2
-    exit 70
-  fi
-fi
+# shellcheck source=scripts/common-env.sh
+source "${REPO_ROOT}/scripts/common-env.sh"
 
 readonly EX_OK=0
 readonly EX_USAGE=64
@@ -29,7 +17,6 @@ readonly EX_CONFIG=78
 ASSUME_YES=false
 DELETE_PREVIOUS=false
 ENV_FILE_OVERRIDE=""
-ENV_FILE_PATH=""
 DRY_RUN=false
 CHECK_ONLY=false
 CONTEXT_ONLY=false
@@ -74,33 +61,24 @@ format_command() {
 }
 
 load_environment() {
+  local -a args=()
+
   if [[ -n ${ENV_FILE_OVERRIDE} ]]; then
-    log_info "Loading environment overrides from ${ENV_FILE_OVERRIDE}"
     if [[ ! -f ${ENV_FILE_OVERRIDE} ]]; then
       die ${EX_CONFIG} "Environment file not found: ${ENV_FILE_OVERRIDE}"
     fi
-    ENV_FILE_PATH="${ENV_FILE_OVERRIDE}"
-    load_env "${ENV_FILE_OVERRIDE}" || die ${EX_CONFIG} "Failed to load ${ENV_FILE_OVERRIDE}"
-    return
+    args+=(--env-file "${ENV_FILE_OVERRIDE}")
   fi
 
-  local candidates=(
-    "${REPO_ROOT}/.env"
-    "${SCRIPT_DIR}/.env"
-    "/opt/homelab/.env"
-  )
-  local candidate
-  for candidate in "${candidates[@]}"; do
-    log_debug "Checking for environment file at ${candidate}"
-    if [[ -f ${candidate} ]]; then
-      log_info "Loading environment from ${candidate}"
-      ENV_FILE_PATH="${candidate}"
-      load_env "${candidate}" || die ${EX_CONFIG} "Failed to load ${candidate}"
-      return
+  if ! load_env "${args[@]}"; then
+    if [[ -n ${ENV_FILE_OVERRIDE} ]]; then
+      die ${EX_CONFIG} "Failed to load environment file: ${ENV_FILE_OVERRIDE}"
     fi
-  done
-  ENV_FILE_PATH=""
-  log_debug "No environment file present in default search locations"
+    warn "Continuing without an environment file"
+    return 1
+  fi
+
+  return 0
 }
 
 parse_args() {
@@ -164,8 +142,8 @@ parse_args() {
 build_common_args() {
   local -n target=$1
   target=()
-  if [[ -n ${ENV_FILE_PATH} ]]; then
-    target+=("--env-file" "${ENV_FILE_PATH}")
+  if [[ -n ${HOMELAB_ENV_FILE:-} ]]; then
+    target+=("--env-file" "${HOMELAB_ENV_FILE}")
   fi
   if [[ ${ASSUME_YES} == true ]]; then
     target+=("--assume-yes")
@@ -222,7 +200,7 @@ run_pfsense_ztp() {
   build_common_args common_args
 
   local env_file
-  env_file="${ENV_FILE_PATH:-./.env}"
+  env_file="${HOMELAB_ENV_FILE:-./.env}"
 
   local pf_args=(
     "--env-file" "${env_file}"

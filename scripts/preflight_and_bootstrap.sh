@@ -5,20 +5,8 @@ IFS=$'\n\t'
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-COMMON_LIB="${SCRIPT_DIR}/lib/common.sh"
-if [[ -f "${COMMON_LIB}" ]]; then
-  # shellcheck source=scripts/lib/common.sh
-  source "${COMMON_LIB}"
-else
-  FALLBACK_LIB="${SCRIPT_DIR}/lib/common_fallback.sh"
-  if [[ -f "${FALLBACK_LIB}" ]]; then
-    # shellcheck source=scripts/lib/common_fallback.sh
-    source "${FALLBACK_LIB}"
-  else
-    echo "Unable to locate scripts/lib/common.sh or fallback helpers" >&2
-    exit 70
-  fi
-fi
+# shellcheck source=scripts/common-env.sh
+source "${REPO_ROOT}/scripts/common-env.sh"
 
 readonly EX_OK=0
 readonly EX_USAGE=64
@@ -164,34 +152,6 @@ cleanup() {
 }
 
 trap cleanup EXIT INT TERM
-
-load_environment() {
-  if [[ -n ${ENV_FILE_OVERRIDE} ]]; then
-    ENV_FILE_PATH="${ENV_FILE_OVERRIDE}"
-    if [[ ! -f ${ENV_FILE_OVERRIDE} ]]; then
-      die ${EX_CONFIG} "Environment file not found: ${ENV_FILE_OVERRIDE}"
-    fi
-    load_env "${ENV_FILE_OVERRIDE}" || die ${EX_CONFIG} "Failed to load ${ENV_FILE_OVERRIDE}"
-    return
-  fi
-  local candidates=(
-    "${REPO_ROOT}/.env"
-    "${SCRIPT_DIR}/.env"
-    "/opt/homelab/.env"
-  )
-  local candidate
-  for candidate in "${candidates[@]}"; do
-    log_debug "Checking for environment file at ${candidate}"
-    if [[ -f ${candidate} ]]; then
-      ENV_FILE_PATH="${candidate}"
-      log_info "Loading environment from ${candidate}"
-      load_env "${candidate}" || die ${EX_CONFIG} "Failed to load ${candidate}"
-      return
-    fi
-  done
-  ENV_FILE_PATH=""
-  log_debug "No environment file present in default search locations"
-}
 
 maybe_sudo() {
   if [[ $(id -u) -eq 0 ]]; then
@@ -965,7 +925,15 @@ final_diagnostics() {
 main() {
   parse_args "$@"
   ensure_state_dir
-  load_environment
+  if load_env "${ENV_FILE_OVERRIDE}"; then
+    ENV_FILE_PATH="${HOMELAB_ENV_FILE:-${ENV_FILE_OVERRIDE:-}}"
+  else
+    if [[ -n ${ENV_FILE_OVERRIDE} ]]; then
+      die ${EX_CONFIG} "Environment file not found: ${ENV_FILE_OVERRIDE}"
+    fi
+    ENV_FILE_PATH=""
+    log_debug "No environment file present in default search locations"
+  fi
   load_previous_state
   collect_network_context
   compare_fingerprint

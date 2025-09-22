@@ -2,70 +2,31 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-# shellcheck source=scripts/load-env.sh
-source "${SCRIPT_DIR}/load-env.sh"
-
-readonly EX_OK=0
-readonly EX_USAGE=64
-readonly EX_UNAVAILABLE=69
-readonly EX_SOFTWARE=70
-readonly EX_CONFIG=78
+# shellcheck source=scripts/common-env.sh
+source "${SCRIPT_DIR}/common-env.sh"
 
 ENV_FILE_OVERRIDE=""
-
-usage() {
-  cat <<'USAGE'
-Usage: net-ensure.sh [--env-file PATH]
-
-Validate that the pfSense WAN and LAN bridges exist.
-Set NET_CREATE=1 in the environment to create missing bridges.
-
-Options:
-  --env-file PATH  Load environment variables from PATH before validation.
-  -h, --help       Show this help message.
-IFS=$'\n\t'
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-
-COMMON_LIB="${REPO_ROOT}/scripts/lib/common.sh"
-if [[ -f "${COMMON_LIB}" ]]; then
-  # shellcheck source=scripts/lib/common.sh
-  source "${COMMON_LIB}"
-else
-  FALLBACK_LIB="${REPO_ROOT}/scripts/lib/common_fallback.sh"
-  if [[ -f "${FALLBACK_LIB}" ]]; then
-    # shellcheck source=scripts/lib/common_fallback.sh
-    source "${FALLBACK_LIB}"
-  else
-    echo "Unable to locate scripts/lib/common.sh or fallback helpers" >&2
-    exit 70
-  fi
-fi
-
-readonly EX_OK=0
-readonly EX_USAGE=64
-readonly EX_CONFIG=78
-
-ENV_FILE_OVERRIDE=""
-ALLOW_CREATE=true
+ALLOW_CREATE=false
 SUDO=()
+
+declare -a READY_BRIDGES=()
+declare -a BRIDGE_ISSUES=()
 
 usage() {
   cat <<'USAGE'
 Usage: net-ensure.sh [OPTIONS]
 
-Ensure the pfSense WAN and LAN bridges exist on the host.
+Validate that the pfSense WAN and LAN bridges exist on the host. When
+NET_CREATE is truthy the script will create or repair missing bridges.
 
 Options:
-  --env-file PATH   Load configuration overrides from PATH.
-  --help            Show this help message and exit.
+  --env-file PATH   Load configuration overrides from PATH before validation.
+  -h, --help        Show this help message and exit.
 
 Environment:
-  NET_CREATE        When set to "0", "false", or "no", only validate bridges
-                    without creating or modifying them. Any other value (the
-                    default) allows creation of missing bridges.
+  NET_CREATE        When set to "1", "true", "yes", or "on", missing bridges
+                    will be created and brought online. Any other value leaves
+                    existing bridges untouched.
 USAGE
 }
 
@@ -75,10 +36,14 @@ parse_args() {
       --env-file)
         if [[ $# -lt 2 ]]; then
           usage
-          exit ${EX_USAGE}
+          fatal ${EX_USAGE} "--env-file requires a path"
         fi
         ENV_FILE_OVERRIDE="$2"
         shift 2
+        ;;
+      --env-file=*)
+        ENV_FILE_OVERRIDE="${1#*=}"
+        shift
         ;;
       -h|--help)
         usage
@@ -89,161 +54,29 @@ parse_args() {
         break
         ;;
       -*)
-        usage
-        exit ${EX_USAGE}
+        usage >&2
+        fatal ${EX_USAGE} "Unknown option: $1"
         ;;
       *)
-        usage
-        exit ${EX_USAGE}
+        usage >&2
+        fatal ${EX_USAGE} "Unexpected positional argument: $1"
         ;;
     esac
   done
 }
 
-bridge_exists() {
-  local bridge=$1
-  ip link show dev "${bridge}" >/dev/null 2>&1
-}
-
-bridge_is_up() {
-  local bridge=$1
-  local state
-  state=$(ip -o link show dev "${bridge}" 2>/dev/null | awk '{print $9}') || return 1
-  [[ ${state} == "UP" ]]
-}
-
-add_unique() {
-  local array_name=$1
-  local value=$2
-  declare -n array_ref="${array_name}"
-  local existing
-  for existing in "${array_ref[@]:-}"; do
-    if [[ ${existing} == "${value}" ]]; then
-      return 0
-    fi
-  done
-  array_ref+=("${value}")
-}
-
-ensure_bridge_ready() {
-  local role=$1
-  local bridge=$2
-  local create_allowed=$3
-
-  if [[ -z ${bridge} ]]; then
-    die ${EX_CONFIG} "${role} bridge name is empty; check PF_${role}_BRIDGE in the environment"
-  fi
-
-  if bridge_exists "${bridge}"; then
-    if bridge_is_up "${bridge}"; then
-      log_info "Bridge ${bridge} (${role}) already exists and is up."
-      add_unique READY_BRIDGES "${bridge}"
-      return 0
-    fi
-
-    if [[ ${create_allowed} == true ]]; then
-      log_info "Bridge ${bridge} (${role}) exists but is down; bringing it up."
-      sudo ip link set "${bridge}" up
-      if bridge_is_up "${bridge}"; then
-        log_info "Bridge ${bridge} (${role}) is now up."
-        add_unique READY_BRIDGES "${bridge}"
-        return 0
-      fi
-      die ${EX_SOFTWARE} "Failed to bring bridge ${bridge} (${role}) up"
-    fi
-
-    log_warn "Bridge ${bridge} (${role}) exists but is down."
-    add_unique MISSING_BRIDGES "${bridge} (down)"
-    return 1
-  fi
-
-  if [[ ${create_allowed} == true ]]; then
-    log_info "Creating bridge ${bridge} (${role})."
-    sudo ip link add name "${bridge}" type bridge
-    sudo ip link set "${bridge}" up
-    if bridge_is_up "${bridge}"; then
-      log_info "Bridge ${bridge} (${role}) created and up."
-      add_unique READY_BRIDGES "${bridge}"
-      return 0
-    fi
-    die ${EX_SOFTWARE} "Bridge ${bridge} (${role}) creation failed"
-  fi
-
-  log_warn "Bridge ${bridge} (${role}) is missing."
-  add_unique MISSING_BRIDGES "${bridge} (missing)"
-  return 1
-}
-
-main() {
-  parse_args "$@"
-
-  if ! command -v ip >/dev/null 2>&1; then
-    die ${EX_UNAVAILABLE} "ip command is required"
-  fi
-
-  homelab_load_env "${ENV_FILE_OVERRIDE}" || die ${EX_CONFIG} "Failed to load environment"
-
-  local env_source
-  env_source=${HOMELAB_ENV_FILE:-${ENV_FILE_OVERRIDE:-${ENV_FILE:-}}}
-  if [[ -z ${env_source} ]]; then
-    env_source="the environment"
-  fi
-
-  declare -a READY_BRIDGES=()
-  declare -a MISSING_BRIDGES=()
-
-  declare -n wan_ref=PF_WAN_BRIDGE
-  declare -n lan_ref=PF_LAN_BRIDGE
-
-  if [[ -z ${wan_ref:-} ]]; then
-    die ${EX_CONFIG} "PF_WAN_BRIDGE must be set in ${env_source}"
-  fi
-  if [[ -z ${lan_ref:-} ]]; then
-    die ${EX_CONFIG} "PF_LAN_BRIDGE must be set in ${env_source}"
-  fi
-
-  local create_allowed=false
-  case ${NET_CREATE:-} in
-    1|true|TRUE|yes|YES|on|enable|enabled)
-      create_allowed=true
-      ;;
-  esac
-
-  log_info "Validating WAN bridge ${wan_ref}."
-  ensure_bridge_ready "WAN" "${wan_ref}" "${create_allowed}"
-
-  log_info "Validating LAN bridge ${lan_ref}."
-  ensure_bridge_ready "LAN" "${lan_ref}" "${create_allowed}"
-
-  if [[ ${#MISSING_BRIDGES[@]} -gt 0 ]]; then
-    log_error "Network bridges missing or down: ${MISSING_BRIDGES[*]}"
-    log_error "Set NET_CREATE=1 make net.ensure to create missing bridges."
-    exit ${EX_CONFIG}
-  fi
-
-  if [[ ${create_allowed} == true ]]; then
-    log_info "Bridge creation mode enabled (NET_CREATE=1)."
-  fi
-
-  if [[ ${#READY_BRIDGES[@]} -gt 0 ]]; then
-    log_info "All requested network bridges are ready: ${READY_BRIDGES[*]}."
-  fi
-
-  exit ${EX_OK}
-
 should_allow_create() {
   local raw=${NET_CREATE:-1}
   case "${raw,,}" in
-  1 | true | yes | on | '')
-    ALLOW_CREATE=true
-    ;;
-  0 | false | no | off)
-    ALLOW_CREATE=false
-    ;;
-  *)
-    log_warn "Unrecognized NET_CREATE value '${raw}'. Proceeding without creating bridges."
-    ALLOW_CREATE=false
-    ;;
+    1|true|yes|on|enable|enabled)
+      ALLOW_CREATE=true
+      ;;
+    0|false|no|off|disable|disabled)
+      ALLOW_CREATE=false
+      ;;
+    *)
+      ALLOW_CREATE=false
+      ;;
   esac
 }
 
@@ -251,101 +84,124 @@ resolve_sudo() {
   if [[ ${ALLOW_CREATE} == false ]]; then
     return
   fi
-  if [[ ${EUID:-} -ne 0 ]]; then
-    if command -v sudo >/dev/null 2>&1; then
-      SUDO=(sudo)
-    else
-      die ${EX_USAGE} "Root privileges (or sudo) are required to create or modify bridges."
-    fi
+  if [[ ${EUID:-0} -eq 0 ]]; then
+    SUDO=()
+    return
   fi
-}
-
-load_environment() {
-  local candidates=()
-  if [[ -n ${ENV_FILE_OVERRIDE} ]]; then
-    candidates=("${ENV_FILE_OVERRIDE}")
+  if command -v sudo >/dev/null 2>&1; then
+    SUDO=(sudo)
   else
-    candidates=(
-      "${REPO_ROOT}/.env"
-      "${SCRIPT_DIR}/.env"
-      "/opt/homelab/.env"
-    )
+    fatal ${EX_USAGE} "Root privileges (or sudo) are required to create bridges"
   fi
-
-  local candidate=""
-  for candidate in "${candidates[@]}"; do
-    if [[ -n ${candidate} && -f ${candidate} ]]; then
-      log_info "Loading environment from ${candidate}"
-      load_env "${candidate}" || die ${EX_CONFIG} "Failed to load ${candidate}"
-      return
-    fi
-  done
-  if [[ -n ${ENV_FILE_OVERRIDE} ]]; then
-    die ${EX_CONFIG} "Environment file not found: ${ENV_FILE_OVERRIDE}"
-  fi
-  log_debug "No environment file found; relying on existing environment"
 }
 
 bridge_exists() {
-  local name=$1
-  ip link show dev "${name}" >/dev/null 2>&1
+  local bridge=$1
+  ip link show dev "${bridge}" >/dev/null 2>&1
 }
 
-bridge_is_up() {
-  local name=$1
-  local state
-  state=$(ip -o link show dev "${name}" 2>/dev/null | awk '{print $9}') || return 1
-  [[ ${state} == "UP" ]]
+bridge_state() {
+  local bridge=$1
+  ip -o link show dev "${bridge}" 2>/dev/null | awk '{print $9}'
 }
 
-ensure_bridge() {
-  local label=$1
-  local name=$2
-  if [[ -z ${name} ]]; then
-    die ${EX_CONFIG} "${label} bridge name is not set. Update the environment configuration."
+ensure_bridge_ready() {
+  local role=$1
+  local bridge=$2
+
+  if [[ -z ${bridge} ]]; then
+    BRIDGE_ISSUES+=("${role}:<unset>")
+    warn "${role} bridge environment variable is not set"
+    return 1
   fi
 
-  if bridge_exists "${name}"; then
-    log_info "${label} bridge ${name} already exists"
-  else
-    if [[ ${ALLOW_CREATE} == false ]]; then
-      die ${EX_CONFIG} "${label} bridge ${name} is missing. Re-run with NET_CREATE=1 to create it."
+  if bridge_exists "${bridge}"; then
+    local state
+    state=$(bridge_state "${bridge}")
+    if [[ ${state} == "UP" ]]; then
+      READY_BRIDGES+=("${bridge}")
+      info "${role} bridge ${bridge} is present and up"
+      return 0
     fi
-    log_info "Creating ${label} bridge ${name}"
-    "${SUDO[@]}" ip link add name "${name}" type bridge
+
+    if [[ ${ALLOW_CREATE} == true ]]; then
+      info "${role} bridge ${bridge} is ${state:-down}; bringing it up"
+      "${SUDO[@]}" ip link set dev "${bridge}" up
+      state=$(bridge_state "${bridge}")
+      if [[ ${state} == "UP" ]]; then
+        READY_BRIDGES+=("${bridge}")
+        info "${role} bridge ${bridge} is now up"
+        return 0
+      fi
+      BRIDGE_ISSUES+=("${role}:${bridge}:failed-up")
+      fatal ${EX_SOFTWARE} "Failed to bring ${role} bridge ${bridge} up"
+    fi
+
+    BRIDGE_ISSUES+=("${role}:${bridge}:${state:-down}")
+    warn "${role} bridge ${bridge} exists but is ${state:-down}"
+    return 1
   fi
 
-  if bridge_is_up "${name}"; then
-    log_debug "${label} bridge ${name} is already up"
-  else
-    if [[ ${ALLOW_CREATE} == false ]]; then
-      die ${EX_CONFIG} "${label} bridge ${name} exists but is down. Re-run with NET_CREATE=1 to bring it up."
+  if [[ ${ALLOW_CREATE} == true ]]; then
+    info "Creating ${role} bridge ${bridge}"
+    "${SUDO[@]}" ip link add name "${bridge}" type bridge
+    "${SUDO[@]}" ip link set dev "${bridge}" up
+    if bridge_exists "${bridge}"; then
+      READY_BRIDGES+=("${bridge}")
+      info "${role} bridge ${bridge} created and up"
+      return 0
     fi
-    log_info "Bringing up ${label} bridge ${name}"
-    "${SUDO[@]}" ip link set dev "${name}" up
+    BRIDGE_ISSUES+=("${role}:${bridge}:create-failed")
+    fatal ${EX_SOFTWARE} "Failed to create ${role} bridge ${bridge}"
   fi
+
+  BRIDGE_ISSUES+=("${role}:${bridge}:missing")
+  warn "${role} bridge ${bridge} is missing"
+  return 1
 }
 
 main() {
-  need ip || die ${EX_USAGE} "ip command is required"
   parse_args "$@"
-  should_allow_create
-  resolve_sudo
-  load_environment
 
-  local wan_mode="${WAN_MODE:-br0}"
-  local wan_bridge="${PF_WAN_BRIDGE:-}"
-  local lan_bridge="${PF_LAN_BRIDGE:-}"
-
-  if [[ ${wan_mode} == br0 ]]; then
-    ensure_bridge "WAN" "${wan_bridge}"
-  else
-    log_info "WAN_MODE=${wan_mode}; skipping WAN bridge checks"
+  if ! load_env "${ENV_FILE_OVERRIDE}"; then
+    if [[ -n ${ENV_FILE_OVERRIDE} ]]; then
+      fatal ${EX_CONFIG} "Environment file not found: ${ENV_FILE_OVERRIDE}"
+    fi
+    warn "Continuing without an environment file"
   fi
 
-  ensure_bridge "LAN" "${lan_bridge}"
+  should_allow_create
+  resolve_sudo
 
-  log_info "Bridge validation complete"
+  require_cmd ip || fatal ${EX_UNAVAILABLE} "ip command is required"
+
+  local env_source
+  env_source=${HOMELAB_ENV_FILE:-${ENV_FILE_OVERRIDE:-environment}}
+
+  READY_BRIDGES=()
+  BRIDGE_ISSUES=()
+
+  if [[ ${WAN_MODE:-br0} == br0 ]]; then
+    ensure_bridge_ready "WAN" "${PF_WAN_BRIDGE:-}"
+  else
+    info "WAN_MODE=${WAN_MODE}; skipping WAN bridge validation"
+  fi
+  ensure_bridge_ready "LAN" "${PF_LAN_BRIDGE:-}"
+
+  if (( ${#BRIDGE_ISSUES[@]} > 0 )); then
+    if [[ ${ALLOW_CREATE} == true ]]; then
+      fatal ${EX_SOFTWARE} "Bridge operations did not complete successfully"
+    fi
+    fatal ${EX_CONFIG} "Network bridges missing or down (source: ${env_source})"
+  fi
+
+  if [[ ${ALLOW_CREATE} == true ]]; then
+    info "NET_CREATE enabled; bridges verified"
+  fi
+
+  if (( ${#READY_BRIDGES[@]} > 0 )); then
+    info "Ready bridges: ${READY_BRIDGES[*]}"
+  fi
 }
 
 main "$@"
