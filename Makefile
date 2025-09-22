@@ -38,13 +38,9 @@ check.env:
 
 .PHONY: net.ensure
 net.ensure:
-	@echo "Ensuring pfSense network bridges exist..."
-	@chmod +x ./scripts/net-ensure-bridge.sh
-	@if [[ -f "$(ENV_FILE)" ]]; then source "$(ENV_FILE)"; else echo "Environment file $(ENV_FILE) not found" >&2; exit 1; fi
-	@: "$${PF_WAN_BRIDGE:?PF_WAN_BRIDGE must be set in $(ENV_FILE)}"
-	@: "$${PF_LAN_BRIDGE:?PF_LAN_BRIDGE must be set in $(ENV_FILE)}"
-	@./scripts/net-ensure-bridge.sh "$$PF_WAN_BRIDGE"
-	@./scripts/net-ensure-bridge.sh "$$PF_LAN_BRIDGE"
+        @echo "Ensuring pfSense network bridges exist..."
+        @chmod +x ./scripts/net-ensure.sh
+        @./scripts/net-ensure.sh --env-file "$(ENV_FILE)"
 
 .PHONY: preflight
 preflight:
