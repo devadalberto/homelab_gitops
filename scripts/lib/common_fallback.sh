@@ -9,6 +9,9 @@ if [[ -n ${_HOMELAB_COMMON_FALLBACK_SH_SOURCED:-} ]]; then
 fi
 readonly _HOMELAB_COMMON_FALLBACK_SH_SOURCED=1
 
+# shellcheck source=./load-env.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/load-env.sh"
+
 : "${LOG_LEVEL:=info}"
 
 _homelab_fallback_ts() {
@@ -276,26 +279,6 @@ wait_for_port_forwards() {
       wait "${pid}" || true
     fi
   done
-}
-
-load_env() {
-  if [[ $# -ne 1 ]]; then
-    log_error "Usage: load_env <env-file>"
-    return 64
-  fi
-  local env_file=$1
-  if [[ ! -f $env_file ]]; then
-    log_error "Environment file not found: $env_file"
-    return 1
-  fi
-
-  log_debug "Loading environment from $env_file"
-  local prev_state
-  prev_state=$(set +o)
-  set -a
-  # shellcheck disable=SC1090
-  source "$env_file"
-  eval "$prev_state"
 }
 
 homelab_resolve_existing_dir() {
