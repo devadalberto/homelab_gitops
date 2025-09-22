@@ -1,0 +1,23 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: bitwarden
+  namespace: bitwarden
+  annotations:
+    kubernetes.io/ingress.class: traefik
+spec:
+  tls:
+    - secretName: bitwarden-tls
+      hosts:
+        - "bitwarden.lab-minikube.labz.home.arpa"
+  rules:
+    - host: bitwarden.lab-minikube.labz.home.arpa
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: bitwarden
+                port:
+                  number: 80

@@ -8,4 +8,5 @@ resources:
   - ../observability
   - ../data/postgres
   - ../apps/awx
+  - ../apps/bitwarden
   - ../apps/django-multiproject
