@@ -5,23 +5,15 @@ IFS=$'\n\t'
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-COMMON_LIB="${REPO_ROOT}/scripts/lib/common.sh"
-if [[ -f "${COMMON_LIB}" ]]; then
-  # shellcheck source=scripts/lib/common.sh
-  source "${COMMON_LIB}"
-else
-  FALLBACK_LIB="${REPO_ROOT}/scripts/lib/common_fallback.sh"
-  if [[ -f "${FALLBACK_LIB}" ]]; then
-    # shellcheck source=scripts/lib/common_fallback.sh
-    source "${FALLBACK_LIB}"
-  else
-    echo "Unable to locate scripts/lib/common.sh or fallback helpers" >&2
-    exit 70
-  fi
-fi
+# shellcheck source=scripts/common-env.sh
+source "${REPO_ROOT}/scripts/common-env.sh"
 
-sudo mkdir -p /opt/homelab/pfsense/config
-sudo chown "$(id -u)":"$(id -g)" /opt/homelab/pfsense/config || true
+ensure_dirs "${HOMELAB_PFSENSE_CONFIG_DIR}"
+if command -v sudo >/dev/null 2>&1; then
+  sudo chown "$(id -u)":"$(id -g)" "${HOMELAB_PFSENSE_CONFIG_DIR}" || true
+else
+  chown "$(id -u)":"$(id -g)" "${HOMELAB_PFSENSE_CONFIG_DIR}" || true
+fi
 
 readonly EX_OK=0
 readonly EX_USAGE=64
@@ -40,7 +32,7 @@ ENV_FILE=""
 OUTPUT_DIR_OVERRIDE=""
 TEMPLATE_OVERRIDE=""
 
-WORK_ROOT_DEFAULT="/opt/homelab"
+WORK_ROOT_DEFAULT="${HOMELAB_ROOT}"
 ISO_LABEL="pfSense_config"
 
 usage() {
@@ -147,29 +139,6 @@ cleanup_temp_dir() {
   if [[ -d ${dir} ]]; then
     rm -rf -- "${dir:?}"
   fi
-}
-
-load_environment() {
-  local candidates=()
-  if [[ -n ${ENV_FILE} ]]; then
-    candidates=("${ENV_FILE}")
-  else
-    candidates=(
-      "${REPO_ROOT}/.env"
-      "${REPO_ROOT}/.env.example"
-    )
-  fi
-
-  local candidate
-  for candidate in "${candidates[@]}"; do
-    if [[ -f ${candidate} ]]; then
-      log_info "Loading environment from ${candidate}"
-      load_env "${candidate}" || die ${EX_CONFIG} "Failed to load environment from ${candidate}"
-      return
-    fi
-  done
-
-  log_warn "No environment file found; relying on existing shell variables."
 }
 
 check_dependencies() {
@@ -549,7 +518,12 @@ package_iso() {
 
 main() {
   parse_args "$@"
-  load_environment
+  if ! load_env "${ENV_FILE}"; then
+    if [[ -n ${ENV_FILE} ]]; then
+      die ${EX_CONFIG} "Environment file not found: ${ENV_FILE}"
+    fi
+    log_warn "No environment file found; relying on existing shell variables."
+  fi
 
   : "${WORK_ROOT:=${WORK_ROOT_DEFAULT}}"
   derive_lan_network_settings

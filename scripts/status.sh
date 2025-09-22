@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+# shellcheck source=scripts/common-env.sh
+source "${REPO_ROOT}/scripts/common-env.sh"
+
 ENV_FILE=""
 
 usage() {
@@ -40,22 +46,6 @@ while [[ $# -gt 0 ]]; do
     ;;
   esac
 done
-
-load_env_file() {
-  if [[ -z "$ENV_FILE" ]]; then
-    return
-  fi
-
-  if [[ ! -f "$ENV_FILE" ]]; then
-    echo "error: env file not found: $ENV_FILE" >&2
-    exit 1
-  fi
-
-  set -a
-  # shellcheck disable=SC1090
-  source "$ENV_FILE"
-  set +a
-}
 
 print_section() {
   local title="$1"
@@ -100,27 +90,20 @@ print_header() {
 }
 
 print_env_summary() {
-  print_section "Environment configuration"
-
-  if [[ -n "$ENV_FILE" ]]; then
-    print_key_value "Environment file:" "$ENV_FILE"
-  else
-    print_key_value "Environment file:" "(none)"
-  fi
-
-  print_key_value "Domain:" "${LABZ_DOMAIN:-<unset>}"
-  print_key_value "Domain base:" "${LAB_DOMAIN_BASE:-<unset>}"
-  print_key_value "Traefik host:" "${LABZ_TRAEFIK_HOST:-<unset>}"
-  print_key_value "Nextcloud host:" "${LABZ_NEXTCLOUD_HOST:-<unset>}"
-  print_key_value "Jellyfin host:" "${LABZ_JELLYFIN_HOST:-<unset>}"
-  print_key_value "Minikube profile:" "${LABZ_MINIKUBE_PROFILE:-<unset>}"
-  print_key_value "Minikube driver:" "${LABZ_MINIKUBE_DRIVER:-<unset>}"
-  print_key_value "Minikube CPUs:" "${LABZ_MINIKUBE_CPUS:-<unset>}"
-  print_key_value "Minikube memory:" "${LABZ_MINIKUBE_MEMORY:-<unset>}"
-  print_key_value "Minikube disk:" "${LABZ_MINIKUBE_DISK:-<unset>}"
-  print_key_value "Mount (backups):" "${LABZ_MOUNT_BACKUPS:-<unset>}"
-  print_key_value "Mount (media):" "${LABZ_MOUNT_MEDIA:-<unset>}"
-  print_key_value "Mount (nextcloud):" "${LABZ_MOUNT_NEXTCLOUD:-<unset>}"
+  dump_effective_env --header "Environment configuration" \
+    LABZ_DOMAIN \
+    LAB_DOMAIN_BASE \
+    LABZ_TRAEFIK_HOST \
+    LABZ_NEXTCLOUD_HOST \
+    LABZ_JELLYFIN_HOST \
+    LABZ_MINIKUBE_PROFILE \
+    LABZ_MINIKUBE_DRIVER \
+    LABZ_MINIKUBE_CPUS \
+    LABZ_MINIKUBE_MEMORY \
+    LABZ_MINIKUBE_DISK \
+    LABZ_MOUNT_BACKUPS \
+    LABZ_MOUNT_MEDIA \
+    LABZ_MOUNT_NEXTCLOUD
 }
 
 print_virsh_summary() {
@@ -192,7 +175,11 @@ TIPS
 }
 
 main() {
-  load_env_file
+  if ! load_env "${ENV_FILE}"; then
+    if [[ -n ${ENV_FILE} ]]; then
+      fatal ${EX_USAGE} "env file not found: ${ENV_FILE}"
+    fi
+  fi
   print_header
   print_env_summary
   print_virsh_summary

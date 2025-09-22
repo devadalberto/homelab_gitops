@@ -5,20 +5,8 @@ umask 077
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-COMMON_LIB="${REPO_ROOT}/scripts/lib/common.sh"
-if [[ -f "${COMMON_LIB}" ]]; then
-  # shellcheck source=scripts/lib/common.sh
-  source "${COMMON_LIB}"
-else
-  FALLBACK_LIB="${REPO_ROOT}/scripts/lib/common_fallback.sh"
-  if [[ -f "${FALLBACK_LIB}" ]]; then
-    # shellcheck source=scripts/lib/common_fallback.sh
-    source "${FALLBACK_LIB}"
-  else
-    echo "Unable to locate scripts/lib/common.sh or fallback helpers" >&2
-    exit 70
-  fi
-fi
+# shellcheck source=scripts/common-env.sh
+source "${REPO_ROOT}/scripts/common-env.sh"
 
 PF_LAN_LIB="${REPO_ROOT}/scripts/lib/pf_lan.sh"
 if [[ -f "${PF_LAN_LIB}" ]]; then
@@ -35,8 +23,8 @@ readonly EX_VERIFY=2
 readonly EX_FATAL=3
 
 LOG_FILE="/var/log/pfsense-ztp.log"
-PF_ROOT="/opt/homelab/pfsense"
-CONFIG_ROOT="${PF_ROOT}/config"
+PF_ROOT="${HOMELAB_PFSENSE_ROOT}"
+CONFIG_ROOT="${HOMELAB_PFSENSE_CONFIG_DIR}"
 CONFIG_XML="${CONFIG_ROOT}/config.xml"
 USB_IMAGE="${CONFIG_ROOT}/pfSense-ecl-usb.img"
 USB_LABEL="ECLCFG"
@@ -312,56 +300,6 @@ parse_args() {
   if [[ ${ROLLBACK} == true && ${DRY_RUN} == true ]]; then
     die ${EX_PREFLIGHT} "--rollback cannot be combined with --dry-run"
   fi
-}
-
-source_cli_env_file() {
-  local env_path=$1
-
-  if [[ -z ${env_path} ]]; then
-    return
-  fi
-
-  if [[ ! -f ${env_path} ]]; then
-    log_warn "Environment file ${env_path} not found; continuing without sourcing"
-    return
-  fi
-
-  log_debug "Sourcing CLI environment overrides from ${env_path}"
-  set +u
-  set -a
-  # shellcheck disable=SC1090
-  source "${env_path}"
-  set +a
-  set -u
-}
-
-load_env_file() {
-  local candidates=()
-  if [[ -n ${ENV_FILE} ]]; then
-    candidates=("${ENV_FILE}")
-  else
-    candidates=(
-      "${REPO_ROOT}/.env"
-      "${PWD}/.env"
-      "/opt/homelab/.env"
-    )
-  fi
-
-  local candidate
-  for candidate in "${candidates[@]}"; do
-    if [[ -f ${candidate} ]]; then
-      log_info "Loading environment from ${candidate}"
-      set +u
-      set -a
-      # shellcheck disable=SC1090
-      source "${candidate}"
-      set +a
-      set -u
-      return
-    fi
-  done
-
-  log_warn "No environment file found; continuing with shell environment"
 }
 
 ensure_required_env() {
@@ -2004,10 +1942,15 @@ print_summary() {
 main() {
   parse_args "$@"
 
-  source_cli_env_file "${ENV_FILE}"
-
   if [[ ${VERBOSE} == true ]]; then
     log_set_level debug || true
+  fi
+
+  if ! load_env "${ENV_FILE}"; then
+    if [[ -n ${ENV_FILE} ]]; then
+      die ${EX_PREFLIGHT} "Environment file '${ENV_FILE}' not found"
+    fi
+    log_warn "No environment file found; continuing with shell environment"
   fi
 
   if [[ ${EUID} -ne 0 ]]; then
@@ -2016,7 +1959,6 @@ main() {
 
   setup_logging
   install_error_trap
-  load_env_file
   if [[ -n ${VM_NAME_ARG:-} ]]; then
     PF_VM_NAME="${VM_NAME_ARG}"
   fi

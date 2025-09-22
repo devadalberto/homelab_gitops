@@ -10,40 +10,22 @@ before running the bootstrap workflow.
 
 Options:
   -e, --env-file FILE       Source environment variables from FILE.
-                            Defaults to $REPO_ROOT/.env when present.
       --skip-ip-validation  Skip LAN/IP validation performed via Python.
   -h, --help               Display this help message and exit.
 USAGE
 }
 
-log() {
-  local level="$1"
-  shift
-  printf '[%s] %s\n' "$level" "$*"
-}
-
-die() {
-  log FAIL "$*" >&2
-  exit 1
-}
-
-warn() {
-  log WARN "$*" >&2
-}
-
-info() {
-  log INFO "$*"
-}
-
-ok() {
-  log OK "$*"
-}
-
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-DEFAULT_ENV_FILE="${REPO_ROOT}/.env"
 
-REQUESTED_ENV_FILE=""
+# shellcheck source=scripts/common-env.sh
+source "${REPO_ROOT}/scripts/common-env.sh"
+
+ok() {
+  info "[OK] $*"
+}
+
+ENV_FILE_OVERRIDE=""
 SKIP_IP_VALIDATION="false"
 
 while [[ $# -gt 0 ]]; do
@@ -52,7 +34,7 @@ while [[ $# -gt 0 ]]; do
     if [[ $# -lt 2 ]]; then
       die "Missing value for $1"
     fi
-    REQUESTED_ENV_FILE="$2"
+    ENV_FILE_OVERRIDE="$2"
     shift 2
     ;;
   --skip-ip-validation)
@@ -67,45 +49,27 @@ while [[ $# -gt 0 ]]; do
     shift
     break
     ;;
-  *)
+ *)
     die "Unknown argument: $1"
     ;;
   esac
 done
 
-if [[ -z "${REQUESTED_ENV_FILE}" ]]; then
-  if [[ -n "${ENV_FILE:-}" ]]; then
-    REQUESTED_ENV_FILE="${ENV_FILE}"
-  elif [[ -f "${DEFAULT_ENV_FILE}" ]]; then
-    REQUESTED_ENV_FILE="${DEFAULT_ENV_FILE}"
+if ! load_env "${ENV_FILE_OVERRIDE}"; then
+  if [[ -n ${ENV_FILE_OVERRIDE} ]]; then
+    fatal ${EX_CONFIG} "Environment file '${ENV_FILE_OVERRIDE}' not found"
   fi
-fi
-
-if [[ -n "${REQUESTED_ENV_FILE}" ]]; then
-  if [[ ! -f "${REQUESTED_ENV_FILE}" ]]; then
-    die "Environment file '${REQUESTED_ENV_FILE}' not found"
-  fi
-  info "Loading environment from ${REQUESTED_ENV_FILE}"
-  set -a
-  # shellcheck disable=SC1090
-  source "${REQUESTED_ENV_FILE}"
-  set +a
-else
   info "No environment file provided; using existing environment"
 fi
-
-require_cmd() {
-  local cmd="$1"
-  if ! command -v "$cmd" >/dev/null 2>&1; then
-    die "Required command '${cmd}' is not available"
-  fi
-}
 
 BASE_DEPS=(awk grep sed ip)
 info "Checking base command dependencies"
 for dep in "${BASE_DEPS[@]}"; do
-  require_cmd "$dep"
-  info " - ${dep} available"
+  if require_cmd "${dep}"; then
+    info " - ${dep} available"
+  else
+    fatal ${EX_UNAVAILABLE} "Required command '${dep}' is not available"
+  fi
 done
 
 PF_VM_NAME="${PF_VM_NAME:-pfsense-uranus}"
@@ -125,11 +89,7 @@ LEGACY_PF_BRIDGE_INTERFACE="${PF_BRIDGE_INTERFACE:-}"
 LEGACY_DHCP_FROM="${DHCP_FROM:-}"
 LEGACY_DHCP_TO="${DHCP_TO:-}"
 
-if [[ -n "${REQUESTED_ENV_FILE}" ]]; then
-  ENV_SOURCE_LABEL="${REQUESTED_ENV_FILE}"
-else
-  ENV_SOURCE_LABEL="your environment"
-fi
+ENV_SOURCE_LABEL="${HOMELAB_ENV_FILE:-${ENV_FILE_OVERRIDE:-your environment}}"
 
 enumerate_bridges() {
   if ! command -v ip >/dev/null 2>&1; then

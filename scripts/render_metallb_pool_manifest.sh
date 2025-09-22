@@ -5,20 +5,8 @@ IFS=$'\n\t'
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-COMMON_LIB="${SCRIPT_DIR}/lib/common.sh"
-if [[ -f "${COMMON_LIB}" ]]; then
-  # shellcheck source=scripts/lib/common.sh
-  source "${COMMON_LIB}"
-else
-  FALLBACK_LIB="${SCRIPT_DIR}/lib/common_fallback.sh"
-  if [[ -f "${FALLBACK_LIB}" ]]; then
-    # shellcheck source=scripts/lib/common_fallback.sh
-    source "${FALLBACK_LIB}"
-  else
-    echo "Unable to locate scripts/lib/common.sh or fallback helpers" >&2
-    exit 70
-  fi
-fi
+# shellcheck source=scripts/common-env.sh
+source "${REPO_ROOT}/scripts/common-env.sh"
 
 readonly EX_OK=0
 readonly EX_USAGE=64
@@ -54,43 +42,6 @@ Examples:
   # Print the manifest without touching the repository
   ./scripts/render_metallb_pool_manifest.sh --env-file ./.env --output - --stdout
 USAGE
-}
-
-load_environment() {
-  if [[ -n ${ENV_FILE_OVERRIDE} ]]; then
-    if [[ ! -f ${ENV_FILE_OVERRIDE} ]]; then
-      die ${EX_CONFIG} "Environment file not found: ${ENV_FILE_OVERRIDE}"
-    fi
-    log_info "Loading environment overrides from ${ENV_FILE_OVERRIDE}"
-    load_env "${ENV_FILE_OVERRIDE}" || die ${EX_CONFIG} "Failed to load ${ENV_FILE_OVERRIDE}"
-    ENV_FILE_PATH="${ENV_FILE_OVERRIDE}"
-    return
-  fi
-
-  local candidates=(
-    "${REPO_ROOT}/.env"
-    "${SCRIPT_DIR}/.env"
-    "/opt/homelab/.env"
-  )
-  local candidate
-  for candidate in "${candidates[@]}"; do
-    if [[ -f ${candidate} ]]; then
-      log_info "Loading environment from ${candidate}"
-      load_env "${candidate}" || die ${EX_CONFIG} "Failed to load ${candidate}"
-      ENV_FILE_PATH="${candidate}"
-      return
-    fi
-  done
-
-  local fallback="${REPO_ROOT}/.env.example"
-  if [[ -f ${fallback} ]]; then
-    log_info "Falling back to ${fallback}"
-    load_env "${fallback}" || die ${EX_CONFIG} "Failed to load ${fallback}"
-    ENV_FILE_PATH="${fallback}"
-    return
-  fi
-
-  die ${EX_CONFIG} "Unable to locate an environment file. Use --env-file to specify one."
 }
 
 parse_args() {
@@ -155,7 +106,14 @@ parse_args() {
 
 main() {
   parse_args "$@"
-  load_environment
+  if load_env "${ENV_FILE_OVERRIDE}"; then
+    ENV_FILE_PATH="${HOMELAB_ENV_FILE:-${ENV_FILE_OVERRIDE:-}}"
+  else
+    if [[ -n ${ENV_FILE_OVERRIDE} ]]; then
+      die ${EX_CONFIG} "Environment file not found: ${ENV_FILE_OVERRIDE}"
+    fi
+    die ${EX_CONFIG} "Unable to locate an environment file. Use --env-file to specify one."
+  fi
 
   if [[ -z ${METALLB_POOL_START:-} || -z ${METALLB_POOL_END:-} ]]; then
     local env_source=${ENV_FILE_PATH:-environment}
