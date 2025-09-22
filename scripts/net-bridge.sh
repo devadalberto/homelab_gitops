@@ -145,47 +145,47 @@ parse_args() {
   local positional=()
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --env-file)
-        if [[ $# -lt 2 ]]; then
-          usage
-          die ${EX_USAGE} "--env-file requires a path argument"
-        fi
-        ENV_FILE_OVERRIDE="$2"
-        shift 2
-        ;;
-      --state-file)
-        if [[ $# -lt 2 ]]; then
-          usage
-          die ${EX_USAGE} "--state-file requires a path argument"
-        fi
-        STATE_FILE="$2"
-        shift 2
-        ;;
-      --dry-run)
-        DRY_RUN=true
-        shift
-        ;;
-      --context-preflight)
-        CONTEXT_ONLY=true
-        shift
-        ;;
-      -h|--help)
+    --env-file)
+      if [[ $# -lt 2 ]]; then
         usage
-        exit ${EX_OK}
-        ;;
-      --)
-        shift
-        positional=("$@")
-        break
-        ;;
-      -* )
+        die ${EX_USAGE} "--env-file requires a path argument"
+      fi
+      ENV_FILE_OVERRIDE="$2"
+      shift 2
+      ;;
+    --state-file)
+      if [[ $# -lt 2 ]]; then
         usage
-        die ${EX_USAGE} "Unknown option: $1"
-        ;;
-      * )
-        usage
-        die ${EX_USAGE} "WAN NIC must be specified after --"
-        ;;
+        die ${EX_USAGE} "--state-file requires a path argument"
+      fi
+      STATE_FILE="$2"
+      shift 2
+      ;;
+    --dry-run)
+      DRY_RUN=true
+      shift
+      ;;
+    --context-preflight)
+      CONTEXT_ONLY=true
+      shift
+      ;;
+    -h | --help)
+      usage
+      exit ${EX_OK}
+      ;;
+    --)
+      shift
+      positional=("$@")
+      break
+      ;;
+    -*)
+      usage
+      die ${EX_USAGE} "Unknown option: $1"
+      ;;
+    *)
+      usage
+      die ${EX_USAGE} "WAN NIC must be specified after --"
+      ;;
     esac
   done
 

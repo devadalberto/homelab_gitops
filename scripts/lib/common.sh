@@ -21,13 +21,13 @@ _homelab_ts() {
 _homelab_log_level_to_int() {
   local level=${1,,}
   case "$level" in
-    trace) echo 0 ;;
-    debug) echo 1 ;;
-    info)  echo 2 ;;
-    warn|warning) echo 3 ;;
-    error) echo 4 ;;
-    fatal|crit|critical) echo 5 ;;
-    *) echo 2 ;;
+  trace) echo 0 ;;
+  debug) echo 1 ;;
+  info) echo 2 ;;
+  warn | warning) echo 3 ;;
+  error) echo 4 ;;
+  fatal | crit | critical) echo 5 ;;
+  *) echo 2 ;;
   esac
 }
 
@@ -59,8 +59,8 @@ log_set_level() {
 
 log_trace() { _homelab_log trace "$*"; }
 log_debug() { _homelab_log debug "$*"; }
-log_info()  { _homelab_log info "$*"; }
-log_warn()  { _homelab_log warn "$*"; }
+log_info() { _homelab_log info "$*"; }
+log_warn() { _homelab_log warn "$*"; }
 log_error() { _homelab_log error "$*"; }
 log_fatal() { _homelab_log fatal "$*"; }
 
@@ -110,14 +110,14 @@ retry() {
   local try=1
   local last_status=1
   local status
-  while (( try <= attempts )); do
+  while ((try <= attempts)); do
     "$@"
     status=$?
-    if (( status == 0 )); then
+    if ((status == 0)); then
       return 0
     fi
     last_status=$status
-    if (( try < attempts )); then
+    if ((try < attempts)); then
       log_warn "Attempt ${try}/${attempts} failed (exit ${status}). Retrying in ${delay}s..."
       sleep "$delay"
     fi
@@ -198,30 +198,30 @@ start_port_forward() {
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --name)
-        name=$2
-        shift 2
-        ;;
-      --dry-run)
-        dry_run=$2
-        shift 2
-        ;;
-      --startup-delay)
-        startup_delay=$2
-        shift 2
-        ;;
-      --success-message)
-        success_messages+=("$2")
-        shift 2
-        ;;
-      --)
-        shift
-        break
-        ;;
-      *)
-        log_error "start_port_forward: unknown option: $1"
-        return 64
-        ;;
+    --name)
+      name=$2
+      shift 2
+      ;;
+    --dry-run)
+      dry_run=$2
+      shift 2
+      ;;
+    --startup-delay)
+      startup_delay=$2
+      shift 2
+      ;;
+    --success-message)
+      success_messages+=("$2")
+      shift 2
+      ;;
+    --)
+      shift
+      break
+      ;;
+    *)
+      log_error "start_port_forward: unknown option: $1"
+      return 64
+      ;;
     esac
   done
 
@@ -366,7 +366,7 @@ homelab_maybe_reexec_for_privileged_paths() {
     return 0
   fi
 
-  if (( EUID == 0 )); then
+  if ((EUID == 0)); then
     return 0
   fi
 

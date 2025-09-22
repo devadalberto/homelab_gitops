@@ -18,22 +18,22 @@ _homelab_fallback_ts() {
 _homelab_fallback_should_log() {
   local desired current
   case "${1,,}" in
-    trace) desired=0 ;;
-    debug) desired=1 ;;
-    info)  desired=2 ;;
-    warn|warning) desired=3 ;;
-    error) desired=4 ;;
-    fatal|crit|critical) desired=5 ;;
-    *) desired=2 ;;
+  trace) desired=0 ;;
+  debug) desired=1 ;;
+  info) desired=2 ;;
+  warn | warning) desired=3 ;;
+  error) desired=4 ;;
+  fatal | crit | critical) desired=5 ;;
+  *) desired=2 ;;
   esac
   case "${LOG_LEVEL,,}" in
-    trace) current=0 ;;
-    debug) current=1 ;;
-    info)  current=2 ;;
-    warn|warning) current=3 ;;
-    error) current=4 ;;
-    fatal|crit|critical) current=5 ;;
-    *) current=2 ;;
+  trace) current=0 ;;
+  debug) current=1 ;;
+  info) current=2 ;;
+  warn | warning) current=3 ;;
+  error) current=4 ;;
+  fatal | crit | critical) current=5 ;;
+  *) current=2 ;;
   esac
   [[ $desired -ge $current ]]
 }
@@ -56,8 +56,8 @@ log_set_level() {
 
 log_trace() { _homelab_fallback_log trace "$*"; }
 log_debug() { _homelab_fallback_log debug "$*"; }
-log_info()  { _homelab_fallback_log info "$*"; }
-log_warn()  { _homelab_fallback_log warn "$*"; }
+log_info() { _homelab_fallback_log info "$*"; }
+log_warn() { _homelab_fallback_log warn "$*"; }
 log_error() { _homelab_fallback_log error "$*"; }
 log_fatal() { _homelab_fallback_log fatal "$*"; }
 
@@ -108,14 +108,14 @@ retry() {
   local try=1
   local last_status=1
   local status
-  while (( try <= attempts )); do
+  while ((try <= attempts)); do
     "$@"
     status=$?
-    if (( status == 0 )); then
+    if ((status == 0)); then
       return 0
     fi
     last_status=$status
-    if (( try < attempts )); then
+    if ((try < attempts)); then
       log_warn "Attempt ${try}/${attempts} failed (exit ${status}). Retrying in ${delay}s..."
       sleep "$delay"
     fi
@@ -196,30 +196,30 @@ start_port_forward() {
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --name)
-        name=$2
-        shift 2
-        ;;
-      --dry-run)
-        dry_run=$2
-        shift 2
-        ;;
-      --startup-delay)
-        startup_delay=$2
-        shift 2
-        ;;
-      --success-message)
-        success_messages+=("$2")
-        shift 2
-        ;;
-      --)
-        shift
-        break
-        ;;
-      *)
-        log_error "start_port_forward: unknown option: $1"
-        return 64
-        ;;
+    --name)
+      name=$2
+      shift 2
+      ;;
+    --dry-run)
+      dry_run=$2
+      shift 2
+      ;;
+    --startup-delay)
+      startup_delay=$2
+      shift 2
+      ;;
+    --success-message)
+      success_messages+=("$2")
+      shift 2
+      ;;
+    --)
+      shift
+      break
+      ;;
+    *)
+      log_error "start_port_forward: unknown option: $1"
+      return 64
+      ;;
     esac
   done
 
@@ -341,7 +341,7 @@ homelab_maybe_reexec_for_privileged_paths() {
     return 0
   fi
 
-  if (( EUID == 0 )); then
+  if ((EUID == 0)); then
     return 0
   fi
 
@@ -558,4 +558,3 @@ k_diag_pod_logs() {
     kubectl logs "$pod" -n "$namespace" --tail="$tail_lines"
   fi
 }
-

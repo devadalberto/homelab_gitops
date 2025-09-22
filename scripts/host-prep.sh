@@ -152,41 +152,41 @@ gather_defaults() {
 parse_args() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --env-file)
-        if [[ $# -lt 2 ]]; then
-          usage
-          die ${EX_USAGE} "--env-file requires a path argument"
-        fi
-        ENV_FILE_OVERRIDE="$2"
-        shift 2
-        ;;
-      --dry-run)
-        DRY_RUN=true
-        shift
-        ;;
-      --context-preflight)
-        CONTEXT_ONLY=true
-        shift
-        ;;
-      -h|--help)
+    --env-file)
+      if [[ $# -lt 2 ]]; then
         usage
-        exit ${EX_OK}
-        ;;
-      --)
-        shift
-        if [[ $# -gt 0 ]]; then
-          usage
-          die ${EX_USAGE} "Unexpected positional arguments: $*"
-        fi
-        ;;
-      -* )
+        die ${EX_USAGE} "--env-file requires a path argument"
+      fi
+      ENV_FILE_OVERRIDE="$2"
+      shift 2
+      ;;
+    --dry-run)
+      DRY_RUN=true
+      shift
+      ;;
+    --context-preflight)
+      CONTEXT_ONLY=true
+      shift
+      ;;
+    -h | --help)
+      usage
+      exit ${EX_OK}
+      ;;
+    --)
+      shift
+      if [[ $# -gt 0 ]]; then
         usage
-        die ${EX_USAGE} "Unknown option: $1"
-        ;;
-      * )
-        usage
-        die ${EX_USAGE} "Positional arguments are not supported. Use -- to terminate options."
-        ;;
+        die ${EX_USAGE} "Unexpected positional arguments: $*"
+      fi
+      ;;
+    -*)
+      usage
+      die ${EX_USAGE} "Unknown option: $1"
+      ;;
+    *)
+      usage
+      die ${EX_USAGE} "Positional arguments are not supported. Use -- to terminate options."
+      ;;
     esac
   done
 }
@@ -256,7 +256,7 @@ check_pf_lan_alignment() {
     fi
   fi
 
-  if (( mismatch != 0 )); then
+  if ((mismatch != 0)); then
     if [[ ${fatal} == true ]]; then
       die ${EX_CONFIG} "PF_LAN_BRIDGE and PF_LAN_LINK must reference the same bridge (expected ${RESOLVED_PF_LAN_LINK_NAME})."
     fi
@@ -290,11 +290,11 @@ check_pf_installer() {
     errors=1
   else
     case "${path}" in
-      *.iso|*.iso.gz|*.img|*.img.gz) ;;
-      *)
-        log_error "pfSense installer must be a .img/.img.gz or .iso/.iso.gz archive (got ${path})."
-        errors=1
-        ;;
+    *.iso | *.iso.gz | *.img | *.img.gz) ;;
+    *)
+      log_error "pfSense installer must be a .img/.img.gz or .iso/.iso.gz archive (got ${path})."
+      errors=1
+      ;;
     esac
     if [[ ${source_var} != "PF_ISO_PATH" ]]; then
       local lower_path="${path,,}"
@@ -305,7 +305,7 @@ check_pf_installer() {
     fi
   fi
 
-  if (( errors != 0 )); then
+  if ((errors != 0)); then
     log_info "Download the pfSense CE serial installer from https://www.pfsense.org/download/ and update PF_INSTALLER_SRC in .env (legacy PF_SERIAL_INSTALLER_PATH/PF_ISO_PATH remain supported)."
     if [[ ${fatal} == true ]]; then
       die ${EX_CONFIG} "pfSense installer not ready"
@@ -615,7 +615,7 @@ main() {
     check_pf_lan_alignment false || pf_errors=1
     check_pf_installer false || pf_errors=1
     context_preflight
-    if (( pf_errors != 0 )); then
+    if ((pf_errors != 0)); then
       exit ${EX_CONFIG}
     fi
     return
