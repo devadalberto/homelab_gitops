@@ -22,18 +22,29 @@ if ! sudo virsh domblklist "$PF_VM_NAME" | awk '{print $1}' | grep -q sdz; then
   sudo virsh attach-disk "$PF_VM_NAME" "$CFG_ISO" sdz --type cdrom --mode readonly --config || true
 fi
 
-# Prepare installer media (supports .gz img)
-MEDIA_PATH="$PF_INSTALLER_SRC"
-if [[ "$MEDIA_PATH" == *.gz ]]; then
-  TMP_DIR="$(sudo mktemp -d)"
-  sudo gzip -t "$MEDIA_PATH"
-  sudo sh -c "gunzip -c '$MEDIA_PATH' > '$TMP_DIR/installer.img'"
-  MEDIA_PATH="$TMP_DIR/installer.img"
-fi
+# Determine current installer attachment (if any)
+CURRENT_VDB_SOURCE="$(sudo virsh domblklist "$PF_VM_NAME" | awk '$1=="vdb"{print $2}')"
 
-# Attach installer as vda if not present
-if ! sudo virsh domblklist "$PF_VM_NAME" | awk '{print $1}' | grep -q vdb; then
-  sudo virsh attach-disk "$PF_VM_NAME" "$MEDIA_PATH" vdb --config || true
+if [[ -n "$CURRENT_VDB_SOURCE" && "$CURRENT_VDB_SOURCE" != "-" ]] && sudo test -e "$CURRENT_VDB_SOURCE"; then
+  : # Installer already attached and accessible
+else
+  if [[ -n "$CURRENT_VDB_SOURCE" ]]; then
+    sudo virsh detach-disk "$PF_VM_NAME" vdb --config || true
+  fi
+
+  # Prepare installer media (supports .gz img)
+  MEDIA_PATH="$PF_INSTALLER_SRC"
+  if [[ "$MEDIA_PATH" == *.gz ]]; then
+    TMP_DIR="$(sudo mktemp -d)"
+    sudo gzip -t "$MEDIA_PATH"
+    sudo sh -c "gunzip -c '$MEDIA_PATH' > '$TMP_DIR/installer.img'"
+    MEDIA_PATH="$TMP_DIR/installer.img"
+  fi
+
+  # Attach installer as vdb if not present or invalid
+  if ! sudo virsh domblklist "$PF_VM_NAME" | awk '{print $1}' | grep -q vdb; then
+    sudo virsh attach-disk "$PF_VM_NAME" "$MEDIA_PATH" vdb --config || true
+  fi
 fi
 
 echo "[OK] ZTP media attached for $PF_VM_NAME"
