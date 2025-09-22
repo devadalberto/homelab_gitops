@@ -4,10 +4,12 @@ SHELL := /bin/bash
 
 ENV_FILE ?= ./.env
 PF_VM_NAME ?= pfsense-uranus
+BATS ?= tests/vendor/bats-core/bin/bats
 
 .PHONY: help
 help:
 	@echo "Targets:"
+	@echo "  test            - Run repository test suite"
 	@echo "  up              - Run full bootstrap: pfSense + Kubernetes + status"
 	@echo "  net.ensure      - Ensure WAN/LAN bridges are present"
 	@echo "  preflight       - Ensure pfSense VM is running & IPs sane"
@@ -88,3 +90,9 @@ status:
 .PHONY: up
 up: net.ensure preflight pf.config pf.install pf.smoketest k8s.up k8s.smoketest status
 	@echo "Homelab bootstrap complete."
+.PHONY: test
+test:
+	@echo "Running Bats test suite..."
+	@$(BATS) tests/bats
+	@./scripts/tests/retry_test.sh
+
