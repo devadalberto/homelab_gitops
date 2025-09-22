@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: bitwarden-data
+  namespace: bitwarden
+  labels:
+    app.kubernetes.io/name: bitwarden
+    app.kubernetes.io/instance: bitwarden
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 5Gi
