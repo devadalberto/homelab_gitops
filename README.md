@@ -57,6 +57,25 @@ make up ENV_FILE=./.env
 * `make smoketest` (or `./scripts/pf-smoketest.sh --env-file ./.env`) validates the pfSense domain, LAN bridge, DHCP, and WAN reachability probes.【F:Makefile†L48-L51】【F:scripts/pf-smoketest.sh†L49-L117】
 * `./scripts/k8s-smoketest.sh --env-file ./.env` switches kubectl to the Minikube context and ensures node readiness once the cluster is online.【F:scripts/k8s-smoketest.sh†L35-L199】
 
+## Linting
+
+Install [`pre-commit`](https://pre-commit.com/) to mirror the repository linting locally:
+
+```bash
+pip install pre-commit
+pre-commit install
+```
+
+Running `pre-commit run --all-files` executes the default suite:
+
+* [`shellcheck`](https://www.shellcheck.net/) for shell safety checks.
+* [`shfmt`](https://github.com/mvdan/sh) to keep shell formatting consistent.
+* [`yamllint`](https://yamllint.readthedocs.io/) for YAML manifests.
+* [`markdownlint-cli2`](https://github.com/DavidAnson/markdownlint-cli2) for Markdown style across `README.md` and the `docs/` tree.
+* `scripts/check-libvirt-no-video.sh` to block `<video>` devices from libvirt domain XML definitions so headless guests stay headless.【F:scripts/check-libvirt-no-video.sh†L1-L38】
+
+Documentation builds still run through `make docs`/`make docs-serve` when you need to regenerate diagrams or preview the site locally.【F:Makefile†L77-L96】
+
 ## Security notes
 
 * Repository secrets are stored as SOPS-encrypted manifests; export `SOPS_AGE_KEY_FILE` with the matching Age private key before editing them with the `sops` CLI and reapply the manifests after changes.【F:docs/index.md†L26-L40】

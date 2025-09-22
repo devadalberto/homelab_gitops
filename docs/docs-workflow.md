@@ -36,10 +36,11 @@ Pull requests run through steps 1-2 to validate documentation without publishing
 
 ## Pre-commit Hook
 
-A [`pre-commit`](https://pre-commit.com/) hook is provided to help contributors catch stale diagrams before they push commits. Install the framework (`pip install pre-commit`) and then enable it:
+Install [`pre-commit`](https://pre-commit.com/) to mirror the repository linting locally:
 
 ```bash
+pip install pre-commit
 pre-commit install
 ```
 
-On each commit, the hook triggers `make docs`. Regenerated SVGs will show up as staged changes if diagrams or Markdown were modified.
+Running `pre-commit run --all-files` executes shellcheck, shfmt, yamllint, markdownlint, and a guard that rejects libvirt domain XMLs containing `<video>` devices so headless guests are preserved.【F:.pre-commit-config.yaml†L2-L24】【F:scripts/check-libvirt-no-video.sh†L1-L38】 Re-run `make docs` or `make docs-serve` whenever content or diagrams change; those targets remain the supported path to regenerate the site during reviews.【F:Makefile†L77-L96】
