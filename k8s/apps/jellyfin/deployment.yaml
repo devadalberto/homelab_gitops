@@ -1,0 +1,51 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jellyfin
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: jellyfin
+  template:
+    metadata:
+      labels:
+        app: jellyfin
+    spec:
+      securityContext:
+        fsGroup: 1000
+      containers:
+        - name: jellyfin
+          image: jellyfin/jellyfin:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8096
+              name: http
+          env:
+            - name: TZ
+              valueFrom:
+                configMapKeyRef:
+                  name: jellyfin-config
+                  key: TZ
+            - name: JELLYFIN_MEDIA_PATH
+              valueFrom:
+                configMapKeyRef:
+                  name: jellyfin-config
+                  key: JELLYFIN_MEDIA_PATH
+            - name: JELLYFIN_PublishedServerUrl
+              valueFrom:
+                configMapKeyRef:
+                  name: jellyfin-config
+                  key: JELLYFIN_PublishedServerUrl
+            - name: JELLYFIN_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: jellyfin-api
+                  key: api-key
+          volumeMounts:
+            - mountPath: /media
+              name: media
+      volumes:
+        - name: media
+          persistentVolumeClaim:
+            claimName: jellyfin-media

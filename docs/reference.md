@@ -139,6 +139,10 @@ pfSense GUI → **Firewall** → **NAT** → **Port Forward** → edit example �
 | `PG_BACKUP_HOSTPATH`    | `LABZ_MOUNT_BACKUPS`| Backups              |
 | `/srv/*` mounts         | `LABZ_MOUNT_*`      | hostPath PVs         |
 
+#### Jellyfin configuration
+
+The Jellyfin overlay sources runtime values from the `jellyfin-config` ConfigMap and the SOPS-managed `jellyfin-api` Secret. Update `k8s/apps/jellyfin/configmap.yaml` when the timezone, published URL, or media mount path change, and edit `k8s/apps/jellyfin/sops-secrets/jellyfin-api.yaml` with the Age key to rotate the API token exposed as `JELLYFIN_API_KEY` in the deployment.【F:k8s/apps/jellyfin/configmap.yaml†L1-L9】【F:k8s/apps/jellyfin/sops-secrets/jellyfin-api.yaml†L1-L29】【F:k8s/apps/jellyfin/deployment.yaml†L1-L42】
+
 After updating the MetalLB fields in `.env`, regenerate the Flux manifest so the GitOps path and bootstrap helpers agree on the pool range:
 
 ```bash
