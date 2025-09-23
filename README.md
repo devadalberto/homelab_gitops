@@ -28,6 +28,15 @@ Homelab GitOps bootstraps the Uranus homelab's Minikube-based platform and deplo
    ```
 
    The helper orchestrates network discovery, MetalLB configuration, Minikube bootstrap, and the Flux-managed application stack in one pass.【F:scripts/preflight_and_bootstrap.sh†L400-L520】【F:scripts/uranus_homelab_one.sh†L320-L364】【F:scripts/uranus_homelab_apps.sh†L511-L569】
+   It also verifies that `minikube tunnel --profile ${LABZ_MINIKUBE_PROFILE}` is running with `--bind-address 0.0.0.0` so the workstation advertises the MetalLB load-balancer range on the LAN and leaves the tunnel in the background for subsequent workloads.【F:scripts/k8s-bootstrap.sh†L211-L311】【F:scripts/preflight_and_bootstrap.sh†L771-L843】【F:scripts/preflight_and_bootstrap.sh†L1057-L1063】 The tunnel logs to `~/.minikube/logs/tunnel-${LABZ_MINIKUBE_PROFILE}.log` by default so you can review connection status.
+
+   Restart the tunnel manually after a reboot (or if you intentionally stop it) so the MetalLB IPs remain reachable:
+
+   ```bash
+   sudo minikube tunnel --profile labz --bind-address 0.0.0.0
+   ```
+
+   Replace `labz` with the value of `LABZ_MINIKUBE_PROFILE` if you customized the Minikube profile in `.env`.
 3. Inspect the resulting environment and grab the Traefik load-balancer IP/hostnames for reference:
 
    ```bash

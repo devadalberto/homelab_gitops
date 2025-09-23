@@ -740,6 +740,108 @@ run_child_scripts() {
   fi
 }
 
+_minikube_tunnel_find_pids() {
+  local profile=$1
+  local -a pids=()
+
+  if command -v pgrep >/dev/null 2>&1; then
+    while IFS= read -r pid; do
+      if [[ -n ${pid} ]]; then
+        pids+=("${pid}")
+      fi
+    done < <(pgrep -f "minikube[[:space:]]+tunnel.*(--profile|-p)(=|[[:space:]])${profile}" 2>/dev/null || true)
+  fi
+
+  if ((${#pids[@]} == 0)); then
+    while IFS= read -r line; do
+      local pid cmd
+      pid=${line%% *}
+      cmd=${line#* }
+      if [[ ${cmd} == *"minikube tunnel"* ]]; then
+        if [[ ${cmd} == *"--profile ${profile}"* || ${cmd} == *"--profile=${profile}"* || ${cmd} == *"-p ${profile}"* ]]; then
+          pids+=("${pid}")
+        fi
+      fi
+    done < <(ps -eo pid=,args= 2>/dev/null || true)
+  fi
+
+  printf '%s\n' "${pids[@]}"
+}
+
+ensure_minikube_tunnel() {
+  local profile=${1:-${LABZ_MINIKUBE_PROFILE:-}}
+  local dry_run=${DRY_RUN:-false}
+  if [[ -z ${profile} ]]; then
+    log_warn "ensure_minikube_tunnel: no Minikube profile specified"
+    return 0
+  fi
+
+  need minikube || return $?
+
+  local -a running_pids=()
+  mapfile -t running_pids < <(_minikube_tunnel_find_pids "${profile}")
+  if ((${#running_pids[@]} > 0)); then
+    log_info "Minikube tunnel already running for profile ${profile} (PID(s): ${running_pids[*]})"
+    return 0
+  fi
+
+  if [[ ${dry_run} == true ]]; then
+    log_info "[DRY-RUN] $(format_command minikube tunnel --profile "${profile}" --bind-address 0.0.0.0)"
+    return 0
+  fi
+
+  local log_dir log_file
+  if [[ -n ${HOME:-} ]]; then
+    log_dir="${HOME}/.minikube/logs"
+  else
+    log_dir="/tmp"
+  fi
+  if [[ ! -d ${log_dir} ]]; then
+    if mkdir -p "${log_dir}" 2>/dev/null; then
+      log_debug "Created Minikube tunnel log directory ${log_dir}"
+    else
+      log_warn "Unable to create log directory ${log_dir}; falling back to /tmp"
+      log_dir="/tmp"
+    fi
+  fi
+  log_file="${log_dir}/tunnel-${profile}.log"
+
+  local -a launch_cmd=(minikube tunnel --profile "${profile}" --bind-address 0.0.0.0)
+  if [[ $(id -u) -ne 0 ]]; then
+    if ! command -v sudo >/dev/null 2>&1; then
+      die ${EX_UNAVAILABLE} "sudo is required to start the Minikube tunnel for profile ${profile}"
+    fi
+    if ! sudo -n true >/dev/null 2>&1; then
+      log_info "Elevating privileges for Minikube tunnel (sudo password may be required)"
+      if ! sudo -v; then
+        die ${EX_SOFTWARE} "Unable to obtain sudo credentials to start the Minikube tunnel"
+      fi
+    else
+      log_debug "Using cached sudo credentials for Minikube tunnel"
+    fi
+    launch_cmd=(sudo "${launch_cmd[@]}")
+  fi
+
+  log_debug "Launching Minikube tunnel: $(format_command "${launch_cmd[@]}")"
+  nohup "${launch_cmd[@]}" >"${log_file}" 2>&1 &
+  local pid=$!
+  disown "${pid}" 2>/dev/null || true
+
+  local attempts=0
+  local max_attempts=5
+  while ((attempts < max_attempts)); do
+    mapfile -t running_pids < <(_minikube_tunnel_find_pids "${profile}")
+    if ((${#running_pids[@]} > 0)); then
+      log_info "Minikube tunnel active for profile ${profile} (PID(s): ${running_pids[*]}), logging to ${log_file}"
+      return 0
+    fi
+    sleep 1
+    ((attempts++))
+  done
+
+  die ${EX_SOFTWARE} "Failed to start Minikube tunnel for profile ${profile}; inspect ${log_file}"
+}
+
 ensure_kubectl_context() {
   if ! need kubectl; then
     die ${EX_UNAVAILABLE} "kubectl is required to configure the cluster context"
@@ -954,6 +1056,7 @@ main() {
   fi
   run_child_scripts
   ensure_kubectl_context
+  ensure_minikube_tunnel "${LABZ_MINIKUBE_PROFILE:-}"
   ensure_kube_proxy_mode
   wait_for_readiness
   run_core_addons

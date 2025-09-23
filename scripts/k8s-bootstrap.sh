@@ -29,30 +29,30 @@ USAGE
 parse_args() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      -e|--env-file)
-        if [[ $# -lt 2 ]]; then
-          usage >&2
-          die "${EX_USAGE:-64}" "--env-file requires a path argument"
-        fi
-        ENV_FILE_OVERRIDE="$2"
-        shift 2
-        ;;
-      --env-file=*)
-        ENV_FILE_OVERRIDE="${1#*=}"
-        shift
-        ;;
-      --verbose)
-        log_set_level debug
-        shift
-        ;;
-      -h|--help)
-        usage
-        exit "${EX_OK:-0}"
-        ;;
-      *)
+    -e | --env-file)
+      if [[ $# -lt 2 ]]; then
         usage >&2
-        die "${EX_USAGE:-64}" "Unknown argument: $1"
-        ;;
+        die "${EX_USAGE:-64}" "--env-file requires a path argument"
+      fi
+      ENV_FILE_OVERRIDE="$2"
+      shift 2
+      ;;
+    --env-file=*)
+      ENV_FILE_OVERRIDE="${1#*=}"
+      shift
+      ;;
+    --verbose)
+      log_set_level debug
+      shift
+      ;;
+    -h | --help)
+      usage
+      exit "${EX_OK:-0}"
+      ;;
+    *)
+      usage >&2
+      die "${EX_USAGE:-64}" "Unknown argument: $1"
+      ;;
     esac
   done
 }
@@ -100,13 +100,13 @@ require_env_vars() {
       missing+=("${var}")
     fi
   done
-  if (( ${#missing[@]} > 0 )); then
+  if ((${#missing[@]} > 0)); then
     die "${EX_CONFIG:-78}" "Missing required variables: ${missing[*]}"
   fi
 }
 
 derive_metallb_range() {
-  if [[ ( -z ${METALLB_POOL_START:-} || -z ${METALLB_POOL_END:-} ) && -n ${LABZ_METALLB_RANGE:-} ]]; then
+  if [[ (-z ${METALLB_POOL_START:-} || -z ${METALLB_POOL_END:-}) && -n ${LABZ_METALLB_RANGE:-} ]]; then
     local range=${LABZ_METALLB_RANGE//[[:space:]]/}
     local start_part=${range%%-*}
     local end_part=${range##*-}
@@ -208,6 +208,108 @@ deploy_cert_manager() {
   kubectl_apply_manifest "${issuer_manifest}" "Applying cert-manager internal CA"
 }
 
+_minikube_tunnel_find_pids() {
+  local profile=$1
+  local -a pids=()
+
+  if command -v pgrep >/dev/null 2>&1; then
+    while IFS= read -r pid; do
+      if [[ -n ${pid} ]]; then
+        pids+=("${pid}")
+      fi
+    done < <(pgrep -f "minikube[[:space:]]+tunnel.*(--profile|-p)(=|[[:space:]])${profile}" 2>/dev/null || true)
+  fi
+
+  if ((${#pids[@]} == 0)); then
+    while IFS= read -r line; do
+      local pid cmd
+      pid=${line%% *}
+      cmd=${line#* }
+      if [[ ${cmd} == *"minikube tunnel"* ]]; then
+        if [[ ${cmd} == *"--profile ${profile}"* || ${cmd} == *"--profile=${profile}"* || ${cmd} == *"-p ${profile}"* ]]; then
+          pids+=("${pid}")
+        fi
+      fi
+    done < <(ps -eo pid=,args= 2>/dev/null || true)
+  fi
+
+  printf '%s\n' "${pids[@]}"
+}
+
+ensure_minikube_tunnel() {
+  local profile=${1:-${LABZ_MINIKUBE_PROFILE:-}}
+  local dry_run=${DRY_RUN:-false}
+  if [[ -z ${profile} ]]; then
+    log_warn "ensure_minikube_tunnel: no Minikube profile specified"
+    return 0
+  fi
+
+  need minikube || return $?
+
+  local -a running_pids=()
+  mapfile -t running_pids < <(_minikube_tunnel_find_pids "${profile}")
+  if ((${#running_pids[@]} > 0)); then
+    log_info "Minikube tunnel already running for profile ${profile} (PID(s): ${running_pids[*]})"
+    return 0
+  fi
+
+  if [[ ${dry_run} == true ]]; then
+    log_info "[DRY-RUN] $(format_command minikube tunnel --profile "${profile}" --bind-address 0.0.0.0)"
+    return 0
+  fi
+
+  local log_dir log_file
+  if [[ -n ${HOME:-} ]]; then
+    log_dir="${HOME}/.minikube/logs"
+  else
+    log_dir="/tmp"
+  fi
+  if [[ ! -d ${log_dir} ]]; then
+    if mkdir -p "${log_dir}" 2>/dev/null; then
+      log_debug "Created Minikube tunnel log directory ${log_dir}"
+    else
+      log_warn "Unable to create log directory ${log_dir}; falling back to /tmp"
+      log_dir="/tmp"
+    fi
+  fi
+  log_file="${log_dir}/tunnel-${profile}.log"
+
+  local -a launch_cmd=(minikube tunnel --profile "${profile}" --bind-address 0.0.0.0)
+  if [[ $(id -u) -ne 0 ]]; then
+    if ! command -v sudo >/dev/null 2>&1; then
+      die ${EX_UNAVAILABLE:-69} "sudo is required to start the Minikube tunnel for profile ${profile}"
+    fi
+    if ! sudo -n true >/dev/null 2>&1; then
+      log_info "Elevating privileges for Minikube tunnel (sudo password may be required)"
+      if ! sudo -v; then
+        die ${EX_SOFTWARE:-70} "Unable to obtain sudo credentials to start the Minikube tunnel"
+      fi
+    else
+      log_debug "Using cached sudo credentials for Minikube tunnel"
+    fi
+    launch_cmd=(sudo "${launch_cmd[@]}")
+  fi
+
+  log_debug "Launching Minikube tunnel: $(format_command "${launch_cmd[@]}")"
+  nohup "${launch_cmd[@]}" >"${log_file}" 2>&1 &
+  local pid=$!
+  disown "${pid}" 2>/dev/null || true
+
+  local attempts=0
+  local max_attempts=5
+  while ((attempts < max_attempts)); do
+    mapfile -t running_pids < <(_minikube_tunnel_find_pids "${profile}")
+    if ((${#running_pids[@]} > 0)); then
+      log_info "Minikube tunnel active for profile ${profile} (PID(s): ${running_pids[*]}), logging to ${log_file}"
+      return 0
+    fi
+    sleep 1
+    ((attempts++))
+  done
+
+  die ${EX_SOFTWARE:-70} "Failed to start Minikube tunnel for profile ${profile}; inspect ${log_file}"
+}
+
 install_traefik() {
   ensure_helm_repo traefik https://traefik.github.io/charts
   log_info "Deploying Traefik ${TRAEFIK_HELM_VERSION}"
@@ -229,7 +331,7 @@ wait_for_traefik_ip() {
   local service_namespace=traefik
   local service_name=traefik
   log_info "Waiting for Traefik LoadBalancer IP assignment"
-  while (( attempt <= TRAEFIK_WAIT_ATTEMPTS )); do
+  while ((attempt <= TRAEFIK_WAIT_ATTEMPTS)); do
     local ip
     ip=$(kubectl -n "${service_namespace}" get svc "${service_name}" -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
     local hostname
@@ -271,6 +373,7 @@ main() {
 
   log_info "Starting Kubernetes bootstrap workflow"
   ensure_minikube
+  ensure_minikube_tunnel "${LABZ_MINIKUBE_PROFILE}"
   configure_metallb
   deploy_cert_manager
   install_traefik
