@@ -14,6 +14,8 @@ CHART_NAME="bitnami/nextcloud"
 BITNAMI_REPO_NAME="bitnami"
 BITNAMI_REPO_URL="https://charts.bitnami.com/bitnami"
 VALUES_FILE=""
+ENV_FILE_OVERRIDE=""
+REINSTALL=false
 
 cleanup() {
   if [[ -n ${VALUES_FILE} && -f ${VALUES_FILE} ]]; then
@@ -21,6 +23,61 @@ cleanup() {
   fi
 }
 trap cleanup EXIT
+
+usage() {
+  cat <<USAGE
+Usage: $(basename "$0") [OPTIONS]
+
+Deploy or upgrade the Nextcloud Helm chart using the homelab environment configuration.
+
+Options:
+  --env-file PATH    Load environment variables from PATH before deployment.
+  --reinstall        Uninstall the existing release before deploying.
+  -h, --help         Show this help message and exit.
+USAGE
+}
+
+parse_args() {
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --env-file|-e)
+        if [[ $# -lt 2 ]]; then
+          usage >&2
+          die "${EX_USAGE}" "--env-file requires a path argument"
+        fi
+        ENV_FILE_OVERRIDE="$2"
+        shift 2
+        ;;
+      --env-file=*|-e=*)
+        ENV_FILE_OVERRIDE="${1#*=}"
+        shift
+        ;;
+      --reinstall)
+        REINSTALL=true
+        shift
+        ;;
+      -h|--help)
+        usage
+        exit "${EX_OK}"
+        ;;
+      --)
+        shift
+        if [[ $# -gt 0 ]]; then
+          usage >&2
+          die "${EX_USAGE}" "Unexpected positional arguments: $*"
+        fi
+        ;;
+      -*)
+        usage >&2
+        die "${EX_USAGE}" "Unknown option: $1"
+        ;;
+      *)
+        usage >&2
+        die "${EX_USAGE}" "Positional arguments are not supported"
+        ;;
+    esac
+  done
+}
 
 ensure_namespace() {
   if ! kubectl get namespace "${NAMESPACE}" >/dev/null 2>&1; then
@@ -137,6 +194,19 @@ install_chart() {
     --timeout 10m
 }
 
+release_exists() {
+  helm status "${RELEASE_NAME}" --namespace "${NAMESPACE}" >/dev/null 2>&1
+}
+
+reinstall_release() {
+  if release_exists; then
+    info "Uninstalling existing release ${RELEASE_NAME} from namespace ${NAMESPACE}"
+    helm uninstall "${RELEASE_NAME}" --namespace "${NAMESPACE}" --wait
+  else
+    log_debug "No existing release ${RELEASE_NAME} found in namespace ${NAMESPACE}"
+  fi
+}
+
 print_followup() {
   local traefik_lb
   traefik_lb=$(kubectl get svc traefik --namespace traefik -o 'jsonpath={.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
@@ -156,11 +226,21 @@ print_followup() {
 }
 
 main() {
+  parse_args "$@"
+
   require_cmd kubectl helm openssl
-  load_env --required
+
+  local -a load_env_args=(--required)
+  if [[ -n ${ENV_FILE_OVERRIDE} ]]; then
+    load_env_args+=(--env-file "${ENV_FILE_OVERRIDE}")
+  fi
+  load_env "${load_env_args[@]}"
 
   ensure_namespace
   ensure_bitnami_repo
+  if [[ ${REINSTALL} == true ]]; then
+    reinstall_release
+  fi
   render_values
   install_chart
   print_followup
