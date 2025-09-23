@@ -1,0 +1,61 @@
+image:
+  repository: jellyfin/jellyfin
+  pullPolicy: IfNotPresent
+
+env:
+  TZ: Etc/UTC
+  JELLYFIN_PublishedServerUrl: https://media.labz.home.arpa
+
+podSecurityContext:
+  fsGroup: 1000
+
+securityContext:
+  runAsUser: 1000
+  runAsGroup: 1000
+  runAsNonRoot: true
+
+ingress:
+  main:
+    enabled: true
+    ingressClassName: traefik
+    annotations:
+      traefik.ingress.kubernetes.io/router.entrypoints: websecure
+      traefik.ingress.kubernetes.io/router.tls: "true"
+    hosts:
+      - host: media.labz.home.arpa
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - secretName: labz-apps-tls
+        hosts:
+          - media.labz.home.arpa
+
+service:
+  main:
+    type: ClusterIP
+    ports:
+      http:
+        port: 80
+        targetPort: http
+
+persistence:
+  config:
+    enabled: true
+    storageClass: ""
+    accessMode: ReadWriteOnce
+    size: 20Gi
+  cache:
+    enabled: false
+  media:
+    enabled: true
+    existingClaim: jellyfin-media
+    mountPath: /media
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    cpu: 2000m
+    memory: 4Gi

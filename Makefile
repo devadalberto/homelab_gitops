@@ -41,7 +41,7 @@ apps.nextcloud:
 
 .PHONY: apps.jellyfin
 apps.jellyfin:
-	@printf '%s\n' 'Jellyfin deployment is managed by the Flux manifests. Ensure DNS points LABZ hosts at Traefik.'
+	./scripts/apps-jellyfin.sh --env-file "$(ENV_FILE)"
 
 .PHONY: apps.nextcloud.reinstall
 apps.nextcloud.reinstall:
