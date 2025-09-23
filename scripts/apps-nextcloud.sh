@@ -10,19 +10,14 @@ source "${REPO_ROOT}/scripts/common-env.sh"
 
 NAMESPACE="nextcloud"
 RELEASE_NAME="nextcloud"
-CHART_NAME="bitnami/nextcloud"
-BITNAMI_REPO_NAME="bitnami"
-BITNAMI_REPO_URL="https://charts.bitnami.com/bitnami"
-VALUES_FILE=""
+CHART_NAME="nextcloud/nextcloud"
+HELM_REPO_NAME="nextcloud"
+HELM_REPO_URL="https://nextcloud.github.io/helm/"
+VALUES_FILE="${REPO_ROOT}/values/nextcloud.yaml"
+STORAGE_MANIFEST="${REPO_ROOT}/charts/nextcloud/pv-pvc.yaml"
+
 ENV_FILE_OVERRIDE=""
 REINSTALL=false
-
-cleanup() {
-  if [[ -n ${VALUES_FILE} && -f ${VALUES_FILE} ]]; then
-    rm -f "${VALUES_FILE}"
-  fi
-}
-trap cleanup EXIT
 
 usage() {
   cat <<USAGE
@@ -88,110 +83,18 @@ ensure_namespace() {
   fi
 }
 
-ensure_bitnami_repo() {
-  info "Adding/updating Helm repo ${BITNAMI_REPO_NAME}"
-  helm repo add "${BITNAMI_REPO_NAME}" "${BITNAMI_REPO_URL}" --force-update >/dev/null
-  helm repo update "${BITNAMI_REPO_NAME}" >/dev/null
-}
-
-get_secret_field() {
-  local secret_name=$1
-  local field=$2
-  kubectl get secret "${secret_name}" \
-    --namespace "${NAMESPACE}" \
-    --ignore-not-found \
-    -o "jsonpath={.data.${field}}" 2>/dev/null || true
-}
-
-ensure_password_value() {
-  local secret_name=$1
-  local field=$2
-  local generated=$3
-  local current
-  current=$(get_secret_field "${secret_name}" "${field}")
-  if [[ -n ${current} ]]; then
-    printf '%s' "${current}" | base64 --decode
-    return 0
+apply_storage_manifest() {
+  if [[ ! -f ${STORAGE_MANIFEST} ]]; then
+    die "${EX_SOFTWARE}" "Persistent volume manifest not found at ${STORAGE_MANIFEST}"
   fi
-  printf '%s' "${generated}"
+  info "Applying persistent volume and claim manifest"
+  kubectl apply -f "${STORAGE_MANIFEST}"
 }
 
-random_password() {
-  local length=${1:-32}
-  openssl rand -base64 48 | tr -dc 'A-Za-z0-9' | head -c "${length}"
-}
-
-render_values() {
-  local mariadb_secret="${RELEASE_NAME}-mariadb"
-  local mariadb_password
-  local mariadb_root_password
-
-  mariadb_password=$(ensure_password_value "${mariadb_secret}" "mariadb-password" "$(random_password 32)")
-  mariadb_root_password=$(ensure_password_value "${mariadb_secret}" "mariadb-root-password" "$(random_password 32)")
-
-  local nextcloud_admin_user=${LABZ_NEXTCLOUD_ADMIN_USER:-ncadmin}
-  local nextcloud_admin_password=${LABZ_NEXTCLOUD_ADMIN_PASSWORD:-changeme}
-  local nextcloud_admin_email=${LABZ_NEXTCLOUD_ADMIN_EMAIL:-admin@${LABZ_DOMAIN:-example.com}}
-  local nextcloud_host=${LABZ_NEXTCLOUD_HOST:?LABZ_NEXTCLOUD_HOST must be set}
-  local nextcloud_storage_size=${LABZ_NEXTCLOUD_STORAGE_SIZE:-100Gi}
-  local mariadb_storage_size=${LABZ_NEXTCLOUD_DB_SIZE:-20Gi}
-  local php_upload_limit=${LABZ_PHP_UPLOAD_LIMIT:-512M}
-
-  if [[ ${nextcloud_admin_password} == "changeme" ]]; then
-    warn "Using default Nextcloud admin password 'changeme'. Set LABZ_NEXTCLOUD_ADMIN_PASSWORD in your .env file to override."
-  fi
-
-  VALUES_FILE=$(mktemp)
-  cat <<EOF_VALUES >"${VALUES_FILE}"
-nextcloudHost: "${nextcloud_host}"
-nextcloudUsername: "${nextcloud_admin_user}"
-nextcloudPassword: "${nextcloud_admin_password}"
-nextcloudEmail: "${nextcloud_admin_email}"
-
-phpClient:
-  maxUploadSize: "${php_upload_limit}"
-
-ingress:
-  enabled: true
-  ingressClassName: traefik
-  hostname: "${nextcloud_host}"
-  annotations:
-    traefik.ingress.kubernetes.io/router.entrypoints: websecure
-    traefik.ingress.kubernetes.io/router.tls: "true"
-  tls: true
-  extraTls:
-    - hosts:
-        - "${nextcloud_host}"
-      secretName: labz-apps-tls
-
-persistence:
-  enabled: true
-  storageClass: ""
-  size: "${nextcloud_storage_size}"
-
-mariadb:
-  enabled: true
-  auth:
-    username: nextcloud
-    database: nextcloud
-    password: "${mariadb_password}"
-    rootPassword: "${mariadb_root_password}"
-  primary:
-    persistence:
-      enabled: true
-      storageClass: ""
-      size: "${mariadb_storage_size}"
-EOF_VALUES
-}
-
-install_chart() {
-  info "Deploying ${RELEASE_NAME} to namespace ${NAMESPACE}"
-  helm upgrade --install "${RELEASE_NAME}" "${CHART_NAME}" \
-    --namespace "${NAMESPACE}" \
-    --create-namespace \
-    --values "${VALUES_FILE}" \
-    --wait \
-    --timeout 10m
+ensure_nextcloud_repo() {
+  info "Adding/updating Helm repo ${HELM_REPO_NAME}"
+  helm repo add "${HELM_REPO_NAME}" "${HELM_REPO_URL}" --force-update >/dev/null
+  helm repo update "${HELM_REPO_NAME}" >/dev/null
 }
 
 release_exists() {
@@ -205,6 +108,38 @@ reinstall_release() {
   else
     log_debug "No existing release ${RELEASE_NAME} found in namespace ${NAMESPACE}"
   fi
+}
+
+install_chart() {
+  local host=${LABZ_NEXTCLOUD_HOST:?LABZ_NEXTCLOUD_HOST must be set}
+  local admin_user=${LABZ_NEXTCLOUD_ADMIN_USER:-ncadmin}
+  local admin_password=${LABZ_NEXTCLOUD_ADMIN_PASSWORD:-changeme}
+  local postgres_db=${LABZ_POSTGRES_DB:?LABZ_POSTGRES_DB must be set}
+  local postgres_user=${LABZ_POSTGRES_USER:?LABZ_POSTGRES_USER must be set}
+  local postgres_password=${LABZ_POSTGRES_PASSWORD:?LABZ_POSTGRES_PASSWORD must be set}
+  local redis_password=${LABZ_REDIS_PASSWORD:?LABZ_REDIS_PASSWORD must be set}
+
+  if [[ ${admin_password} == "changeme" ]]; then
+    warn "Using default Nextcloud admin password 'changeme'. Set LABZ_NEXTCLOUD_ADMIN_PASSWORD in your .env file to override."
+  fi
+
+  info "Deploying ${RELEASE_NAME} to namespace ${NAMESPACE}"
+
+  helm upgrade --install "${RELEASE_NAME}" "${CHART_NAME}" \
+    --namespace "${NAMESPACE}" \
+    --create-namespace \
+    --values "${VALUES_FILE}" \
+    --set-string nextcloud.host="${host}" \
+    --set-string nextcloud.username="${admin_user}" \
+    --set-string nextcloud.password="${admin_password}" \
+    --set-string nextcloud.trustedDomains[0]="${host}" \
+    --set-string ingress.tls[0].hosts[0]="${host}" \
+    --set-string externalDatabase.user="${postgres_user}" \
+    --set-string externalDatabase.password="${postgres_password}" \
+    --set-string externalDatabase.database="${postgres_db}" \
+    --set-string externalRedis.password="${redis_password}" \
+    --wait \
+    --timeout 10m
 }
 
 print_followup() {
@@ -228,7 +163,7 @@ print_followup() {
 main() {
   parse_args "$@"
 
-  require_cmd kubectl helm openssl
+  require_cmd kubectl helm
 
   local -a load_env_args=(--required)
   if [[ -n ${ENV_FILE_OVERRIDE} ]]; then
@@ -237,11 +172,13 @@ main() {
   load_env "${load_env_args[@]}"
 
   ensure_namespace
-  ensure_bitnami_repo
+  apply_storage_manifest
+  ensure_nextcloud_repo
+
   if [[ ${REINSTALL} == true ]]; then
     reinstall_release
   fi
-  render_values
+
   install_chart
   print_followup
 }
