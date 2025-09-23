@@ -1,0 +1,16 @@
+[Unit]
+Description=Minikube tunnel for the labz profile
+After=network-online.target docker.service
+Wants=network-online.target docker.service
+
+[Service]
+Type=simple
+User=root
+Group=root
+Environment="HOME=/root"
+ExecStart=/usr/bin/env minikube tunnel -p labz --bind-address 0.0.0.0 --cleanup=false
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -37,6 +37,16 @@ Homelab GitOps bootstraps the Uranus homelab's Minikube-based platform and deplo
    ```
 
    Replace `labz` with the value of `LABZ_MINIKUBE_PROFILE` if you customized the Minikube profile in `.env`.
+
+   Install the provided systemd unit if you want the tunnel to persist across host reboots:
+
+   ```bash
+   sudo cp infra/systemd/minikube-tunnel-labz.service /etc/systemd/system/
+   sudo systemctl daemon-reload
+   sudo systemctl enable --now minikube-tunnel-labz.service
+   ```
+
+   The service runs `minikube tunnel -p labz --bind-address 0.0.0.0 --cleanup=false` as `root`, restarts automatically on failure, and can be edited if you customized `LABZ_MINIKUBE_PROFILE` in `.env`.
 3. Inspect the resulting environment and grab the Traefik load-balancer IP/hostnames for reference:
 
    ```bash
