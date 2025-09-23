@@ -5,7 +5,7 @@ SHELL := /bin/bash
 
 ENV_FILE ?= ./.env
 
-.PHONY: help up down status preflight k8s.bootstrap k8s.clean apps.nextcloud apps.nextcloud.reinstall
+.PHONY: help up down status preflight k8s.bootstrap k8s.clean apps.nextcloud apps.nextcloud.reinstall apps.jellyfin labz.dns
 
 help:
 	@printf '%s\n' 'Targets:'
@@ -16,8 +16,12 @@ help:
 	@printf '  %-28s%s\n' 'k8s.bootstrap' 'Bootstrap the Kubernetes cluster.'
 	@printf '  %-28s%s\n' 'k8s.clean' 'Remove the Kubernetes cluster profile.'
 	@printf '  %-28s%s\n' 'apps.nextcloud' 'Deploy or upgrade Nextcloud.'
+	@printf '  %-28s%s\n' 'apps.jellyfin' 'Summarize Jellyfin DNS requirements.'
 	@printf '  %-28s%s\n' 'apps.nextcloud.reinstall' 'Force reinstallation of Nextcloud.'
+	@printf '  %-28s%s\n' 'labz.dns' 'Group Kubernetes bootstrapping and LABZ app DNS helpers.'
 	@printf '\nUse ENV_FILE=<path> to point at a custom environment file.\n'
+
+LABZ_DNS_TARGETS := k8s.bootstrap apps.nextcloud apps.jellyfin
 
 .PHONY: preflight
 preflight:
@@ -35,6 +39,10 @@ k8s.clean:
 apps.nextcloud:
 	./scripts/apps-nextcloud.sh --env-file "$(ENV_FILE)"
 
+.PHONY: apps.jellyfin
+apps.jellyfin:
+	@printf '%s\n' 'Jellyfin deployment is managed by the Flux manifests. Ensure DNS points LABZ hosts at Traefik.'
+
 .PHONY: apps.nextcloud.reinstall
 apps.nextcloud.reinstall:
 	./scripts/apps-nextcloud.sh --env-file "$(ENV_FILE)" --reinstall
@@ -46,11 +54,11 @@ status:
 .PHONY: down
 down: k8s.clean
 
+.PHONY: labz.dns
+labz.dns: $(LABZ_DNS_TARGETS)
+
 .PHONY: up
-up:
-	./scripts/preflight.sh --env-file "$(ENV_FILE)"
-	./scripts/k8s-bootstrap.sh --env-file "$(ENV_FILE)"
-	./scripts/apps-nextcloud.sh --env-file "$(ENV_FILE)"
+up: preflight labz.dns
 
 # Legacy pfSense automation (disabled by default)
 # .PHONY: pf.preflight pf.config pf.ztp
