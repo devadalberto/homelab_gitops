@@ -37,6 +37,20 @@ Homelab GitOps bootstraps the Uranus homelab's Minikube-based platform and deplo
    The status helper replays the context-preflight summaries so you can confirm the MetalLB pool, Traefik IP, and published service URLs without mutating the cluster.【F:scripts/status.sh†L1-L40】
 4. Create a DNS or hosts-file entry that maps `${NEXTCLOUD_HOST}` to the load-balancer address printed by the status summary so browsers resolve the internal certificate correctly.【F:scripts/preflight_and_bootstrap.sh†L404-L447】【F:scripts/uranus_homelab_apps.sh†L565-L569】 pfSense host overrides, Pi-hole, or a local `/etc/hosts` entry all work while the firewall automation remains offline.
 
+## Cluster Status & Next Steps
+
+1. Confirm the `.env` file you copied from `.env.example` is still aligned with your target hostnames, MetalLB range, and storage mounts; the status helper reads the same `ENV_FILE=./.env` values that drove the initial bootstrap so the summary matches your configuration choices.【F:scripts/uranus_homelab_apps.sh†L511-L569】
+2. Wait for `make up` to finish its Minikube provisioning and allow Flux to reconcile the manifests for the platform add-ons and applications before pulling a status snapshot. Early checks may show components as pending while Helm releases come online.【F:scripts/preflight_and_bootstrap.sh†L400-L520】【F:scripts/uranus_homelab_one.sh†L320-L364】
+3. Re-run the status helper whenever you need to verify cluster health or gather the deployment summary:
+
+   ```bash
+   make status ENV_FILE=./.env
+   ```
+
+   The output recaps the context-preflight details, including the active Minikube context, Flux reconciliation status, MetalLB pool, and the Traefik load-balancer IP/hostnames that must be published in DNS.【F:scripts/status.sh†L1-L40】
+4. Use the printed Traefik address to update DNS, pfSense overrides, or local hosts files so `${LABZ_TRAEFIK_HOST}`, `${LABZ_NEXTCLOUD_HOST}`, and `${LABZ_JELLYFIN_HOST}` resolve to the load balancer while certificates issue and browsers trust the endpoints.【F:scripts/preflight_and_bootstrap.sh†L404-L447】【F:scripts/uranus_homelab_apps.sh†L565-L569】
+5. Loop through `make status` until Flux reports healthy reconciliations and the services list shows each application endpoint as ready; repeat the check after changes or reboots to confirm the cluster returned to a healthy baseline before handing it back to users.【F:scripts/status.sh†L1-L40】
+
 ## Environment configuration
 
 The helper scripts read a `.env` file to learn where to publish ingress, how to size persistent volumes, and where to mount application data. Adjust the following keys before running the workflow:
