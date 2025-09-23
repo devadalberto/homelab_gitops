@@ -41,7 +41,7 @@ apps.nextcloud.reinstall:
 
 .PHONY: status
 status:
-	./scripts/status.sh --env-file "$(ENV_FILE)"
+	@bash ./scripts/status.sh
 
 .PHONY: down
 down: k8s.clean
