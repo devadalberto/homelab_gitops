@@ -5,23 +5,26 @@ SHELL := /bin/bash
 
 ENV_FILE ?= ./.env
 
-.PHONY: help up down status preflight k8s.bootstrap k8s.clean apps.nextcloud apps.nextcloud.reinstall apps.jellyfin labz.dns
+.PHONY: help up down status preflight k8s.bootstrap k8s.clean dns.ensure route.ensure pv.mount apps.nextcloud apps.nextcloud.reinstall apps.jellyfin labz.dns
 
 help:
 	@printf '%s\n' 'Targets:'
-	@printf '  %-28s%s\n' 'up' 'Run preflight, bootstrap Kubernetes, and deploy Nextcloud.'
+	@printf '  %-28s%s\n' 'up' 'Run preflight, bootstrap Kubernetes, and execute network/app automation.'
 	@printf '  %-28s%s\n' 'down' 'Tear down Kubernetes resources.'
 	@printf '  %-28s%s\n' 'status' 'Summarize the environment state.'
 	@printf '  %-28s%s\n' 'preflight' 'Run host and configuration validation.'
 	@printf '  %-28s%s\n' 'k8s.bootstrap' 'Bootstrap the Kubernetes cluster.'
 	@printf '  %-28s%s\n' 'k8s.clean' 'Remove the Kubernetes cluster profile.'
+	@printf '  %-28s%s\n' 'dns.ensure' 'Configure pfSense DNS overrides for LABZ hosts.'
+	@printf '  %-28s%s\n' 'route.ensure' 'Verify pfSense bridge prerequisites on the host.'
+	@printf '  %-28s%s\n' 'pv.mount' 'Review hostPath context for persistent volumes.'
 	@printf '  %-28s%s\n' 'apps.nextcloud' 'Deploy or upgrade Nextcloud.'
-	@printf '  %-28s%s\n' 'apps.jellyfin' 'Summarize Jellyfin DNS requirements.'
+	@printf '  %-28s%s\n' 'apps.jellyfin' 'Deploy Jellyfin and supporting workloads.'
 	@printf '  %-28s%s\n' 'apps.nextcloud.reinstall' 'Force reinstallation of Nextcloud.'
-	@printf '  %-28s%s\n' 'labz.dns' 'Group Kubernetes bootstrapping and LABZ app DNS helpers.'
+	@printf '  %-28s%s\n' 'labz.dns' 'Group cluster bootstrap, networking, and app automation.'
 	@printf '\nUse ENV_FILE=<path> to point at a custom environment file.\n'
 
-LABZ_DNS_TARGETS := k8s.bootstrap apps.nextcloud apps.jellyfin
+LABZ_DNS_TARGETS := dns.ensure route.ensure pv.mount apps.jellyfin
 
 .PHONY: preflight
 preflight:
@@ -35,13 +38,25 @@ k8s.bootstrap:
 k8s.clean:
 	./scripts/k8s-bootstrap.sh --env-file "$(ENV_FILE)" --clean
 
+.PHONY: dns.ensure
+dns.ensure:
+	./scripts/dns-pfsense.sh --env-file "$(ENV_FILE)"
+
+.PHONY: route.ensure
+route.ensure:
+	./scripts/net-ensure.sh --env-file "$(ENV_FILE)"
+
+.PHONY: pv.mount
+pv.mount:
+	./scripts/uranus_homelab_apps.sh --env-file "$(ENV_FILE)" --context-preflight
+
 .PHONY: apps.nextcloud
 apps.nextcloud:
 	./scripts/apps-nextcloud.sh --env-file "$(ENV_FILE)"
 
 .PHONY: apps.jellyfin
 apps.jellyfin:
-	@printf '%s\n' 'Jellyfin deployment is managed by the Flux manifests. Ensure DNS points LABZ hosts at Traefik.'
+	./scripts/uranus_homelab_apps.sh --env-file "$(ENV_FILE)"
 
 .PHONY: apps.nextcloud.reinstall
 apps.nextcloud.reinstall:
@@ -55,10 +70,10 @@ status:
 down: k8s.clean
 
 .PHONY: labz.dns
-labz.dns: $(LABZ_DNS_TARGETS)
+labz.dns: k8s.bootstrap $(LABZ_DNS_TARGETS)
 
 .PHONY: up
-up: preflight labz.dns
+up: preflight k8s.bootstrap dns.ensure route.ensure pv.mount apps.jellyfin
 
 # Legacy pfSense automation (disabled by default)
 # .PHONY: pf.preflight pf.config pf.ztp
