@@ -56,7 +56,8 @@ apps.nextcloud:
 
 .PHONY: apps.jellyfin
 apps.jellyfin:
-	./scripts/uranus_homelab_apps.sh --env-file "$(ENV_FILE)"
+	./scripts/apps-jellyfin.sh --env-file "$(ENV_FILE)"
+
 
 .PHONY: apps.nextcloud.reinstall
 apps.nextcloud.reinstall:
