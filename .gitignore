@@ -1,14 +1,22 @@
+# Environment files
+.env
+.env.bak*
+.env.tmp
+.env.sample.bak*
+homelab_facts.txt
+collect_homelab_facts.sh
+repo_phase1_4.sh
+
 # Ignore OS/system files
 .DS_Store
 Thumbs.db
 .tmp
 
-#
+# Local helper scripts not meant for repo
 scripts/generate_readme.sh
 homelab_vg_setup.sh
-.env.bak
 
-# Python build artifacts (if you ever add scripting)
+# Python build artifacts
 __pycache__/
 *.py[cod]
 *.egg-info/
@@ -49,7 +57,6 @@ flux-system/
 *.dec.yaml
 
 # Local secrets, values, or overrides
-\.env
 secrets.yaml
 *.secret.yaml
 *.override.yaml
@@ -69,4 +76,6 @@ debug.log
 .minikube/
 .cache/
 
+# Docs build output
 site/
+
