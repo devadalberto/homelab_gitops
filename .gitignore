@@ -1,6 +1,7 @@
 # Ignore OS/system files
 .DS_Store
 Thumbs.db
+.tmp
 
 #
 scripts/generate_readme.sh
