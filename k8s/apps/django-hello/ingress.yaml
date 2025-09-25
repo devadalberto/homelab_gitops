@@ -1,0 +1,23 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: django-hello
+  namespace: django
+  annotations:
+    kubernetes.io/ingress.class: traefik
+spec:
+  tls:
+  - hosts:
+    - django.home.arpa
+    secretName: django-tls
+  rules:
+  - host: django.home.arpa
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: django-hello
+            port:
+              number: 80

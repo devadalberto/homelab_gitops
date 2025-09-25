@@ -1,0 +1,35 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mc
+  namespace: minecraft
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mc
+  template:
+    metadata:
+      labels:
+        app: mc
+    spec:
+      containers:
+      - name: mc
+        image: itzg/minecraft-server:latest
+        env:
+        - name: EULA
+          value: "TRUE"
+        - name: MEMORY
+          value: 2G
+        - name: TYPE
+          value: VANILLA
+        ports:
+        - containerPort: 25565
+          name: mc
+        volumeMounts:
+        - name: world
+          mountPath: /data
+      volumes:
+      - name: world
+        persistentVolumeClaim:
+          claimName: pvc-minecraft

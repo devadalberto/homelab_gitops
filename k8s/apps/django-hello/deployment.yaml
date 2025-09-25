@@ -1,0 +1,29 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: django-hello
+  namespace: django
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: django-hello
+  template:
+    metadata:
+      labels:
+        app: django-hello
+    spec:
+      containers:
+      - name: app
+        image: hashicorp/http-echo:0.2.3
+        args:
+        - -text=django-hello
+        ports:
+        - containerPort: 5678
+        volumeMounts:
+        - name: media
+          mountPath: /var/www/media
+      volumes:
+      - name: media
+        persistentVolumeClaim:
+          claimName: pvc-django-media
