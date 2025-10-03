@@ -105,7 +105,7 @@ k8s.traefik.apply:
 	helm repo update
 	helm upgrade --install traefik traefik/traefik -n traefik -f k8s/traefik/values.yaml
 
-k8s.cert.apply:
+k8s.certmanager.install:
 	kubectl apply -f k8s/cert-manager/cm-internal-ca.yaml
 
 apps.django.apply:
@@ -128,7 +128,19 @@ up.phase1_4:
 	$(MAKE) k8s.storage.apply
 	$(MAKE) k8s.metallb.apply
 	$(MAKE) k8s.traefik.apply
-	$(MAKE) k8s.cert.apply
+	$(MAKE) k8s.certmanager.install
+	$(MAKE) hosts.ensure
+	$(MAKE) k8s.certmanager.install
 	$(MAKE) apps.django.apply
 	$(MAKE) apps.minecraft.apply
 	$(MAKE) apps.nextcloud.ingress.apply
+
+hosts.ensure:
+	./scripts/hosts-ensure.sh
+
+k8s.certmanager.install:
+	kubectl create ns cert-manager --dry-run=client -o yaml | kubectl apply -f - || true
+	helm repo add jetstack https://charts.jetstack.io
+	helm repo update
+	helm upgrade --install cert-manager jetstack/cert-manager -n cert-manager --set crds.enabled=true
+	kubectl apply -f k8s/cert-manager/cm-internal-ca.yaml

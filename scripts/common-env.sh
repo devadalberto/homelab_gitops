@@ -36,7 +36,7 @@ COMMON_ENV_LIB="${HOMELAB_REPO_ROOT}/scripts/lib/common.sh"
 if [[ -f ${COMMON_ENV_LIB} ]]; then
   # shellcheck source=scripts/lib/common.sh
   source "${COMMON_ENV_LIB}"
-elif [[ -f ${HOMELAB_REPO_ROOT}/scripts/lib/common_fallback.sh ]] ; then
+elif [[ -f ${HOMELAB_REPO_ROOT}/scripts/lib/common_fallback.sh ]]; then
   # shellcheck source=scripts/lib/common_fallback.sh
   source "${HOMELAB_REPO_ROOT}/scripts/lib/common_fallback.sh"
 else
@@ -75,13 +75,13 @@ log() {
   local level=${1:-info}
   shift || true
   case "${level,,}" in
-    trace) log_trace "$@" ;;
-    debug) log_debug "$@" ;;
-    info) log_info "$@" ;;
-    warn|warning) log_warn "$@" ;;
-    error|err) log_error "$@" ;;
-    fatal|crit|critical) log_fatal "$@" ;;
-    *) log_info "${level} $*" ;;
+  trace) log_trace "$@" ;;
+  debug) log_debug "$@" ;;
+  info) log_info "$@" ;;
+  warn | warning) log_warn "$@" ;;
+  error | err) log_error "$@" ;;
+  fatal | crit | critical) log_fatal "$@" ;;
+  *) log_info "${level} $*" ;;
   esac
 }
 
@@ -101,7 +101,7 @@ require_cmd() {
       missing+=("${cmd}")
     fi
   done
-  if (( ${#missing[@]} > 0 )); then
+  if ((${#missing[@]} > 0)); then
     log_error "Missing required commands: ${missing[*]}"
     return 1
   fi
@@ -115,36 +115,36 @@ load_env() {
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --env-file|-e)
-        if [[ $# -lt 2 ]]; then
-          log_error "load_env: $1 requires a path argument"
-          return "${EX_USAGE}"
-        fi
-        override="$2"
-        shift 2
-        ;;
-      --env-file=*|-e=*)
-        override="${1#*=}"
-        shift
-        ;;
-      --required)
-        required=true
-        shift
-        ;;
-      --silent)
-        silent=true
-        shift
-        ;;
-      --)
-        shift
-        break
-        ;;
-      *)
-        if [[ -z ${override} ]]; then
-          override="$1"
-        fi
-        shift
-        ;;
+    --env-file | -e)
+      if [[ $# -lt 2 ]]; then
+        log_error "load_env: $1 requires a path argument"
+        return "${EX_USAGE}"
+      fi
+      override="$2"
+      shift 2
+      ;;
+    --env-file=* | -e=*)
+      override="${1#*=}"
+      shift
+      ;;
+    --required)
+      required=true
+      shift
+      ;;
+    --silent)
+      silent=true
+      shift
+      ;;
+    --)
+      shift
+      break
+      ;;
+    *)
+      if [[ -z ${override} ]]; then
+        override="$1"
+      fi
+      shift
+      ;;
     esac
   done
 
@@ -247,7 +247,7 @@ validate_bridges() {
   fi
   _homelab_record_bridge_state "LAN" "${PF_LAN_BRIDGE:-}"
 
-  if (( ${#HOMELAB_BRIDGES_ISSUES[@]} > 0 )); then
+  if ((${#HOMELAB_BRIDGES_ISSUES[@]} > 0)); then
     return 1
   fi
   return 0
@@ -260,32 +260,32 @@ dump_effective_env() {
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --no-header)
-        print_header=false
+    --no-header)
+      print_header=false
+      shift
+      ;;
+    --header)
+      if [[ $# -lt 2 ]]; then
+        warn "dump_effective_env: --header requires a value"
         shift
-        ;;
-      --header)
-        if [[ $# -lt 2 ]]; then
-          warn "dump_effective_env: --header requires a value"
-          shift
-        else
-          header="$2"
-          print_header=true
-          shift 2
-        fi
-        ;;
-      --)
-        shift
-        break
-        ;;
-      --*)
-        warn "dump_effective_env: unrecognized option $1"
-        shift
-        ;;
-      *)
-        vars+=("$1")
-        shift
-        ;;
+      else
+        header="$2"
+        print_header=true
+        shift 2
+      fi
+      ;;
+    --)
+      shift
+      break
+      ;;
+    --*)
+      warn "dump_effective_env: unrecognized option $1"
+      shift
+      ;;
+    *)
+      vars+=("$1")
+      shift
+      ;;
     esac
   done
 

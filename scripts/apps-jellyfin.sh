@@ -32,37 +32,37 @@ USAGE
 parse_args() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --env-file|-e)
-        if [[ $# -lt 2 ]]; then
-          usage >&2
-          die "${EX_USAGE}" "--env-file requires a path argument"
-        fi
-        ENV_FILE_OVERRIDE="$2"
-        shift 2
-        ;;
-      --env-file=*|-e=*)
-        ENV_FILE_OVERRIDE="${1#*=}"
-        shift
-        ;;
-      -h|--help)
-        usage
-        exit "${EX_OK}"
-        ;;
-      --)
-        shift
-        if [[ $# -gt 0 ]]; then
-          usage >&2
-          die "${EX_USAGE}" "Unexpected positional arguments: $*"
-        fi
-        ;;
-      -*)
+    --env-file | -e)
+      if [[ $# -lt 2 ]]; then
         usage >&2
-        die "${EX_USAGE}" "Unknown option: $1"
-        ;;
-      *)
+        die "${EX_USAGE}" "--env-file requires a path argument"
+      fi
+      ENV_FILE_OVERRIDE="$2"
+      shift 2
+      ;;
+    --env-file=* | -e=*)
+      ENV_FILE_OVERRIDE="${1#*=}"
+      shift
+      ;;
+    -h | --help)
+      usage
+      exit "${EX_OK}"
+      ;;
+    --)
+      shift
+      if [[ $# -gt 0 ]]; then
         usage >&2
-        die "${EX_USAGE}" "Positional arguments are not supported"
-        ;;
+        die "${EX_USAGE}" "Unexpected positional arguments: $*"
+      fi
+      ;;
+    -*)
+      usage >&2
+      die "${EX_USAGE}" "Unknown option: $1"
+      ;;
+    *)
+      usage >&2
+      die "${EX_USAGE}" "Positional arguments are not supported"
+      ;;
     esac
   done
 }

@@ -5,4 +5,3 @@ metadata:
   namespace: pihole
 data:
   TZ: America/New_York
-

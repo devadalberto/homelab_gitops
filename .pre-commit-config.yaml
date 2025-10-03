@@ -6,24 +6,30 @@ repos:
         entry: scripts/check-libvirt-no-video.sh
         language: script
         types: [xml]
+
       - id: block-secrets-files
-        name: Block committing env and secret files
-        entry: bash -c 'git diff --cached --name-only | grep -E "^(\\.env(\\..*)?$|.*(secrets|secret)\\.ya?ml$|.*\\.values\\.local\\.ya?ml$|.*\\.age$|.*\\.key$)" >/dev/null && echo "Blocked secret-like files. Use .env.sample and SOPS." && exit 1 || exit 0'
+        name: Block committing env and secret files (except SOPS)
         language: system
         pass_filenames: false
+        entry: bash -c 'CHANGED="$(git diff --cached --diff-filter=AMR --name-only)"; \
+          [ -z "$CHANGED" ] && exit 0; \
+          echo "$CHANGED" \
+          | grep -E "(\.env($|\\.)|(^|/).*(secrets|secret)\\.ya?ml$|\\.values\\.local\\.ya?ml$|\\.age$|\\.key$)" \
+          | grep -Ev "(^|/)sops-secrets/|\\.sops\\.ya?ml$" >/dev/null \
+          && { echo "Blocked secret-like files. Use .env.sample and SOPS."; exit 1; } || exit 0'
 
   - repo: https://github.com/shellcheck-py/shellcheck-py
     rev: v0.9.0.6
     hooks:
       - id: shellcheck
-        args: ["--severity=error", "--exclude=SC2259"]
+        args: ["--severity=error","--exclude=SC2259"]
 
   - repo: https://github.com/scop/pre-commit-shfmt
     rev: v3.9.0-1
     hooks:
       - id: shfmt
-        args: ["-w", "-i", "2"]
-        files: ^(scripts/|[^/]+\.sh$)
+        args: ["-w","-i","2"]
+        files: '^(scripts/|[^/]+\.sh$)'
         exclude: |
           (?x)^(
             scripts/k8s-up\.sh|
@@ -40,6 +46,7 @@ repos:
     hooks:
       - id: markdownlint-cli2
         files: ^(docs/|README\.md$)
+        language_version: system
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
@@ -48,6 +55,7 @@ repos:
       - id: trailing-whitespace
       - id: check-merge-conflict
       - id: check-yaml
+        args: ["--allow-multiple-documents"]
       - id: check-added-large-files
         args: ["--maxkb=500"]
 
@@ -55,17 +63,20 @@ repos:
     rev: v1.5.0
     hooks:
       - id: detect-secrets
-        args: ["--baseline", ".secrets.baseline"]
+        args:
+          - --baseline
+          - .secrets.baseline
+          - --exclude-files
+          - '(^|/)(\.venv.*|venv/|node_modules/|tests/vendor/|vendor/|\.cache/|\.mypy_cache/|\.pytest_cache/|\.secrets\.baseline|sops-secrets/|\.env(\..*)?)$'
 
   - repo: https://github.com/gitleaks/gitleaks
     rev: v8.18.4
     hooks:
       - id: gitleaks
-        args: ["protect", "--staged", "--verbose"]
+        args: ["--config=.gitleaks.toml"]
 
   - repo: https://github.com/jumanjihouse/pre-commit-hooks
     rev: 3.0.0
     hooks:
       - id: forbid-binary
       - id: git-dirty
-

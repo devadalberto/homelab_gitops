@@ -1,11 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ "${1:-}" == "--env-file" ]]; then ENV_FILE="${2:-./.env}"; shift 2; else ENV_FILE="./.env"; fi
+if [[ "${1:-}" == "--env-file" ]]; then
+  ENV_FILE="${2:-./.env}"
+  shift 2
+else ENV_FILE="./.env"; fi
 # shellcheck disable=SC1090
 [[ -f "$ENV_FILE" ]] && source "$ENV_FILE"
 
-fatal(){ echo "[FATAL] $*" >&2; exit "${2:-40}"; }
+fatal() {
+  echo "[FATAL] $*" >&2
+  exit "${2:-40}"
+}
 
 PF_INSTALLER_SRC="${PF_INSTALLER_SRC:-${PF_SERIAL_INSTALLER_PATH:-}}"
 [[ -n "${PF_INSTALLER_SRC:-}" ]] || fatal "Installer path not provided. Set PF_INSTALLER_SRC or PF_SERIAL_INSTALLER_PATH."

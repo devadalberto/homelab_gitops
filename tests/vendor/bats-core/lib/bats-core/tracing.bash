@@ -203,7 +203,7 @@ bats_emit_trace() {
         file="$BATS_TEST_FILENAME"
       fi
       # stack size difference since last call of this function
-      # <0: means new function call  
+      # <0: means new function call
       # >0: means return
       # =0: in same function as before (assuming we did not skip return/call)
       local stack_diff=$(( BATS_LAST_STACK_DEPTH - ${#BASH_LINENO[@]} ))

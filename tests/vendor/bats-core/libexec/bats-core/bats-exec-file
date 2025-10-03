@@ -108,7 +108,7 @@ bats_run_teardown_file() {
   local bats_teardown_file_status=0
   # avoid running the therdown trap due to errors in teardown_file
   trap 'bats_file_exit_trap' EXIT
-  
+
   bats_set_stacktrace_limit
 
   # rely on bats_error_trap to catch failures

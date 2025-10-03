@@ -6,7 +6,7 @@ filter_tags_list=()
 included_tests=()
 excluded_tests=()
 
-# shellcheck source=lib/bats-core/common.bash disable=SC2153 
+# shellcheck source=lib/bats-core/common.bash disable=SC2153
 source "$BATS_ROOT/lib/bats-core/common.bash"
 # shellcheck source=lib/bats-core/preprocessing.bash
 source "$BATS_ROOT/lib/bats-core/preprocessing.bash"
@@ -52,7 +52,7 @@ while [[ "$#" -ne 0 ]]; do
 done
 
 
-# shellcheck source=lib/bats-core/test_functions.bash disable=SC2153 
+# shellcheck source=lib/bats-core/test_functions.bash disable=SC2153
 # required to provide e.g. `load` for free code (some users rely on this)
 source "$BATS_ROOT/lib/bats-core/test_functions.bash"
 # _bats_test_functions_setup will be called per file further down
@@ -90,7 +90,7 @@ bats_test_function() {
   if should_skip_because_of_status || should_skip_because_of_focus || should_skip_because_of_filter_tags || should_skip_because_of_filter; then
     return 0
   fi
-  
+
   # dereferencing ${test_names[*]} fails on older bash versions when empty -> check before
   if [[ ${#test_names[@]} -gt 0 && " ${test_names[*]} " == *" $line "* ]]; then
       test_dupes+=("$line")
@@ -231,12 +231,12 @@ if [[ -n "${filter_status-}" ]]; then
 
     # enable filter only, when there is something to filter
     function should_skip_because_of_status() {
-      #echo "Match:" 
+      #echo "Match:"
       #echo "$line"
       #printf "%s\n" "${failed_tests[@]}"
       #echo "or"
       #printf "%s\n" "${last_filtered_tests[@]}"
-      if bats_filter_test_by_status "$line"; then 
+      if bats_filter_test_by_status "$line"; then
         if ! bats_binary_search "$line" last_filtered_tests; then
           included_tests+=("$line")
           #echo "included"
@@ -263,7 +263,7 @@ bats_gather_tests_exit_trap() {
     printf "1..1\nnot ok 1 bats-gather-tests\n"
     bats_get_failure_stack_trace stack_trace
     bats_print_stack_trace "${stack_trace[@]}"
-    bats_print_failed_command "${stack_trace[@]}" 
+    bats_print_failed_command "${stack_trace[@]}"
   fi >&2
   exit "$bats_gather_tests_exit_status"
 }

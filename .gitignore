@@ -78,4 +78,24 @@ debug.log
 
 # Docs build output
 site/
+net-snapshot-*.txt
 
+# homelab audit artifacts
+_audit/
+homelab_audit_*.tar.gz
+.venv*/
+.venv-*/
+.venv-*/**
+venv-*/**
+venv-ds
+venv-ds/**
+**/venv-ds/**
+
+# Python virtualenvs
+**/.venv*/
+**/venv/
+**/env/
+.venv-ds/
+
+# local helper scripts
+scripts/fix_*.sh

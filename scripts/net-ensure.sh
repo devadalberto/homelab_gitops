@@ -2,19 +2,28 @@
 set -euo pipefail
 
 # Args
-if [[ "${1:-}" == "--env-file" ]]; then ENV_FILE="${2:-./.env}"; shift 2; else ENV_FILE="./.env"; fi
+if [[ "${1:-}" == "--env-file" ]]; then
+  ENV_FILE="${2:-./.env}"
+  shift 2
+else ENV_FILE="./.env"; fi
 # shellcheck disable=SC1090
 [[ -f "$ENV_FILE" ]] && source "$ENV_FILE"
 
-fatal(){ echo "[FATAL] $*" >&2; exit "${2:-12}"; }
-need(){ local k="$1"; [[ -n "${!k:-}" ]] || fatal "$k must be set in $ENV_FILE"; }
+fatal() {
+  echo "[FATAL] $*" >&2
+  exit "${2:-12}"
+}
+need() {
+  local k="$1"
+  [[ -n "${!k:-}" ]] || fatal "$k must be set in $ENV_FILE"
+}
 
 need PF_WAN_BRIDGE
 need PF_LAN_BRIDGE
 
 command -v ip >/dev/null 2>&1 || fatal "ip(8) not found; install iproute2" 10
 
-ensure_bridge(){
+ensure_bridge() {
   local br="$1"
   if ! ip link show "$br" >/dev/null 2>&1; then
     if [[ "${NET_CREATE:-0}" == "1" ]]; then

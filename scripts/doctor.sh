@@ -2,12 +2,15 @@
 set -euo pipefail
 
 # Args
-if [[ "${1:-}" == "--env-file" ]]; then ENV_FILE="${2:-./.env}"; shift 2; else ENV_FILE="./.env"; fi
+if [[ "${1:-}" == "--env-file" ]]; then
+  ENV_FILE="${2:-./.env}"
+  shift 2
+else ENV_FILE="./.env"; fi
 
 missing=()
 
-need_cmd(){ command -v "$1" >/dev/null 2>&1 || missing+=("$1"); }
-need_file(){ [[ -f "$1" ]] || return 1; }
+need_cmd() { command -v "$1" >/dev/null 2>&1 || missing+=("$1"); }
+need_file() { [[ -f "$1" ]] || return 1; }
 
 echo "[INFO] Host tooling check"
 for c in ip brctl virsh xorriso genisoimage mkisofs awk sed grep; do need_cmd "$c"; done || true

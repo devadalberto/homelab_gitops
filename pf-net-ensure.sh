@@ -12,9 +12,12 @@ ENV_FILE="./.env"
 SNAPSHOT=false
 TEMP_LAN_CIDR=""
 
-log()  { printf '[%s] %s\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" "$*"; }
-err()  { printf '[%s] ERROR: %s\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" "$*" >&2; }
-die()  { err "$*"; exit 1; }
+log() { printf '[%s] %s\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" "$*"; }
+err() { printf '[%s] ERROR: %s\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" "$*" >&2; }
+die() {
+  err "$*"
+  exit 1
+}
 
 usage() {
   cat <<'EOF'
@@ -39,11 +42,25 @@ EOF
 # Parse args
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --snapshot) SNAPSHOT=true; shift ;;
-    --temp-lan-ip) TEMP_LAN_CIDR="${2:-}"; [[ -n "$TEMP_LAN_CIDR" ]] || die "--temp-lan-ip requires CIDR"; shift 2 ;;
-    --env-file) ENV_FILE="${2:-}"; [[ -n "$ENV_FILE" ]] || die "--env-file requires path"; shift 2 ;;
-    -h|--help) usage; exit 0 ;;
-    *) die "Unknown argument: $1" ;;
+  --snapshot)
+    SNAPSHOT=true
+    shift
+    ;;
+  --temp-lan-ip)
+    TEMP_LAN_CIDR="${2:-}"
+    [[ -n "$TEMP_LAN_CIDR" ]] || die "--temp-lan-ip requires CIDR"
+    shift 2
+    ;;
+  --env-file)
+    ENV_FILE="${2:-}"
+    [[ -n "$ENV_FILE" ]] || die "--env-file requires path"
+    shift 2
+    ;;
+  -h | --help)
+    usage
+    exit 0
+    ;;
+  *) die "Unknown argument: $1" ;;
   esac
 done
 
@@ -121,7 +138,7 @@ if "$SNAPSHOT"; then
     echo
     echo "=== brctl show (if present) ==="
     if command -v brctl >/dev/null 2>&1; then brctl show; else echo "(no brctl)"; fi
-  } > "$OUT"
+  } >"$OUT"
   log "Wrote snapshot: $OUT"
 fi
 
@@ -144,4 +161,3 @@ ip -brief addr show "$PF_LAN_BRIDGE" || true
 ip -brief addr show "$PF_WAN_BRIDGE" || true
 
 log "Done. SSH path left untouched."
-

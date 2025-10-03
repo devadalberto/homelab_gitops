@@ -22,9 +22,12 @@ MEM_MB=2048
 VCPUS=2
 OSINFO="freebsd14.0"
 
-log()  { printf '[%s] %s\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" "$*"; }
-err()  { printf '[%s] ERROR: %s\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" "$*" >&2; }
-die()  { err "$*"; exit 1; }
+log() { printf '[%s] %s\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" "$*"; }
+err() { printf '[%s] ERROR: %s\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" "$*" >&2; }
+die() {
+  err "$*"
+  exit 1
+}
 
 usage() {
   cat <<'EOF'
@@ -50,15 +53,39 @@ EOF
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --create) MODE="create"; shift ;;
-    --finalize) MODE="finalize"; shift ;;
-    --env-file) ENV_FILE="${2:-}"; shift 2 ;;
-    --disk-size) DISK_SIZE_GB="${2:-}"; shift 2 ;;
-    --memory) MEM_MB="${2:-}"; shift 2 ;;
-    --vcpus) VCPUS="${2:-}"; shift 2 ;;
-    --osinfo) OSINFO="${2:-}"; shift 2 ;;
-    -h|--help) usage; exit 0 ;;
-    *) die "Unknown argument: $1" ;;
+  --create)
+    MODE="create"
+    shift
+    ;;
+  --finalize)
+    MODE="finalize"
+    shift
+    ;;
+  --env-file)
+    ENV_FILE="${2:-}"
+    shift 2
+    ;;
+  --disk-size)
+    DISK_SIZE_GB="${2:-}"
+    shift 2
+    ;;
+  --memory)
+    MEM_MB="${2:-}"
+    shift 2
+    ;;
+  --vcpus)
+    VCPUS="${2:-}"
+    shift 2
+    ;;
+  --osinfo)
+    OSINFO="${2:-}"
+    shift 2
+    ;;
+  -h | --help)
+    usage
+    exit 0
+    ;;
+  *) die "Unknown argument: $1" ;;
   esac
 done
 
@@ -107,72 +134,78 @@ bridge_exists() { ip link show "$1" >/dev/null 2>&1; }
 ensure_bridge_present() { bridge_exists "$1" || die "Bridge not found: $1 (create it first)."; }
 
 case "$MODE" in
-  create)
-    ensure_bridge_present "$PF_WAN_BRIDGE"
-    ensure_bridge_present "$PF_LAN_BRIDGE"
+create)
+  ensure_bridge_present "$PF_WAN_BRIDGE"
+  ensure_bridge_present "$PF_LAN_BRIDGE"
 
-    ensure_dir "$STATE_DIR"
-    [[ -f "$PF_SERIAL_INSTALLER_PATH" ]] || die "Installer not found: $PF_SERIAL_INSTALLER_PATH"
-    case "$PF_SERIAL_INSTALLER_PATH" in
-      *.gz)  log "Expanding gz installer to $INSTALLER_IMG"; gunzip -c "$PF_SERIAL_INSTALLER_PATH" > "$INSTALLER_IMG" ;;
-      *.img|*.iso) log "Copying installer to $INSTALLER_IMG"; cp -f "$PF_SERIAL_INSTALLER_PATH" "$INSTALLER_IMG" ;;
-      *) die "Unsupported installer extension. Use .img(.gz) or .iso(.gz)";;
-    esac
-
-    ensure_dir "$IMAGEDIR"
-    if [[ -f "$DISK_PATH" ]]; then
-      log "Disk already exists: $DISK_PATH"
-    else
-      log "Creating qcow2 disk: $DISK_PATH (${DISK_SIZE_GB}G)"
-      qemu-img create -f qcow2 "$DISK_PATH" "${DISK_SIZE_GB}G" >/dev/null
-    fi
-
-    if virsh dominfo "$PF_VM_NAME" >/dev/null 2>&1; then
-      log "Domain already exists: $PF_VM_NAME (nothing to do)."
-      exit 0
-    fi
-
-    OSINFO_ARGS=(--osinfo "$OSINFO")
-    if ! osinfo-query os 2>/dev/null | grep -qi "$OSINFO"; then
-      log "osinfo '$OSINFO' not found; using detect=on,require=off"
-      OSINFO_ARGS=(--osinfo detect=on,require=off)
-    fi
-
-    log "Running virt-install (WAN=${PF_WAN_BRIDGE}, LAN=${PF_LAN_BRIDGE})..."
-    virt-install \
-      --name "$PF_VM_NAME" \
-      --memory "$MEM_MB" \
-      --vcpus "$VCPUS" \
-      --cpu host \
-      --import \
-      --disk "path=$DISK_PATH,format=qcow2,bus=virtio" \
-      --disk "path=$INSTALLER_IMG,device=cdrom" \
-      --network "bridge=$PF_WAN_BRIDGE,model=virtio" \
-      --network "bridge=$PF_LAN_BRIDGE,model=virtio" \
-      --graphics none \
-      --noautoconsole \
-      --console pty,target_type=serial \
-      --boot useserial=on,menu=on \
-      "${OSINFO_ARGS[@]}"
-
-    log "VM defined."
-    log "Start:   virsh start $PF_VM_NAME"
-    log "Console: virsh console $PF_VM_NAME   (exit with Ctrl-])"
-    log "Inside pfSense install: set WAN=DHCP, LAN=10.10.0.1/24."
+  ensure_dir "$STATE_DIR"
+  [[ -f "$PF_SERIAL_INSTALLER_PATH" ]] || die "Installer not found: $PF_SERIAL_INSTALLER_PATH"
+  case "$PF_SERIAL_INSTALLER_PATH" in
+  *.gz)
+    log "Expanding gz installer to $INSTALLER_IMG"
+    gunzip -c "$PF_SERIAL_INSTALLER_PATH" >"$INSTALLER_IMG"
     ;;
+  *.img | *.iso)
+    log "Copying installer to $INSTALLER_IMG"
+    cp -f "$PF_SERIAL_INSTALLER_PATH" "$INSTALLER_IMG"
+    ;;
+  *) die "Unsupported installer extension. Use .img(.gz) or .iso(.gz)" ;;
+  esac
 
-  finalize)
-    virsh dominfo "$PF_VM_NAME" >/dev/null 2>&1 || die "Domain not found: $PF_VM_NAME"
-    CD_PATH="$(virsh domblklist "$PF_VM_NAME" | awk '/installer\.img/{print $2}' || true)"
-    if [[ -n "$CD_PATH" ]]; then
-      log "Detaching installer $CD_PATH"
-      virsh detach-disk "$PF_VM_NAME" "$CD_PATH" --config || true
-    else
-      log "No installer.img attached."
-    fi
+  ensure_dir "$IMAGEDIR"
+  if [[ -f "$DISK_PATH" ]]; then
+    log "Disk already exists: $DISK_PATH"
+  else
+    log "Creating qcow2 disk: $DISK_PATH (${DISK_SIZE_GB}G)"
+    qemu-img create -f qcow2 "$DISK_PATH" "${DISK_SIZE_GB}G" >/dev/null
+  fi
 
-    log "Ensuring boot from disk (hd) with serial console"
-    virsh update-device "$PF_VM_NAME" /dev/stdin --config <<'XML' || true
+  if virsh dominfo "$PF_VM_NAME" >/dev/null 2>&1; then
+    log "Domain already exists: $PF_VM_NAME (nothing to do)."
+    exit 0
+  fi
+
+  OSINFO_ARGS=(--osinfo "$OSINFO")
+  if ! osinfo-query os 2>/dev/null | grep -qi "$OSINFO"; then
+    log "osinfo '$OSINFO' not found; using detect=on,require=off"
+    OSINFO_ARGS=(--osinfo detect=on,require=off)
+  fi
+
+  log "Running virt-install (WAN=${PF_WAN_BRIDGE}, LAN=${PF_LAN_BRIDGE})..."
+  virt-install \
+    --name "$PF_VM_NAME" \
+    --memory "$MEM_MB" \
+    --vcpus "$VCPUS" \
+    --cpu host \
+    --import \
+    --disk "path=$DISK_PATH,format=qcow2,bus=virtio" \
+    --disk "path=$INSTALLER_IMG,device=cdrom" \
+    --network "bridge=$PF_WAN_BRIDGE,model=virtio" \
+    --network "bridge=$PF_LAN_BRIDGE,model=virtio" \
+    --graphics none \
+    --noautoconsole \
+    --console pty,target_type=serial \
+    --boot useserial=on,menu=on \
+    "${OSINFO_ARGS[@]}"
+
+  log "VM defined."
+  log "Start:   virsh start $PF_VM_NAME"
+  log "Console: virsh console $PF_VM_NAME   (exit with Ctrl-])"
+  log "Inside pfSense install: set WAN=DHCP, LAN=10.10.0.1/24."
+  ;;
+
+finalize)
+  virsh dominfo "$PF_VM_NAME" >/dev/null 2>&1 || die "Domain not found: $PF_VM_NAME"
+  CD_PATH="$(virsh domblklist "$PF_VM_NAME" | awk '/installer\.img/{print $2}' || true)"
+  if [[ -n "$CD_PATH" ]]; then
+    log "Detaching installer $CD_PATH"
+    virsh detach-disk "$PF_VM_NAME" "$CD_PATH" --config || true
+  else
+    log "No installer.img attached."
+  fi
+
+  log "Ensuring boot from disk (hd) with serial console"
+  virsh update-device "$PF_VM_NAME" /dev/stdin --config <<'XML' || true
 <domain>
   <os>
     <boot dev='hd'/>
@@ -188,8 +221,7 @@ case "$MODE" in
 </domain>
 XML
 
-    log "Finalize complete. Reboot the VM to boot from disk:"
-    log "  virsh reboot $PF_VM_NAME"
-    ;;
+  log "Finalize complete. Reboot the VM to boot from disk:"
+  log "  virsh reboot $PF_VM_NAME"
+  ;;
 esac
-

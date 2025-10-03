@@ -5,7 +5,7 @@ REPO_ROOT="$(pwd)"
 
 ENV_FILE=".env"
 if [ ! -f "$ENV_FILE" ]; then
-  cat > "$ENV_FILE" <<'EOF'
+  cat >"$ENV_FILE" <<'EOF'
 DOMAIN_BASE=home.arpa
 LAN_CIDR=192.168.88.0/24
 METALLB_RANGE=192.168.88.200-192.168.88.220
@@ -24,7 +24,7 @@ EOF
 fi
 
 mkdir -p k8s/storage
-cat > k8s/storage/postgres-hostpath.yaml <<'EOF'
+cat >k8s/storage/postgres-hostpath.yaml <<'EOF'
 apiVersion: v1
 kind: PersistentVolume
 metadata:
@@ -54,7 +54,7 @@ spec:
   volumeName: pv-postgres
 EOF
 
-cat > k8s/storage/django-media-hostpath.yaml <<'EOF'
+cat >k8s/storage/django-media-hostpath.yaml <<'EOF'
 apiVersion: v1
 kind: PersistentVolume
 metadata:
@@ -84,7 +84,7 @@ spec:
   volumeName: pv-django-media
 EOF
 
-cat > k8s/storage/minecraft-hostpath.yaml <<'EOF'
+cat >k8s/storage/minecraft-hostpath.yaml <<'EOF'
 apiVersion: v1
 kind: PersistentVolume
 metadata:
@@ -115,7 +115,7 @@ spec:
 EOF
 
 mkdir -p k8s/base
-cat > k8s/base/storageclass.yaml <<'EOF'
+cat >k8s/base/storageclass.yaml <<'EOF'
 apiVersion: storage.k8s.io/v1
 kind: StorageClass
 metadata:
@@ -125,7 +125,7 @@ volumeBindingMode: WaitForFirstConsumer
 EOF
 
 mkdir -p k8s/addons/metallb
-cat > k8s/addons/metallb/ip-pool.yaml <<'EOF'
+cat >k8s/addons/metallb/ip-pool.yaml <<'EOF'
 apiVersion: metallb.io/v1beta1
 kind: IPAddressPool
 metadata:
@@ -144,7 +144,7 @@ spec: {}
 EOF
 
 mkdir -p k8s/traefik
-cat > k8s/traefik/values.yaml <<'EOF'
+cat >k8s/traefik/values.yaml <<'EOF'
 logs:
   general:
     level: INFO
@@ -163,7 +163,7 @@ ports:
 EOF
 
 mkdir -p k8s/cert-manager
-cat > k8s/cert-manager/cm-internal-ca.yaml <<'EOF'
+cat >k8s/cert-manager/cm-internal-ca.yaml <<'EOF'
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
 metadata:
@@ -173,14 +173,14 @@ spec:
 EOF
 
 mkdir -p k8s/apps/django-hello
-cat > k8s/apps/django-hello/namespace.yaml <<'EOF'
+cat >k8s/apps/django-hello/namespace.yaml <<'EOF'
 apiVersion: v1
 kind: Namespace
 metadata:
   name: django
 EOF
 
-cat > k8s/apps/django-hello/deployment.yaml <<'EOF'
+cat >k8s/apps/django-hello/deployment.yaml <<'EOF'
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -212,7 +212,7 @@ spec:
           claimName: pvc-django-media
 EOF
 
-cat > k8s/apps/django-hello/service.yaml <<'EOF'
+cat >k8s/apps/django-hello/service.yaml <<'EOF'
 apiVersion: v1
 kind: Service
 metadata:
@@ -227,7 +227,7 @@ spec:
     targetPort: 5678
 EOF
 
-cat > k8s/apps/django-hello/certificate.yaml <<'EOF'
+cat >k8s/apps/django-hello/certificate.yaml <<'EOF'
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
@@ -242,7 +242,7 @@ spec:
   - django.home.arpa
 EOF
 
-cat > k8s/apps/django-hello/ingress.yaml <<'EOF'
+cat >k8s/apps/django-hello/ingress.yaml <<'EOF'
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -269,14 +269,14 @@ spec:
 EOF
 
 mkdir -p k8s/apps/minecraft
-cat > k8s/apps/minecraft/namespace.yaml <<'EOF'
+cat >k8s/apps/minecraft/namespace.yaml <<'EOF'
 apiVersion: v1
 kind: Namespace
 metadata:
   name: minecraft
 EOF
 
-cat > k8s/apps/minecraft/deployment.yaml <<'EOF'
+cat >k8s/apps/minecraft/deployment.yaml <<'EOF'
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -314,7 +314,7 @@ spec:
           claimName: pvc-minecraft
 EOF
 
-cat > k8s/apps/minecraft/service.yaml <<'EOF'
+cat >k8s/apps/minecraft/service.yaml <<'EOF'
 apiVersion: v1
 kind: Service
 metadata:
@@ -332,7 +332,7 @@ spec:
 EOF
 
 mkdir -p k8s/apps/nextcloud
-cat > k8s/apps/nextcloud/ingress.yaml <<'EOF'
+cat >k8s/apps/nextcloud/ingress.yaml <<'EOF'
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -359,7 +359,7 @@ spec:
 EOF
 
 mkdir -p k8s/addons/traefik
-cat > k8s/addons/traefik/release.yaml <<'EOF'
+cat >k8s/addons/traefik/release.yaml <<'EOF'
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
@@ -391,7 +391,7 @@ spec:
 EOF
 
 mkdir -p scripts
-cat > scripts/minikube-up.sh <<'EOF'
+cat >scripts/minikube-up.sh <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 : "${MINIKUBE_CPUS:=2}"
@@ -403,7 +403,7 @@ EOF
 chmod +x scripts/minikube-up.sh
 
 if ! grep -q "local-hostpath" k8s/base/kustomization.yaml 2>/dev/null; then
-  cat > k8s/base/kustomization.yaml <<'EOF'
+  cat >k8s/base/kustomization.yaml <<'EOF'
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
@@ -421,7 +421,7 @@ fi
 
 if [ -f Makefile ]; then
   if ! grep -q "k8s.storage.apply" Makefile; then
-    cat >> Makefile <<'EOF'
+    cat >>Makefile <<'EOF'
 
 k8s.storage.apply:
 	kubectl apply -f k8s/base/storageclass.yaml
@@ -479,4 +479,3 @@ echo "1) source ./.env or export env vars as needed"
 echo "2) make up.phase1_4"
 echo "3) Create pfSense DNS overrides for traefik.home.arpa, django.home.arpa, nextcloud.home.arpa, minecraft.home.arpa"
 echo "4) Test: curl -k https://django.home.arpa, connect Minecraft to 192.168.88.204:25565"
-

@@ -1,12 +1,12 @@
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
-  name: labz-apps-tls
+  name: nextcloud-tls
   namespace: nextcloud
 spec:
-  secretName: labz-apps-tls
+  secretName: nextcloud-tls
   dnsNames:
-    - nextcloud.labz.example.com
+    - nextcloud.home.arpa
   issuerRef:
     kind: ClusterIssuer
-    name: labz-selfsigned
+    name: selfsigned-cluster-issuer

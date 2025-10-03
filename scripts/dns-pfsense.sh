@@ -53,7 +53,7 @@ parse_extra_args() {
   fi
   # Use shell parsing semantics to honor quoted arguments.
   eval "parsed=(${arg_string})"
-  if (( ${#parsed[@]} > 0 )); then
+  if ((${#parsed[@]} > 0)); then
     SSH_EXTRA_ARGS+=("${parsed[@]}")
   fi
 }
@@ -61,125 +61,125 @@ parse_extra_args() {
 parse_args() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --env-file|-e)
-        if [[ $# -lt 2 ]]; then
-          usage >&2
-          die "${EX_USAGE}" "--env-file requires a path argument"
-        fi
-        ENV_FILE_OVERRIDE="$2"
-        shift 2
-        ;;
-      --env-file=*|-e=*)
-        ENV_FILE_OVERRIDE="${1#*=}"
-        shift
-        ;;
-      --host)
-        if [[ $# -lt 2 ]]; then
-          usage >&2
-          die "${EX_USAGE}" "--host requires a value"
-        fi
-        SSH_HOST_OVERRIDE="$2"
-        shift 2
-        ;;
-      --host=*)
-        SSH_HOST_OVERRIDE="${1#*=}"
-        shift
-        ;;
-      --user)
-        if [[ $# -lt 2 ]]; then
-          usage >&2
-          die "${EX_USAGE}" "--user requires a value"
-        fi
-        SSH_USER_OVERRIDE="$2"
-        shift 2
-        ;;
-      --user=*)
-        SSH_USER_OVERRIDE="${1#*=}"
-        shift
-        ;;
-      --port)
-        if [[ $# -lt 2 ]]; then
-          usage >&2
-          die "${EX_USAGE}" "--port requires a value"
-        fi
-        SSH_PORT_OVERRIDE="$2"
-        shift 2
-        ;;
-      --port=*)
-        SSH_PORT_OVERRIDE="${1#*=}"
-        shift
-        ;;
-      --identity|-i)
-        if [[ $# -lt 2 ]]; then
-          usage >&2
-          die "${EX_USAGE}" "--identity requires a path"
-        fi
-        SSH_IDENTITY_OVERRIDE="$2"
-        shift 2
-        ;;
-      --identity=*|-i=*)
-        SSH_IDENTITY_OVERRIDE="${1#*=}"
-        shift
-        ;;
-      --known-hosts)
-        if [[ $# -lt 2 ]]; then
-          usage >&2
-          die "${EX_USAGE}" "--known-hosts requires a path"
-        fi
-        SSH_KNOWN_HOSTS_OVERRIDE="$2"
-        shift 2
-        ;;
-      --known-hosts=*)
-        SSH_KNOWN_HOSTS_OVERRIDE="${1#*=}"
-        shift
-        ;;
-      --strict-host-key-checking)
-        if [[ $# -lt 2 ]]; then
-          usage >&2
-          die "${EX_USAGE}" "--strict-host-key-checking requires a value"
-        fi
-        SSH_STRICT_OVERRIDE="$2"
-        shift 2
-        ;;
-      --strict-host-key-checking=*)
-        SSH_STRICT_OVERRIDE="${1#*=}"
-        shift
-        ;;
-      --ssh-extra-args)
-        if [[ $# -lt 2 ]]; then
-          usage >&2
-          die "${EX_USAGE}" "--ssh-extra-args requires an argument string"
-        fi
-        parse_extra_args "$2"
-        shift 2
-        ;;
-      --ssh-extra-args=*)
-        parse_extra_args "${1#*=}"
-        shift
-        ;;
-      --dry-run)
-        DRY_RUN=true
-        shift
-        ;;
-      -h|--help)
-        usage
-        exit "${EX_OK}"
-        ;;
-      --)
-        shift
-        if [[ $# -gt 0 ]]; then
-          usage >&2
-          die "${EX_USAGE}" "Unexpected positional arguments: $*"
-        fi
-        ;;
-      -*)
+    --env-file | -e)
+      if [[ $# -lt 2 ]]; then
         usage >&2
-        die "${EX_USAGE}" "Unknown option: $1"
-        ;;
-      *)
+        die "${EX_USAGE}" "--env-file requires a path argument"
+      fi
+      ENV_FILE_OVERRIDE="$2"
+      shift 2
+      ;;
+    --env-file=* | -e=*)
+      ENV_FILE_OVERRIDE="${1#*=}"
+      shift
+      ;;
+    --host)
+      if [[ $# -lt 2 ]]; then
         usage >&2
-        die "${EX_USAGE}" "Positional arguments are not supported"
-        ;;
+        die "${EX_USAGE}" "--host requires a value"
+      fi
+      SSH_HOST_OVERRIDE="$2"
+      shift 2
+      ;;
+    --host=*)
+      SSH_HOST_OVERRIDE="${1#*=}"
+      shift
+      ;;
+    --user)
+      if [[ $# -lt 2 ]]; then
+        usage >&2
+        die "${EX_USAGE}" "--user requires a value"
+      fi
+      SSH_USER_OVERRIDE="$2"
+      shift 2
+      ;;
+    --user=*)
+      SSH_USER_OVERRIDE="${1#*=}"
+      shift
+      ;;
+    --port)
+      if [[ $# -lt 2 ]]; then
+        usage >&2
+        die "${EX_USAGE}" "--port requires a value"
+      fi
+      SSH_PORT_OVERRIDE="$2"
+      shift 2
+      ;;
+    --port=*)
+      SSH_PORT_OVERRIDE="${1#*=}"
+      shift
+      ;;
+    --identity | -i)
+      if [[ $# -lt 2 ]]; then
+        usage >&2
+        die "${EX_USAGE}" "--identity requires a path"
+      fi
+      SSH_IDENTITY_OVERRIDE="$2"
+      shift 2
+      ;;
+    --identity=* | -i=*)
+      SSH_IDENTITY_OVERRIDE="${1#*=}"
+      shift
+      ;;
+    --known-hosts)
+      if [[ $# -lt 2 ]]; then
+        usage >&2
+        die "${EX_USAGE}" "--known-hosts requires a path"
+      fi
+      SSH_KNOWN_HOSTS_OVERRIDE="$2"
+      shift 2
+      ;;
+    --known-hosts=*)
+      SSH_KNOWN_HOSTS_OVERRIDE="${1#*=}"
+      shift
+      ;;
+    --strict-host-key-checking)
+      if [[ $# -lt 2 ]]; then
+        usage >&2
+        die "${EX_USAGE}" "--strict-host-key-checking requires a value"
+      fi
+      SSH_STRICT_OVERRIDE="$2"
+      shift 2
+      ;;
+    --strict-host-key-checking=*)
+      SSH_STRICT_OVERRIDE="${1#*=}"
+      shift
+      ;;
+    --ssh-extra-args)
+      if [[ $# -lt 2 ]]; then
+        usage >&2
+        die "${EX_USAGE}" "--ssh-extra-args requires an argument string"
+      fi
+      parse_extra_args "$2"
+      shift 2
+      ;;
+    --ssh-extra-args=*)
+      parse_extra_args "${1#*=}"
+      shift
+      ;;
+    --dry-run)
+      DRY_RUN=true
+      shift
+      ;;
+    -h | --help)
+      usage
+      exit "${EX_OK}"
+      ;;
+    --)
+      shift
+      if [[ $# -gt 0 ]]; then
+        usage >&2
+        die "${EX_USAGE}" "Unexpected positional arguments: $*"
+      fi
+      ;;
+    -*)
+      usage >&2
+      die "${EX_USAGE}" "Unknown option: $1"
+      ;;
+    *)
+      usage >&2
+      die "${EX_USAGE}" "Positional arguments are not supported"
+      ;;
     esac
   done
 }
@@ -267,7 +267,7 @@ PHP_SNIPPET
     host=${OVERRIDE_HOST[$key]}
     domain=${OVERRIDE_DOMAIN[$key]}
     descr=${OVERRIDE_DESC[$key]}
-    if (( first )); then
+    if ((first)); then
       first=0
     else
       printf ",\n"
@@ -348,7 +348,7 @@ build_ssh_command() {
     cmd+=(-i "${identity}")
   fi
 
-  if (( ${#SSH_EXTRA_ARGS[@]} > 0 )); then
+  if ((${#SSH_EXTRA_ARGS[@]} > 0)); then
     cmd+=("${SSH_EXTRA_ARGS[@]}")
   fi
 
@@ -383,7 +383,7 @@ main() {
   fi
 
   collect_overrides
-  if (( ${#OVERRIDE_KEYS[@]} == 0 )); then
+  if ((${#OVERRIDE_KEYS[@]} == 0)); then
     log_warn "No LABZ_*_HOST values found in the environment; nothing to configure."
     exit "${EX_OK}"
   fi
@@ -419,11 +419,14 @@ main() {
   local -a ssh_cmd=()
   mapfile -d '' -t ssh_cmd < <(build_ssh_command "${ssh_host}" "${ssh_user}" "${ssh_port}" "${ssh_identity}" "${ssh_known_hosts}" "${ssh_strict}") || true
 
-  if (( ${#ssh_cmd[@]} == 0 )); then
+  if ((${#ssh_cmd[@]} == 0)); then
     die "${EX_SOFTWARE}" "Failed to construct ssh command"
   fi
 
-  if ! { printf 'exec\n'; printf '%s\n' "${php_payload}"; } | "${ssh_cmd[@]}"; then
+  if ! {
+    printf 'exec\n'
+    printf '%s\n' "${php_payload}"
+  } | "${ssh_cmd[@]}"; then
     die "${EX_SOFTWARE}" "pfSsh.php invocation failed"
   fi
 }

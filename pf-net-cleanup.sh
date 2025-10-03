@@ -16,14 +16,17 @@
 
 set -euo pipefail
 
-log()  { echo "[INFO] $*"; }
+log() { echo "[INFO] $*"; }
 warn() { echo "[WARN] $*" >&2; }
-die()  { echo "[FATAL] $*" >&2; exit 1; }
+die() {
+  echo "[FATAL] $*" >&2
+  exit 1
+}
 
 # --- Sanity checks ---
 command -v netplan >/dev/null || die "netplan not found"
-command -v virsh   >/dev/null || die "virsh (libvirt) not found"
-ip link show eno1  >/dev/null 2>&1 || die "Interface eno1 not found. Adjust WAN_IF in this script."
+command -v virsh >/dev/null || die "virsh (libvirt) not found"
+ip link show eno1 >/dev/null 2>&1 || die "Interface eno1 not found. Adjust WAN_IF in this script."
 
 # --- Vars (hardcoded for this one-time run) ---
 WAN_IF="eno1"
@@ -53,7 +56,7 @@ log "Backing up /etc/netplan -> $BACKUP_DIR"
 sudo mkdir -p "$BACKUP_DIR"
 shopt -s nullglob
 NP_FILES=(/etc/netplan/*.yaml)
-if (( ${#NP_FILES[@]} )); then
+if ((${#NP_FILES[@]})); then
   sudo cp -a /etc/netplan/*.yaml "$BACKUP_DIR"/
 else
   log "No existing netplan YAMLs to back up (directory empty)."
@@ -206,4 +209,3 @@ fi
 
 echo
 log "Done."
-
