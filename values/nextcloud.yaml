@@ -7,16 +7,17 @@ ingress:
     traefik.ingress.kubernetes.io/router.entrypoints: websecure
     traefik.ingress.kubernetes.io/router.tls: "true"
   tls:
-    - secretName: labz-apps-tls
+    - secretName: nextcloud-tls
       hosts:
-        - nextcloud.labz.example.com
+        - nextcloud.home.arpa
 
 nextcloud:
-  host: nextcloud.labz.example.com
+  host: nextcloud.home.arpa
   username: ncadmin
-  password: changeme
-  datadir: /var/www/html/data
-  update: 0
+  existingSecret:
+    enabled: true
+    name: ENC[AES256_GCM,data:ZnY1fssqJWAZDDu5OLS3,iv:/wjNjusdfxrcPFRTkTXCw7GEh6kNLr97Xi5ey8znYZQ=,tag:eVJZ7hq3Z+ESa2W8xNmU2w==,type:str]
+    passwordKey: password
 
 persistence:
   enabled: true
@@ -31,28 +32,26 @@ externalDatabase:
   host: postgresql.data.svc.cluster.local
   port: 5432
   user: nextcloud
-  password: changeme
   database: nextcloud
   existingSecret:
-    enabled: false
-    usernameKey: db-username
-    passwordKey: db-password
+    enabled: true
+    name: ENC[AES256_GCM,data:7SJUqd7tcItkz9JzB8KfNvDa,iv:n8vyO430ndhhtsPyt4MR0eNkSvNo1iI6OpzQcJIMems=,tag:qaA0Ktqn3kzEZoES393hgQ==,type:str]
+    usernameKey: username
+    passwordKey: password
 
 externalRedis:
   enabled: true
   host: redis-master.data.svc.cluster.local
   port: "6379"
-  password: changeme
   existingSecret:
-    enabled: false
-    passwordKey: redis-password
+    enabled: true
+    name: ENC[AES256_GCM,data:0XS/W/5AcAYhfdC77jC+,iv:+uUn5kydplu+nr2WcVOyoeHvW+IGcbb/hNLFQQodjiM=,tag:phq785hHGobwgJ5BYhtd/g==,type:str]
+    passwordKey: password
 
 mariadb:
   enabled: false
-
 postgresql:
   enabled: false
-
 redis:
   enabled: false
 
@@ -72,7 +71,6 @@ phpConfigs:
 podSecurityContext:
   enabled: true
   fsGroup: 33
-
 containerSecurityContext:
   enabled: true
   runAsUser: 33

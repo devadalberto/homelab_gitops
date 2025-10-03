@@ -1,20 +1,4 @@
-apiVersion: v1
-kind: Secret
-metadata:
-  name: traefik-dashboard-auth
-  namespace: traefik-system
-type: Opaque
-data:
-  users: b3BzOiRhcHIxJGN6UzJZT1VGJEdyMmt2UWk3S2g0NGhrYVFZUXFrMS4=
----
-apiVersion: traefik.containo.us/v1alpha1
-kind: Middleware
-metadata:
-  name: traefik-dashboard-basicauth
-  namespace: traefik-system
-spec:
-  basicAuth:
-    secret: traefik-dashboard-auth
+secret: traefik-dashboard-auth
 ---
 apiVersion: cert-manager.io/v1
 kind: Certificate

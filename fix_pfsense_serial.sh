@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # === Paths (adjust only if you really need to) ===
-SRC_IMG="$HOME/downloads/netgate-installer-amd64.img"   # your memstick-serial .img (already present)
+SRC_IMG="$HOME/downloads/netgate-installer-amd64.img"    # your memstick-serial .img (already present)
 SRC_CFG="/opt/homelab/pfsense/config/pfSense-config.iso" # created by pf-config-gen.sh (if present)
 LIBVIRT_DIR="/var/lib/libvirt/images"
 DST_IMG="$LIBVIRT_DIR/pfsense-installer-serial.img"
@@ -11,7 +11,10 @@ QCOW="$LIBVIRT_DIR/pfsense-uranus.qcow2"
 VM="pfsense-uranus"
 
 # === Sanity checks on source files ===
-[ -f "$SRC_IMG" ] || { echo "[FATAL] Not found: $SRC_IMG"; exit 1; }
+[ -f "$SRC_IMG" ] || {
+  echo "[FATAL] Not found: $SRC_IMG"
+  exit 1
+}
 # This is just a hint; if you know it's serial, ignore the warning
 if file "$SRC_IMG" | grep -qi 'ISO 9660'; then
   echo "[WARN] $SRC_IMG looks like an ISO (VGA). You usually want a memstick-serial .img."
@@ -24,7 +27,7 @@ if [ -f "$SRC_CFG" ]; then
   sudo install -o libvirt-qemu -g kvm -m 0444 "$SRC_CFG" "$DST_CFG"
 else
   echo "[WARN] $SRC_CFG not found; pfSense will still install, but config import will wait until you attach it later."
-  DST_CFG=""  # skip attaching if missing
+  DST_CFG="" # skip attaching if missing
 fi
 
 # === Prepare VM disk ===
@@ -50,11 +53,10 @@ sudo virt-install \
   --network bridge=pfsense-lan,model=virtio \
   --disk path="$DST_IMG",device=disk,bus=virtio,readonly=on,boot_order=1 \
   --disk path="$QCOW",format=qcow2,bus=virtio,boot_order=2 \
-  $( [ -n "${DST_CFG:-}" ] && [ -f "$DST_CFG" ] && echo "--disk path=$DST_CFG,device=cdrom,target.bus=sata,boot_order=3" ) \
+  $([ -n "${DST_CFG:-}" ] && [ -f "$DST_CFG" ] && echo "--disk path=$DST_CFG,device=cdrom,target.bus=sata,boot_order=3") \
   --noautoconsole --import
 
 # === Start and attach to serial console ===
 sudo virsh start "$VM"
 echo "[INFO] Attaching to serial console. Exit with Ctrl+]."
 exec sudo virsh console "$VM"
-

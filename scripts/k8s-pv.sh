@@ -25,26 +25,26 @@ PROFILE_OVERRIDE=""
 parse_args() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --profile)
-        if [[ $# -lt 2 ]]; then
-          usage >&2
-          die "${EX_USAGE:-64}" "--profile requires a value"
-        fi
-        PROFILE_OVERRIDE="$2"
-        shift 2
-        ;;
-      --profile=*)
-        PROFILE_OVERRIDE="${1#*=}"
-        shift
-        ;;
-      -h|--help)
-        usage
-        exit "${EX_OK:-0}"
-        ;;
-      *)
+    --profile)
+      if [[ $# -lt 2 ]]; then
         usage >&2
-        die "${EX_USAGE:-64}" "Unknown argument: $1"
-        ;;
+        die "${EX_USAGE:-64}" "--profile requires a value"
+      fi
+      PROFILE_OVERRIDE="$2"
+      shift 2
+      ;;
+    --profile=*)
+      PROFILE_OVERRIDE="${1#*=}"
+      shift
+      ;;
+    -h | --help)
+      usage
+      exit "${EX_OK:-0}"
+      ;;
+    *)
+      usage >&2
+      die "${EX_USAGE:-64}" "Unknown argument: $1"
+      ;;
     esac
   done
 }
@@ -75,8 +75,8 @@ find_mount_pids() {
     if [[ ${cmd} != *"${host_path}:${cluster_path}"* ]]; then
       continue
     fi
-    if [[ ${cmd} == *"--profile=${profile}"* ]] || [[ ${cmd} == *"--profile ${profile}"* ]] || \
-       [[ ${cmd} == *"-p ${profile}"* ]] || [[ ${cmd} == *"-p=${profile}"* ]]; then
+    if [[ ${cmd} == *"--profile=${profile}"* ]] || [[ ${cmd} == *"--profile ${profile}"* ]] ||
+      [[ ${cmd} == *"-p ${profile}"* ]] || [[ ${cmd} == *"-p=${profile}"* ]]; then
       printf '%s\n' "${pid}"
     fi
   done < <(pgrep -af "minikube[[:space:]]+mount" 2>/dev/null || true)
@@ -88,7 +88,7 @@ start_mount() {
   local cluster_path="$3"
   local -a existing_pids=()
   mapfile -t existing_pids < <(find_mount_pids "${profile}" "${host_path}" "${cluster_path}")
-  if (( ${#existing_pids[@]} > 0 )); then
+  if ((${#existing_pids[@]} > 0)); then
     log_info "Minikube mount for ${name} already running (PID(s): ${existing_pids[*]})"
     return 0
   fi
@@ -128,7 +128,7 @@ start_mount nextcloud "${nextcloud_src}" "${nextcloud_src}" || status=$?
 start_mount media "${media_src}" "${media_src}" || status=$?
 start_mount backups "${backups_src}" "${backups_src}" || status=$?
 
-if (( status == 0 )); then
+if ((status == 0)); then
   log_info "All Minikube persistent volume mounts are running"
 else
   log_error "One or more Minikube persistent volume mounts failed"

@@ -378,7 +378,7 @@ print_storage_info() {
 
 print_host_overrides() {
   section "Traefik load-balancer host overrides"
-  local lb_ip="${TRAEFIK_LOCAL_IP:-}";
+  local lb_ip="${TRAEFIK_LOCAL_IP:-}"
   if [[ -z ${lb_ip} && ${LABZ_TRAEFIK_HOST:-} ]]; then
     lb_ip="${LABZ_TRAEFIK_IP:-}"
   fi

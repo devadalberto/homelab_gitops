@@ -429,7 +429,7 @@ run() { # [!|-N] [--keep-empty-lines] [--separate-stderr] [--] <command to run..
   if [[ ${BATS_VERBOSE_RUN:-} ]]; then
     bats_run_print_output
   fi
-  
+
   # don't leak our trap into surrounding code
   trap bats_interrupt_trap INT
 }
@@ -503,7 +503,7 @@ bats_test_function() {
     BATS_TEST_TAGS=("${tags[@]+${tags[@]}}")
     export BATS_TEST_DESCRIPTION="${test_description-$*}"
     # shellcheck disable=SC2034
-    BATS_TEST_COMMAND=("$@")    
+    BATS_TEST_COMMAND=("$@")
   fi
 }
 

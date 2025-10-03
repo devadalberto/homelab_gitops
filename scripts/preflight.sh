@@ -305,34 +305,34 @@ main() {
   local env_file="./.env"
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --env-file)
-        if [[ $# -lt 2 ]]; then
-          usage
-          fatal 64 "--env-file requires a path"
-        fi
-        env_file="$2"
-        shift 2
-        ;;
-      --env-file=*)
-        env_file="${1#*=}"
-        shift
-        ;;
-      -h|--help)
+    --env-file)
+      if [[ $# -lt 2 ]]; then
         usage
-        exit 0
-        ;;
-      --)
-        shift
-        break
-        ;;
-      -*)
-        usage
-        fatal 64 "Unknown option: $1"
-        ;;
-      *)
-        usage
-        fatal 64 "Unexpected positional argument: $1"
-        ;;
+        fatal 64 "--env-file requires a path"
+      fi
+      env_file="$2"
+      shift 2
+      ;;
+    --env-file=*)
+      env_file="${1#*=}"
+      shift
+      ;;
+    -h | --help)
+      usage
+      exit 0
+      ;;
+    --)
+      shift
+      break
+      ;;
+    -*)
+      usage
+      fatal 64 "Unknown option: $1"
+      ;;
+    *)
+      usage
+      fatal 64 "Unexpected positional argument: $1"
+      ;;
     esac
   done
 

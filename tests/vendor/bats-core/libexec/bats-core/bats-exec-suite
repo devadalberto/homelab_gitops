@@ -223,7 +223,7 @@ bats_run_teardown_suite() {
   # avoid being called twice, in case this is not called through bats_teardown_suite_trap
   # but from the end of file
   trap bats_suite_exit_trap EXIT
-  
+
   bats_set_stacktrace_limit
 
   BATS_TEARDOWN_SUITE_COMPLETED=

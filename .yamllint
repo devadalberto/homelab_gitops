@@ -1,14 +1,18 @@
 extends: default
-
 ignore: |
-  .github/workflows/gitops-ci.yml
-
+  **/sops-secrets/**
+  **/.venv*/**
 rules:
-  braces: disable
-  commas: disable
-  comments: disable
-  comments-indentation: disable
   document-start: disable
-  line-length: disable
-  trailing-spaces: disable
+  indentation:
+    level: warning
+  line-length:
+    max: 200
+    level: warning
+    allow-non-breakable-words: true
+  braces: disable
   truthy: disable
+  comments-indentation: disable
+  empty-lines:
+    max: 1
+  commas: disable

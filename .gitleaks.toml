@@ -1,0 +1,5 @@
+[allowlist]
+# Ignore the detect-secrets baseline file
+paths = [
+  '''^\.secrets\.baseline$'''
+]

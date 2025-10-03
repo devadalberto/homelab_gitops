@@ -86,7 +86,6 @@ The Homepage dashboard reads its widget credentials from `apps/homepage/sops-sec
 2. Update the API keys under the `secrets.yaml` document.
 3. Save and exit so SOPS re-encrypts the file, then commit the change or apply it manually (`kubectl apply -f apps/homepage/sops-secrets/homepage-secrets.yaml`).
 
-
 #### Manage Nextcloud Credentials
 
 Flux deploys Nextcloud with the Bitnami chart using three SOPS-encrypted secrets stored under `apps/nextcloud/sops-secrets/`:
@@ -105,7 +104,6 @@ kubectl apply -f apps/nextcloud/sops-secrets/
 ```
 
 Keep the `dsn` string synchronized with the individual host/port/username/password entries so the HelmRelease renders consistent values. Adjust the ingress host, TLS mapping, and upload limit in `k8s/apps/nextcloud/helmrelease.yaml` if your lab uses a different FQDN or quota than the defaults committed to Git.【F:k8s/apps/nextcloud/helmrelease.yaml†L25-L54】
-
 
 ### Grafana Admin Credential Management
 
