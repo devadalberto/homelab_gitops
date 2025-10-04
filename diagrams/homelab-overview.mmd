@@ -1,0 +1,50 @@
+flowchart LR
+    subgraph Edge
+        PF[pfsense\nFirewall/NAT]
+        MetalLB[MetalLB\nAddress Pool]
+        Traefik[Traefik\nIngress]
+    end
+
+    subgraph "Kubernetes Cluster"
+        Minikube[Minikube\nControl Plane]
+        CertMgr[cert-manager\nRoot + Issuers]
+        Flux[Flux Controllers]
+        PromStack[Observability\n(kube-prometheus-stack)]
+        AWX[AWX Operator\n& AWX]
+        Django[Django Multiproject]
+        PG[(PostgreSQL StatefulSet)]
+        Backup[Backup CronJob\nWAL Archival]
+    end
+
+    subgraph GitOps
+        Devs[Developers]
+        Repo[(Git Repository)]
+        GitHub[GitHub Actions\nDocs Pipeline]
+    end
+
+    Devs -->|Commit manifests| Repo
+    Repo -->|Flux source-controller| Flux
+    Flux --> Minikube
+    Flux --> AWX
+    Flux --> Django
+    Flux --> PromStack
+    Flux --> PG
+
+    CertMgr --> Traefik
+    CertMgr --> AWX
+    CertMgr --> Django
+    CertMgr --> PromStack
+
+    PG --> Backup
+    Backup -->|hostPath| PF
+
+    Minikube --> MetalLB
+    Traefik --> MetalLB
+    MetalLB --> PF
+
+    Traefik --> AWX
+    Traefik --> Django
+    Traefik --> PromStack
+
+    Repo -->|mkdocs gh-deploy| GitHub
+    GitHub --> Devs
