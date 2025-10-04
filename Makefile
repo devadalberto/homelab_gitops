@@ -144,3 +144,9 @@ k8s.certmanager.install:
 	helm repo update
 	helm upgrade --install cert-manager jetstack/cert-manager -n cert-manager --set crds.enabled=true
 	kubectl apply -f k8s/cert-manager/cm-internal-ca.yaml
+
+secrets-refresh:
+	. .venv-ds/bin/activate; detect-secrets scan --all-files > .secrets.baseline.new; mv .secrets.baseline.new .secrets.baseline
+
+secrets-refresh:
+	. .venv-ds/bin/activate; detect-secrets scan --all-files > .secrets.baseline.new; mv .secrets.baseline.new .secrets.baseline
